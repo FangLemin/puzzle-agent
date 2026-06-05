@@ -11,6 +11,8 @@
 - `puzzle_ops/storage.py`：SQLite 主数据、memory、价值观规则存储。
 - `puzzle_ops/cache.py`：Redis 优先、内存 fallback 的缓存抽象。
 - `puzzle_ops/feishu.py`：真实飞书/Mock 飞书同步接口。
+- `puzzle_ops/runtime.py`：Tool Registry 和 Skill Library。
+- `puzzle_ops/synthetic_data.py`：每国每周 139 条的大规模模拟数据生成器。
 - `puzzle_ops/data.py`：模拟历史数据、运营 tag、节日、价值观、分析明细。
 - `puzzle_ops/models.py`：业务字段结构。
 - `puzzle_ops/renderer.py`：用 Python 生成后台页面。
@@ -51,6 +53,8 @@ PYTHONPATH=. pytest tests -q
 - Agent 评测：展示工具调用成功率、审核风险召回率、SABCD 预测准确率、价值观候选通过率、Agent plan/tool/observation trace。
 - 审核规则：从 `拼图审核手册.docx` 中召回风险依据，结合规则引擎输出风险等级和修改建议。
 - HITL Memory：运营通过价值观候选后，系统会写入固定价值观规则和长期 memory。
+- 大规模模拟数据：支持每个国家每周 139 条历史回收数据，自动生成图片路径、指标、SABCD、多维度等级和 JS 分类。
+- Tool/Skill Runtime：显式注册 function calling 工具，并定义常规提需、试新提需、价值观大师、价值观挖掘、数据分析等业务 Skill。
 
 ## 说明
 

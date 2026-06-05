@@ -2,6 +2,32 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.1 - 大规模模拟数据与 Tool/Skill Runtime 补齐
+
+日期：2026-06-05
+
+阶段目标：
+
+- 补齐 v0.3.0 中还停留在计划层的“大规模数据生成”和“显式 function calling / skill library”能力。
+
+已完成：
+
+- 新增 `SyntheticDataGenerator`：支持按国家和周数生成历史回收数据。
+- 每个国家每周固定生成 139 条记录，支持日本/法国双国家数据集。
+- 每条模拟数据包含 `image_id`、`image_url`、`local_image_path`、`thumbnail_path` 和本地图片占位文件。
+- 模拟数据遵守固定 JS 分类枚举，并使用日本/法国阈值自动生成多维度等级与 SABCD 等级。
+- 新增 `ToolRegistry`：统一注册和调用工具，返回标准 `ToolResult`。
+- 新增 `SkillLibrary`：显式定义常规提需、试新提需、价值观大师、价值观候选挖掘、数据分析等业务 Skill 及其 required tools。
+
+当前限制：
+
+- 大规模图片目前使用本地 1px PNG 占位图，主要用于验证链路和页面字段；后续可替换为生成式 mock 图或真实图片 URL。
+- Tool/Skill 已成为显式模块，但 Orchestrator 仍是轻量本地实现，尚未接真实 MCP Server。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests -q`：58 passed。
+
 ## v0.3.0 - 多模态 Agent Runtime 工程化升级
 
 日期：2026-06-05
