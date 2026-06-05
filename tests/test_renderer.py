@@ -139,6 +139,7 @@ def test_multimodal_runtime_page_shows_profile_candidates_and_evidence():
     assert "相似历史坏图" in html
     assert "价值观候选池" in html
     assert "pending_review" in html
+    assert 'action="/approve_value_candidate"' in html
 
 
 def test_eval_page_shows_agent_trace_and_metrics():

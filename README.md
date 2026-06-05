@@ -55,6 +55,7 @@ PYTHONPATH=. pytest tests -q
 - Agent 评测：展示工具调用成功率、审核风险召回率、SABCD 预测准确率、价值观候选通过率、Agent plan/tool/observation trace。
 - 审核规则：从 `拼图审核手册.docx` 中召回风险依据，结合规则引擎输出风险等级和修改建议。
 - HITL Memory：运营通过价值观候选后，系统会写入固定价值观规则和长期 memory。
+- 价值观候选池审核：多模态底座页面可直接点击“通过”，将候选规则加入固定价值观规则库。
 - 大规模模拟数据：支持每个国家每周 139 条历史回收数据，自动生成图片路径、指标、SABCD、多维度等级和 JS 分类。
 - Tool/Skill Runtime：显式注册 function calling 工具，并定义常规提需、试新提需、价值观大师、价值观挖掘、数据分析等业务 Skill。
 - CMS/MCP-like Adapter：支持 `cms.query_inventory`、`cms.search_assets`、`cms.low_stock_tags`，Agent trace 会展示对应工具调用。

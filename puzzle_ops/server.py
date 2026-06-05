@@ -106,6 +106,13 @@ def handle_action(path: str, form: dict[str, list[str]]) -> None:
         image_name = value(form, "image_name", "")
         state.schedule_replacements[slot_index] = agent.replacement_for_slot(state.country, image_name)
         state.view = "schedule"
+    elif path == "/approve_value_candidate":
+        agent.approve_value_candidate(
+            value(form, "candidate_id", ""),
+            state.country,
+            value(form, "human_note", "运营确认加入固定价值观"),
+        )
+        state.view = "runtime"
 
 
 def redirect_location(state: AppState) -> str:

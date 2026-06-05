@@ -292,7 +292,7 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
     good = "".join(render_record_card(record) for record in profile.similar_good_cases)
     bad = "".join(render_record_card(record) for record in profile.similar_bad_cases)
     candidate_rows = "".join(
-        f"<tr><td>{escape(candidate.rule_text)}</td><td>{escape(str(candidate.confidence))}</td><td>{candidate.support_count}</td><td>{candidate.counterexample_count}</td><td>{escape(candidate.status)}</td><td>{escape(candidate.agent_reason)}</td></tr>"
+        f'<tr><td>{escape(candidate.rule_text)}</td><td>{escape(str(candidate.confidence))}</td><td>{candidate.support_count}</td><td>{candidate.counterexample_count}</td><td>{escape(candidate.status)}</td><td>{escape(candidate.agent_reason)}</td><td><form method="post" action="/approve_value_candidate">{hidden_context(state)}<input type="hidden" name="candidate_id" value="{escape(candidate.candidate_id)}"><input name="human_note" value="运营确认加入固定价值观"><button>通过</button></form></td></tr>'
         for candidate in candidates
     )
     feature = profile.feature
@@ -321,7 +321,7 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
   <div class="panel"><h2>相似历史好图</h2><div class="cards">{good}</div></div>
   <div class="panel"><h2>相似历史坏图</h2><div class="cards">{bad}</div></div>
 </section>
-<section class="panel"><h2>价值观候选池</h2><div class="table-wrap"><table><thead><tr><th>候选价值观</th><th>置信度</th><th>支撑样本</th><th>反例样本</th><th>状态</th><th>Agent归因</th></tr></thead><tbody>{candidate_rows}</tbody></table></div></section>
+<section class="panel"><h2>价值观候选池</h2><div class="table-wrap"><table><thead><tr><th>候选价值观</th><th>置信度</th><th>支撑样本</th><th>反例样本</th><th>状态</th><th>Agent归因</th><th>运营审核</th></tr></thead><tbody>{candidate_rows}</tbody></table></div></section>
 """
 
 

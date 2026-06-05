@@ -55,6 +55,24 @@ def test_apply_value_master_action_updates_trial_row():
     assert "法国市场" in APP.state.trial_row.value_match
 
 
+def test_approve_value_candidate_action_writes_hitl_memory():
+    APP.state = AppState(country="日本", view="runtime")
+    candidate = APP.agent.value_rule_candidates("日本")[0]
+
+    handle_action(
+        "/approve_value_candidate",
+        {
+            "country": ["日本"],
+            "view": ["runtime"],
+            "candidate_id": [candidate.candidate_id],
+            "human_note": ["运营确认加入固定价值观"],
+        },
+    )
+
+    assert APP.state.view == "runtime"
+    assert any("运营确认加入固定价值观" in memory["content"] for memory in APP.agent.hitl_memories("日本"))
+
+
 def test_replace_schedule_action_records_slot_replacement():
     APP.state = AppState(country="日本", view="schedule", schedule_day="周一")
     original = APP.agent.schedule("日本", "周一")[0]
