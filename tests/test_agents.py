@@ -127,3 +127,33 @@ def test_schedule_uses_allowed_distribution_positions():
     assert len(saturday) == 10
     assert all(item.position in {1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 13, 14, 15} for item in monday)
     assert all(item.position in {1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 13, 14, 15, 16, 17, 18} for item in saturday)
+
+
+def test_schedule_replacement_returns_different_candidate():
+    agent = PuzzleOpsAgent()
+    original = agent.schedule("日本", "周一")[0]
+
+    replacement = agent.replacement_for_slot("日本", original.image_name)
+
+    assert replacement.image_name != original.image_name
+    assert replacement.operation_tag
+
+
+def test_schedule_replacement_keeps_original_distribution_position():
+    agent = PuzzleOpsAgent()
+    replacement = agent.replacement_for_slot("日本", "温泉街传统浴袍美女")
+
+    schedule = agent.schedule("日本", "周一", {0: replacement})
+
+    assert schedule[0].position == 1
+    assert schedule[0].image_name.startswith("未分发候补图")
+
+
+def test_value_rules_are_detailed_enough_for_business_interview():
+    agent = PuzzleOpsAgent()
+
+    japan_rules = agent.value_rules("日本")
+
+    assert len(japan_rules) >= 8
+    assert any("版权" in body or "知名动画" in body for _, body in japan_rules)
+    assert any("文化混淆" in body for _, body in japan_rules)

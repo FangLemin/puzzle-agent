@@ -1,5 +1,5 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from puzzle_ops.agents import PuzzleOpsAgent
 from puzzle_ops.data import COUNTRIES
@@ -28,7 +28,7 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         handle_action(path, form)
         self.send_response(303)
-        self.send_header("Location", f"/?country={APP.state.country}&view={APP.state.view}")
+        self.send_header("Location", redirect_location(APP.state))
         self.end_headers()
 
     def respond(self, html: str) -> None:
@@ -48,6 +48,7 @@ def update_state_from_query(state: AppState, query: dict[str, list[str]]) -> Non
     for field in ("view", "category", "tag", "trial_mode", "schedule_day", "value_grade"):
         if field in query and query[field][0]:
             setattr(state, field, query[field][0])
+    state.show_holiday = query.get("show_holiday", [""])[0] == "1"
     if state.country != old_country:
         state.need_rows.clear()
         state.trial_row = None
@@ -58,10 +59,15 @@ def update_state_from_query(state: AppState, query: dict[str, list[str]]) -> Non
 def handle_action(path: str, form: dict[str, list[str]]) -> None:
     state = APP.state
     agent = APP.agent
+    update_state_from_query(state, form)
     if path == "/add_regular":
         image_index = int(value(form, "image_index", "0"))
         state.need_rows.append(agent.add_regular_demand(state.country, state.category, state.tag, image_index))
         state.view = "regular"
+    elif path == "/save_dashboard":
+        state.workflow_notes = [value(form, f"workflow_{index}", note) for index, note in enumerate(state.workflow_notes)]
+        state.task_notes = [value(form, f"task_{index}", note) for index, note in enumerate(state.task_notes)]
+        state.view = "dashboard"
     elif path == "/generate_descriptions":
         state.need_rows = [agent.generate_subject_description(row) for row in state.need_rows]
         state.view = "regular"
@@ -95,6 +101,15 @@ def handle_action(path: str, form: dict[str, list[str]]) -> None:
         row = state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)
         state.trial_row = agent.apply_value_master(row)
         state.view = "trial"
+    elif path == "/replace_schedule":
+        slot_index = int(value(form, "slot_index", "0"))
+        image_name = value(form, "image_name", "")
+        state.schedule_replacements[slot_index] = agent.replacement_for_slot(state.country, image_name)
+        state.view = "schedule"
+
+
+def redirect_location(state: AppState) -> str:
+    return "/?" + urlencode({"country": state.country, "view": state.view})
 
 
 def value(form: dict[str, list[str]], key: str, default: str) -> str:

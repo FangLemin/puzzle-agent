@@ -31,7 +31,17 @@ class PuzzleOpsAgent:
 
     def sorted_tags(self, country: str, category: str) -> tuple[TagMeta, ...]:
         tags = self.categories(country)[category]
-        return tuple(sorted(tags, key=lambda tag: (not (tag.hot and tag.stock <= 5), tag.stock)))
+        return tuple(sorted(tags, key=lambda tag: (self.stock_rank(tag), tag.stock)))
+
+    def stock_rank(self, tag: TagMeta) -> int:
+        if tag.hot and tag.stock <= 5:
+            return 0
+        if not tag.hot and tag.stock <= 5:
+            return 1
+        return 2
+
+    def stock_class(self, tag: TagMeta) -> str:
+        return ("stock-hot", "stock-low", "stock-normal")[self.stock_rank(tag)]
 
     def images_for_tag(self, country: str, operation_tag: str):
         return self._country(country)["images"].get(operation_tag, ())
@@ -146,7 +156,7 @@ class PuzzleOpsAgent:
                     cards.append(ValuePredictionCard(operation_tag, image, remark))
         return tuple(cards)
 
-    def schedule(self, country: str, day: str) -> tuple[ScheduleItem, ...]:
+    def schedule(self, country: str, day: str, replacements: dict[int, ScheduleItem] | None = None) -> tuple[ScheduleItem, ...]:
         if day not in {"周一", "周二", "周三", "周四", "周五", "周六", "周日"}:
             raise ValueError("排图日期只能是周一到周日")
         positions = self.weekend_positions if day in {"周六", "周日"} else self.workday_positions
@@ -169,7 +179,31 @@ class PuzzleOpsAgent:
                     finish_time=image.finish_time,
                 )
             )
+        if replacements:
+            for index, replacement in replacements.items():
+                if 0 <= index < len(items):
+                    items[index] = replace(replacement, day=day, position=items[index].position)
         return tuple(items)
+
+    def replacement_for_slot(self, country: str, current_image_name: str) -> ScheduleItem:
+        source = []
+        for operation_tag, images in self._country(country)["images"].items():
+            for image in images:
+                source.append((operation_tag, image))
+        for operation_tag, image in source:
+            if image.title != current_image_name and image.grade in {"S", "A", "B"}:
+                return ScheduleItem(
+                    day="候补",
+                    position=0,
+                    image_name=f"未分发候补图：{image.title}",
+                    operation_tag=operation_tag,
+                    grade=image.grade,
+                    open_rate=image.open_rate,
+                    finish_rate=image.finish_rate,
+                    finish_time=image.finish_time,
+                )
+        operation_tag, image = source[0]
+        return ScheduleItem("候补", 0, f"未分发候补图：{image.title}", operation_tag, image.grade, image.open_rate, image.finish_rate, image.finish_time)
 
     def sync_rows(self):
         return SYNC_ROWS

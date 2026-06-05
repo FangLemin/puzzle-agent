@@ -15,8 +15,12 @@ class AppState:
     trial_mode: str = "parse"
     schedule_day: str = "周一"
     value_grade: str = "S"
+    show_holiday: bool = False
     need_rows: list[DemandRow] = field(default_factory=list)
     trial_row: DemandRow | None = None
+    workflow_notes: list[str] = field(default_factory=list)
+    task_notes: list[str] = field(default_factory=list)
+    schedule_replacements: dict[int, object] = field(default_factory=dict)
 
 
 def render_page(agent: PuzzleOpsAgent, state: AppState) -> str:
@@ -47,7 +51,7 @@ def render_page(agent: PuzzleOpsAgent, state: AppState) -> str:
   </aside>
   <main>
     <header>
-      <div><p>{escape(state.country)}市场</p><h1>{page_title(state.view)}</h1></div>
+      <div><p>{escape(state.country)}市场</p><h1><span class="page-icon">{view_icon(state.view)}</span>{page_title(state.view)}</h1></div>
       <div class="header-actions"><a class="button" href="{href(state, view='sync')}">同步记录</a></div>
     </header>
     {body}
@@ -65,6 +69,10 @@ def normalize_state(agent: PuzzleOpsAgent, state: AppState) -> None:
         state.tag = tags[0].tag
     if state.trial_row is None or state.trial_row.country != state.country:
         state.trial_row = agent.create_trial_demand(state.country, state.category, state.trial_mode)
+    if not state.workflow_notes:
+        state.workflow_notes = [text for _, text in workflow_items()]
+    if not state.task_notes:
+        state.task_notes = [task["body"] for task in agent.dashboard(state.country)["tasks"]]
 
 
 def render_country_switch(agent: PuzzleOpsAgent, state: AppState) -> str:
@@ -93,8 +101,12 @@ def render_nav(state: AppState) -> str:
 def render_dashboard(agent: PuzzleOpsAgent, state: AppState) -> str:
     dashboard = agent.dashboard(state.country)
     holiday = agent.holiday_recommendation(state.country)
-    tasks = "".join(f'<article><strong>{escape(task["title"])}</strong><p>{escape(task["body"])}</p></article>' for task in dashboard["tasks"])
+    tasks = "".join(
+        f'<article><strong>{escape(task["title"])}</strong><textarea name="task_{index}">{escape(state.task_notes[index])}</textarea></article>'
+        for index, task in enumerate(dashboard["tasks"])
+    )
     images = "".join(render_image_card(image) for image in holiday.history_good_images)
+    holiday_panel = render_holiday_panel(holiday, images) if state.show_holiday else ""
     return f"""
 <section class="metrics">
   <article><span>当前国家</span><strong>{escape(dashboard["country_label"])}</strong><small>{escape(dashboard["owner"])}</small></article>
@@ -102,10 +114,20 @@ def render_dashboard(agent: PuzzleOpsAgent, state: AppState) -> str:
   <article><span>本季度累计 AI 占比 / OKR</span><strong>{escape(dashboard["ai"])}</strong></article>
 </section>
 <section class="grid two">
-  <div class="panel"><h2>本周工作流</h2>{render_workflow()}</div>
-  <div class="panel"><h2>今日待办 <span>🧸💦</span></h2><div class="tasks">{tasks}</div></div>
+  <form class="panel" method="post" action="/save_dashboard"><h2>本周工作流</h2>{render_workflow(state)}<button>保存工作流</button></form>
+  <form class="panel" method="post" action="/save_dashboard"><h2>今日待办 <span>🧸💦</span></h2><div class="tasks">{tasks}</div><button>保存待办</button></form>
 </section>
-<section class="panel">
+<section class="panel compact-panel">
+  <h2>节日提醒</h2>
+  <p>{escape(holiday.name)}：{escape(holiday.date_range)}，点击按钮查看完整节日提需建议。</p>
+  <a class="button primary-link" href="{href(state, view='dashboard', show_holiday='1')}">查看完整节日提需建议</a>
+</section>
+{holiday_panel}
+"""
+
+
+def render_holiday_panel(holiday, images: str) -> str:
+    return f"""<section class="panel">
   <h2>节日提需建议：{escape(holiday.name)}</h2>
   <dl class="detail">
     <div><dt>日期范围</dt><dd>{escape(holiday.date_range)}</dd></div>
@@ -119,15 +141,21 @@ def render_dashboard(agent: PuzzleOpsAgent, state: AppState) -> str:
 """
 
 
-def render_workflow() -> str:
-    items = (
-        ("周一", "排两个国家的图，优先处理低库存爆款 tag。"),
-        ("周二", "补充排图、检查 5/10 分发位、确认上新节日素材。"),
-        ("周三", "数据分析大师回收上周期数据，输出 SA/CD/AI 趋势和明细备注。"),
-        ("周四", "过图会，结合复盘结论修改排图与提需优先级。"),
-        ("周一到周五", "常规提需、试新提需持续进行，审核规则自动写入备注。"),
+def workflow_items() -> tuple[tuple[str, str], ...]:
+    return (
+        ("🗓️ 周一", "排两个国家的图，优先处理低库存爆款 tag。"),
+        ("🧩 周二", "补充排图、检查 5/10 分发位、确认上新节日素材。"),
+        ("📈 周三", "数据分析大师回收上周期数据，输出 SA/CD/AI 趋势和明细备注。"),
+        ("👀 周四", "过图会，结合复盘结论修改排图与提需优先级。"),
+        ("✨ 周一到周五", "常规提需、试新提需持续进行，审核规则自动写入备注。"),
     )
-    return "<ol class='timeline'>" + "".join(f"<li><strong>{day}</strong><span>{text}</span></li>" for day, text in items) + "</ol>"
+
+
+def render_workflow(state: AppState) -> str:
+    return "<ol class='timeline'>" + "".join(
+        f'<li><strong>{day}</strong><textarea name="workflow_{index}">{escape(state.workflow_notes[index])}</textarea></li>'
+        for index, (day, _) in enumerate(workflow_items())
+    ) + "</ol>"
 
 
 def render_regular(agent: PuzzleOpsAgent, state: AppState) -> str:
@@ -138,20 +166,20 @@ def render_regular(agent: PuzzleOpsAgent, state: AppState) -> str:
     return f"""
 <section class="grid three">
   <div class="panel"><h2>分类</h2>{categories}</div>
-  <div class="panel"><h2>运营 tag + 库存</h2><p class="alert">低库存爆款会置顶提醒运营提需。</p>{tags}</div>
+  <div class="panel"><h2>运营 tag + 库存</h2><p class="alert">红色=低库存爆款；黄色=低库存稳定款；其他=正常库存。</p>{tags}</div>
   <div class="panel"><h2>已分发图片参考</h2><div class="cards">{images}</div></div>
 </section>
 <section class="panel">
   <div class="section-line"><h2>批量提需清单</h2>
-    <form method="post" action="/generate_descriptions"><button>AI生成描述</button></form>
+    <form method="post" action="/generate_descriptions">{hidden_context(state)}<button>AI生成描述</button></form>
   </div>
-  <form method="post" action="/save_needs">{rows}<button class="primary">保存表格修改</button></form>
+  <form method="post" action="/save_needs">{hidden_context(state)}{rows}<button class="primary">保存表格修改</button></form>
 </section>
 """
 
 
 def render_tag_choice(state: AppState, tag) -> str:
-    hot = " hot" if tag.hot and tag.stock <= 5 else ""
+    hot = " " + PuzzleOpsAgent().stock_class(tag)
     active = " active" if tag.tag == state.tag else ""
     return f'<a class="choice{active}{hot}" href="{href(state, view="regular", tag=tag.tag)}"><strong>{escape(tag.tag)}</strong><span>库存 {tag.stock}</span></a>'
 
@@ -162,7 +190,7 @@ def render_reference_image(state: AppState, image, index: int) -> str:
   <div class="thumb">{escape(image.title)}</div>
   <strong><span class="grade {image.grade}">{escape(image.grade)}</span> {escape(image.title)}</strong>
   <small>开图 {escape(image.open_rate)} · 完成 {escape(image.finish_rate)} · {escape(image.finish_time)}</small>
-  <form method="post" action="/add_regular"><input type="hidden" name="image_index" value="{index}"><button>＋加入提需</button></form>
+  <form method="post" action="/add_regular">{hidden_context(state)}<input type="hidden" name="image_index" value="{index}"><button>＋加入提需</button></form>
 </article>
 """
 
@@ -175,14 +203,25 @@ def render_need_rows(rows: list[DemandRow]) -> str:
 
 
 def render_trial(agent: PuzzleOpsAgent, state: AppState) -> str:
-    mode_links = "".join(f'<a class="pill {"active" if state.trial_mode == mode else ""}" href="{href(state, view="trial", trial_mode=mode)}">{label}</a>' for mode, label in (("parse", "参考图解析提需"), ("derive", "好图衍生提需")))
+    mode_links = "".join(
+        f'<a class="mode-card {"active" if state.trial_mode == mode else ""}" href="{href(state, view="trial", trial_mode=mode)}"><strong>{label}</strong><span>{copy}</span></a>'
+        for mode, label, copy in (
+            ("parse", "参考图解析提需", "上传 1-3 张参考图，AI解析主体/色彩/构图。"),
+            ("derive", "好图衍生提需", "上传 1 张历史好图，生成 2 张相似参考图后再提需。"),
+        )
+    )
     row = state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)
     row_html = render_need_row(row, 0, include_value=True, prefix="")
+    upload_copy = "拖拽或选择 1-3 张参考图" if state.trial_mode == "parse" else "上传单张历史好图，自动衍生 2 张类似参考图"
     return f"""
-<section class="panel"><h2>试新模式</h2><div class="pills">{mode_links}</div><p>好图衍生模式：上传单张好图，自动生成 2 张类似参考图，再基于三张图共性 AI 解析提需。</p></section>
+<section class="panel"><h2>试新模式</h2><div class="mode-grid">{mode_links}</div></section>
+<section class="grid two">
+  <div class="panel"><h2>上传参考图</h2><div class="mock-upload-zone"><strong>{upload_copy}</strong><span>Python 原型使用模拟图片位，后续可接真实图片上传。</span></div><div class="reference-row"><div class="thumb">参考图 A</div><div class="thumb">参考图 B</div><div class="thumb">参考图 C</div></div></div>
+  <div class="panel"><h2>Agent 解析结果</h2><dl class="detail"><div><dt>主体</dt><dd>{escape(row.subject)}</dd></div><div><dt>运营tag</dt><dd>{escape(row.operation_tag)}</dd></div><div><dt>加工方式</dt><dd>{escape(row.method)}</dd></div><div><dt>审核备注</dt><dd>{escape(row.remark or "无")}</dd></div></dl></div>
+</section>
 <section class="panel">
-  <div class="section-line"><h2>试新提需表预览</h2><form method="post" action="/apply_value_master"><button>价值观大师</button></form></div>
-  <form method="post" action="/save_trial"><div class="table-wrap"><table>{need_header(include_check=True, include_value=True)}<tbody>{row_html}</tbody></table></div><button class="primary">保存试新修改</button></form>
+  <div class="section-line"><h2>试新提需表预览</h2><form method="post" action="/apply_value_master">{hidden_context(state)}<button>价值观大师</button></form></div>
+  <form method="post" action="/save_trial">{hidden_context(state)}<div class="table-wrap"><table>{need_header(include_check=True, include_value=True)}<tbody>{row_html}</tbody></table></div><button class="primary">保存试新修改</button></form>
 </section>
 """
 
@@ -202,10 +241,10 @@ def render_need_row(row: DemandRow, index: int, include_value: bool, prefix: str
         escape(row.need_type),
         escape(row.country),
         escape(row.js_category),
-        escape(row.image_name),
+        render_image_preview(row.image_name),
         escape(row.operation_tag),
         escape(row.subject),
-        f'<input name="count{prefix}" value="{row.count}" size="3">',
+        f'<input class="small-input" name="count{prefix}" value="{row.count}" size="3">',
         select(f"priority{prefix}", ("P0", "P1", "P2"), row.priority),
         select(f"method{prefix}", ("纯AI", "限素材网", "先照片后AI"), row.method),
         f'<input name="delivery_date{prefix}" value="{escape(row.delivery_date)}" placeholder="">',
@@ -230,8 +269,9 @@ def render_analysis(agent: PuzzleOpsAgent, state: AppState) -> str:
   <article><span>CD 占比 {escape(report.cd_delta)}</span><strong>{escape(report.cd_ratio)}</strong></article>
   <article><span>AI率 {escape(report.ai_delta)}</span><strong>{escape(report.ai_ratio)}</strong></article>
 </section>
-<section class="panel"><h2>周期内容分析</h2><textarea class="wide">{escape(report.cycle_summary)}</textarea><h2>下一步 todo 和建议</h2><textarea class="wide">{escape(report.next_todo)}</textarea></section>
+<section class="panel"><h2>趋势对比折线图</h2>{render_line_chart(report)}</section>
 <section class="panel"><h2>图片明细与 AI 分析备注</h2><div class="table-wrap"><table><thead><tr><th>图片</th><th>来源</th><th>等级</th><th>开图率</th><th>完成率</th><th>时长</th><th>分发位置</th><th>备注</th></tr></thead><tbody>{rows}</tbody></table></div></section>
+<section class="panel"><h2>周期内容分析</h2><textarea class="wide">{escape(report.cycle_summary)}</textarea><h2>下一步 todo 和建议</h2><textarea class="wide">{escape(report.next_todo)}</textarea></section>
 """
 
 
@@ -245,8 +285,19 @@ def render_value(agent: PuzzleOpsAgent, state: AppState) -> str:
 def render_schedule(agent: PuzzleOpsAgent, state: AppState) -> str:
     days = "".join(f'<a class="pill {"active" if day == state.schedule_day else ""}" href="{href(state, view="schedule", schedule_day=day)}">{day}</a>' for day in ("周一", "周二", "周三", "周四", "周五", "周六", "周日"))
     rule = "周末允许 1-9、12-18 位" if state.schedule_day in {"周六", "周日"} else "工作日允许 1-9、12-15 位"
-    slots = "".join(f"<article class='slot'><strong>排图位 {position(item.position)}</strong><span>{escape(item.image_name)}</span><small>{escape(item.operation_tag)}</small><p>{grade(item.grade)} 开图 {escape(item.open_rate)} · 完成 {escape(item.finish_rate)} · {escape(item.finish_time)}</p><button>－替换</button></article>" for item in agent.schedule(state.country, state.schedule_day))
+    items = agent.schedule(state.country, state.schedule_day, state.schedule_replacements)
+    slots = "".join(render_schedule_slot(state, item, index) for index, item in enumerate(items))
     return f"<section class='panel'><h2>排图工作台</h2><div class='pills'>{days}</div><p>{rule}，一天 10 张，共 70 张推荐排图。</p><div class='schedule'>{slots}</div></section>"
+
+
+def render_schedule_slot(state: AppState, item, index: int) -> str:
+    return f"""<article class='slot'>
+  <strong>排图位 {position(item.position)}</strong>
+  <span>{escape(item.image_name)}</span>
+  <small>{escape(item.operation_tag)}</small>
+  <p>{grade(item.grade)} 开图 {escape(item.open_rate)} · 完成 {escape(item.finish_rate)} · {escape(item.finish_time)}</p>
+  <form method="post" action="/replace_schedule">{hidden_context(state)}<input type="hidden" name="slot_index" value="{index}"><input type="hidden" name="image_name" value="{escape(item.image_name)}"><button>－替换</button></form>
+</article>"""
 
 
 def render_sync(agent: PuzzleOpsAgent, state: AppState) -> str:
@@ -258,8 +309,25 @@ def render_image_card(image) -> str:
     return f"<article class='image-card'><div class='thumb'>{escape(image.title)}</div><strong>{grade(image.grade)} {escape(image.title)}</strong><small>开图 {escape(image.open_rate)} · 完成 {escape(image.finish_rate)} · {escape(image.finish_time)}</small></article>"
 
 
+def render_image_preview(image_name: str) -> str:
+    return f'<div class="image-preview-cell"><div class="mini-thumb">{escape(image_name)}</div><span>{escape(image_name)}</span></div>'
+
+
+def render_line_chart(report) -> str:
+    okr = int(report.sa_okr.rstrip("%"))
+    return f"""<svg class="line-chart" viewBox="0 0 620 220" role="img" aria-label="SA CD AI 趋势对比折线图">
+  <line x1="45" y1="40" x2="580" y2="40"></line><line x1="45" y1="95" x2="580" y2="95"></line><line x1="45" y1="150" x2="580" y2="150"></line>
+  <line class="okr-line" x1="45" y1="{170 - okr}" x2="580" y2="{170 - okr}"></line>
+  <polyline class="sa-line" points="55,94 170,82 285,74 400,68 545,62"></polyline>
+  <polyline class="cd-line" points="55,152 170,148 285,145 400,140 545,137"></polyline>
+  <polyline class="ai-line" points="55,132 170,126 285,123 400,118 545,114"></polyline>
+  <text x="48" y="24">SA占比 {escape(report.sa_ratio)}</text><text x="250" y="24">CD占比 {escape(report.cd_ratio)}</text><text x="445" y="24">AI率 {escape(report.ai_ratio)}</text>
+  <text x="470" y="{165 - okr}">OKR {escape(report.sa_okr)}</text>
+</svg>"""
+
+
 def select(name: str, options: tuple[str, ...], value: str) -> str:
-    return f'<select name="{name}">' + "".join(f'<option value="{escape(option)}" {"selected" if option == value else ""}>{escape(option)}</option>' for option in options) + "</select>"
+    return f'<select class="small-input" name="{name}">' + "".join(f'<option value="{escape(option)}" {"selected" if option == value else ""}>{escape(option)}</option>' for option in options) + "</select>"
 
 
 def grade(value: str) -> str:
@@ -282,6 +350,31 @@ def page_title(view: str) -> str:
     }[view]
 
 
+def view_icon(view: str) -> str:
+    return {
+        "dashboard": "🏠",
+        "regular": "📦",
+        "trial": "✨",
+        "analysis": "📈",
+        "value": "🔮",
+        "schedule": "🗓️",
+        "sync": "🔁",
+    }[view]
+
+
+def hidden_context(state: AppState) -> str:
+    values = {
+        "country": state.country,
+        "view": state.view,
+        "category": state.category,
+        "tag": state.tag,
+        "trial_mode": state.trial_mode,
+        "schedule_day": state.schedule_day,
+        "value_grade": state.value_grade,
+    }
+    return "".join(f'<input type="hidden" name="{key}" value="{escape(value)}">' for key, value in values.items())
+
+
 def href(state: AppState, **changes: str) -> str:
     params = {
         "country": state.country,
@@ -291,6 +384,7 @@ def href(state: AppState, **changes: str) -> str:
         "trial_mode": state.trial_mode,
         "schedule_day": state.schedule_day,
         "value_grade": state.value_grade,
+        "show_holiday": "1" if state.show_holiday else "",
     }
     params.update({key: value for key, value in changes.items() if value is not None})
     return "/?" + urlencode(params)
@@ -311,7 +405,7 @@ a { color:inherit; text-decoration:none; }
 .note { color:var(--muted); font-size:13px; line-height:1.6; }
 .pills { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
 .pill, .button, button { border:1px solid var(--line); background:#fff; border-radius:8px; padding:9px 12px; cursor:pointer; font-weight:800; }
-.pill.active, .nav.active, button.primary { background:#dff1ea; border-color:var(--brand); color:#17644e; }
+.pill.active, .nav.active, button.primary, .primary-link { background:#dff1ea; border-color:var(--brand); color:#17644e; }
 nav { display:grid; gap:8px; margin:18px 0; }
 .nav { padding:12px; border-radius:8px; }
 .nav:hover, .choice:hover { background:#fff; }
@@ -322,28 +416,50 @@ nav { display:grid; gap:8px; margin:18px 0; }
 .grid { display:grid; gap:14px; margin-bottom:14px; }
 .grid.two { grid-template-columns:1.1fr .9fr; }
 .grid.three { grid-template-columns:.75fr 1fr 1.4fr; }
+.page-icon { display:inline-grid; place-items:center; width:42px; height:42px; margin-right:10px; border-radius:12px; background:#e7f4ee; vertical-align:middle; }
 .timeline { display:grid; gap:10px; padding-left:20px; }
-.timeline li span { display:block; color:var(--muted); margin-top:4px; }
+.timeline li textarea { margin-top:6px; min-height:54px; }
 .tasks { display:grid; gap:10px; }
 .tasks article { padding:12px; border-radius:8px; background:var(--soft); }
+.tasks textarea { min-height:76px; }
 .detail { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
 .detail div { padding:10px; background:var(--soft); border-radius:8px; }
 .detail dt { font-weight:900; }
 .detail dd { margin:4px 0 0; color:var(--muted); }
 .cards, .schedule { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; }
+.mode-grid, .reference-row { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.reference-row { grid-template-columns:repeat(3,minmax(0,1fr)); margin-top:12px; }
+.mode-card { display:grid; gap:6px; padding:14px; border:1px solid var(--line); border-radius:10px; background:#fffdf7; }
+.mode-card.active { border-color:var(--brand); background:#e7f4ee; }
+.mode-card span { color:var(--muted); font-size:13px; }
+.mock-upload-zone { min-height:150px; display:grid; place-items:center; padding:18px; border:2px dashed #b7c9c1; border-radius:10px; background:#f6faf8; text-align:center; }
+.mock-upload-zone span { display:block; color:var(--muted); margin-top:6px; }
 .image-card, .slot { display:grid; gap:8px; padding:12px; border:1px solid var(--line); border-radius:8px; background:#fffdf7; }
 .thumb { min-height:95px; display:grid; place-items:center; padding:12px; border-radius:8px; background:linear-gradient(135deg,#e6f4ee,#fff0cb); text-align:center; font-weight:900; }
+.mini-thumb { width:92px; min-height:64px; display:grid; place-items:center; padding:8px; border-radius:8px; background:linear-gradient(135deg,#f4efe2,#dff1ea); font-size:12px; font-weight:900; text-align:center; }
+.image-preview-cell { display:grid; grid-template-columns:92px minmax(140px,1fr); align-items:center; gap:10px; min-width:260px; }
 .choice { display:flex; justify-content:space-between; gap:10px; padding:10px; margin-bottom:8px; border:1px solid var(--line); border-radius:8px; background:#fffdf7; }
-.choice.hot { border-color:#e8c35b; background:#fff7d8; }
+.choice.stock-hot { border-color:#e26357; background:#ffe9e5; color:#9b281f; }
+.choice.stock-low { border-color:#e8c35b; background:#fff7d8; color:#7a4a00; }
+.choice.stock-normal { background:#fffdf7; }
 .alert { color:#996b00; background:#fff7d8; border-radius:8px; padding:10px; }
 .section-line { display:flex; justify-content:space-between; align-items:center; gap:12px; }
 .table-wrap { overflow-x:auto; }
-table { width:100%; min-width:1280px; border-collapse:collapse; }
+table { width:100%; min-width:1680px; border-collapse:collapse; }
 th, td { padding:10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; font-size:13px; }
 th { background:#eef5f2; }
 input, select, textarea { width:100%; border:1px solid var(--line); border-radius:6px; padding:8px; font:inherit; background:#fff; }
+.small-input { min-width:92px; }
 textarea { min-height:58px; resize:vertical; }
 .wide { min-height:120px; }
+.line-chart { width:100%; max-width:760px; height:auto; }
+.line-chart line { stroke:#d7e1df; stroke-width:2; }
+.line-chart .okr-line { stroke:#e8c35b; stroke-width:3; stroke-dasharray:8 8; }
+.line-chart polyline { fill:none; stroke-width:4; stroke-linecap:round; stroke-linejoin:round; }
+.line-chart .sa-line { stroke:#2f8f74; }
+.line-chart .cd-line { stroke:#d84a3a; }
+.line-chart .ai-line { stroke:#5c7cfa; }
+.line-chart text { fill:#50616b; font-size:15px; font-weight:800; }
 .grade { display:inline-block; min-width:24px; padding:2px 7px; border-radius:999px; text-align:center; font-weight:900; }
 .grade.S { background:#1f9d68; color:#fff; }
 .grade.A { background:#b8ebbb; color:#1d5d31; }
