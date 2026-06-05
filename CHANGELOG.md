@@ -2,6 +2,42 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.0 - 多模态 Agent Runtime 工程化升级
+
+日期：2026-06-05
+
+阶段目标：
+
+- 将项目从页面原型升级为可讲工程实现的多模态内容运营 Agent 系统。
+- 以真实风格 Excel 样表和审核手册为输入，补齐图片抽取、等级校验、多模态画像、价值观候选池、相似好坏图证据、HITL memory 和 Agent eval/trace。
+
+已完成：
+
+- 新增真实 Excel 导入器：读取 `图片等级、图片本身、图片ID、图片URL、分发位置、多维度等级、开图率、完成率、平均完成时长、运营tag、主体tag、JS分类、图片来源、备注、分发日期、分发周期`。
+- 支持 WPS/Excel `DISPIMG` 单元格图片：解析 `xl/cellimages.xml`，将图片解压为本地文件，并写入 `local_image_path/thumbnail_path`。
+- 固定 JS 分类枚举：`houses/home/food/flowers/pets/animal/travel/ontheway/zen/objects/patterns/handcrafted/streetview/human`。
+- 新增日本/法国等级阈值与 SABCD 校验逻辑：按开图率、完成率、平均完成时长生成多维度等级和图片等级。
+- 新增 SQLite 仓库：保存历史图片、HITL memory、已审批价值观规则。
+- 新增 Redis 缓存抽象：Redis 不可用时自动降级到 Python 内存缓存。
+- 新增飞书客户端抽象：缺少真实飞书密钥时导出 Mock CSV，后续可接真实飞书 API。
+- 新增多模态底座：`ImageFeature`、`ImageProfile`、图片结构化特征、caption、历史指标融合。
+- 新增相似历史好图/坏图检索：价值观判断可以展示 S/A 证据和 C/D 风险参考。
+- 新增价值观候选池：从 SA/CD 历史样本中生成 `pending_review` 候选规则，运营通过后写入固定规则和 memory。
+- 新增审核规则检索与规则引擎：从 `拼图审核手册.docx` 召回红线/黄线依据，给出风险等级、原因和修改建议。
+- 新增 Agent trace/eval：记录 plan、skill、tool calls、observations、context、memory hits、eval metrics。
+- 新增页面入口：`多模态底座 🧠` 和 `Agent 评测 🧪`。
+
+当前限制：
+
+- 当前多模态特征抽取为本地规则/结构化模拟，不声称接入真实视觉大模型。
+- 真实飞书客户端只完成接口预留；没有密钥时使用 Mock CSV fallback。
+- SQLite/Redis/飞书/MCP-like adapter 已形成工程接口，但尚未接真实公司 CMS。
+- 大规模 12 周 × 139 条/国家的数据生成器尚未展开；本版优先完成真实样表导入和 Agent runtime 骨架。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests -q`：54 passed。
+
 ## v0.2.2 - AI率 OKR 规则修正
 
 日期：2026-06-05

@@ -1,6 +1,24 @@
 from dataclasses import dataclass, replace
 
 
+JS_CATEGORIES = {
+    "houses",
+    "home",
+    "food",
+    "flowers",
+    "pets",
+    "animal",
+    "travel",
+    "ontheway",
+    "zen",
+    "objects",
+    "patterns",
+    "handcrafted",
+    "streetview",
+    "human",
+}
+
+
 @dataclass(frozen=True)
 class Task:
     title: str
@@ -110,3 +128,105 @@ class ScheduleItem:
     finish_rate: str
     finish_time: str
 
+
+@dataclass(frozen=True)
+class HistoricalRecord:
+    grade: str
+    image_formula: str
+    image_id: str
+    image_url: str
+    local_image_path: str
+    thumbnail_path: str
+    position: int
+    dimension_grade: str
+    open_rate: float
+    completion_rate: float
+    avg_finish_time: float
+    operation_tag: str
+    subject_tag: str
+    js_category: str
+    source: str
+    remark: str
+    distribution_date: str
+    distribution_cycle: str
+    country: str
+
+
+@dataclass(frozen=True)
+class ToolResult:
+    success: bool
+    data: dict[str, object]
+    message: str
+    evidence: tuple[str, ...] = ()
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class ImageFeature:
+    image_id: str
+    main_subject: str
+    secondary_subjects: tuple[str, ...]
+    color_palette: tuple[str, ...]
+    composition: str
+    style: str
+    culture_elements: tuple[str, ...]
+    festival_elements: tuple[str, ...]
+    ai_artifacts: tuple[str, ...]
+    risk_tags: tuple[str, ...]
+    caption: str
+    feature_confidence: float
+
+
+@dataclass(frozen=True)
+class ImageProfile:
+    asset: HistoricalRecord
+    feature: ImageFeature
+    historical_metrics: dict[str, object]
+    similar_good_cases: tuple[HistoricalRecord, ...]
+    similar_bad_cases: tuple[HistoricalRecord, ...]
+    matched_value_rules: tuple[str, ...]
+    matched_audit_rules: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ValueRuleCandidate:
+    candidate_id: str
+    country: str
+    rule_text: str
+    confidence: float
+    support_count: int
+    counterexample_count: int
+    evidence_image_ids: tuple[str, ...]
+    status: str
+    agent_reason: str
+    human_note: str = ""
+
+
+@dataclass(frozen=True)
+class AuditPolicyHit:
+    rule_id: str
+    text: str
+    risk_level: str
+
+
+@dataclass(frozen=True)
+class AuditReviewResult:
+    risk_level: str
+    reason: str
+    evidence: tuple[str, ...]
+    suggestion: str
+
+
+@dataclass(frozen=True)
+class AgentTrace:
+    trace_id: str
+    task_type: str
+    country: str
+    plan: tuple[str, ...]
+    skill_name: str
+    tool_calls: tuple[str, ...]
+    observations: tuple[str, ...]
+    memory_hits: tuple[str, ...]
+    context_summary: str
+    final_output: str
+    eval_result: dict[str, float]

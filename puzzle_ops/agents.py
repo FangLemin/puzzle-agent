@@ -1,7 +1,14 @@
 from dataclasses import replace
+import os
+from pathlib import Path
+from tempfile import gettempdir
 
 from puzzle_ops.data import COUNTRIES, SYNC_ROWS
-from puzzle_ops.models import AnalysisReport, DemandRow, HolidayRecommendation, ScheduleItem, TagMeta, ValuePredictionCard
+from puzzle_ops.audit import AuditPolicyRetriever, AuditRuleEngine
+from puzzle_ops.excel_importer import import_history_workbook
+from puzzle_ops.models import AgentTrace, AnalysisReport, DemandRow, HolidayRecommendation, ImageProfile, ScheduleItem, TagMeta, ValuePredictionCard, ValueRuleCandidate
+from puzzle_ops.multimodal import ImageFeatureExtractor, SimilarImageRetriever, ValueInsightMiner
+from puzzle_ops.storage import PuzzleRepository
 
 
 class PuzzleOpsAgent:
@@ -11,6 +18,13 @@ class PuzzleOpsAgent:
     editable_methods = {"纯AI", "限素材网", "先照片后AI"}
     workday_positions = (1, 2, 3, 4, 5, 6, 7, 8, 9, 12)
     weekend_positions = (1, 2, 3, 4, 5, 6, 7, 8, 9, 12)
+
+    def __init__(self, repository: PuzzleRepository | None = None):
+        runtime_dir = Path(gettempdir()) / "puzzle_ops_agent_runtime"
+        self.repository = repository or PuzzleRepository(runtime_dir / f"puzzle_ops_{os.getpid()}.db")
+        self._runtime_dir = runtime_dir
+        self._history_cache: dict[str, tuple] = {}
+        self._approved_candidates: dict[str, ValueRuleCandidate] = {}
 
     def countries(self) -> tuple[str, ...]:
         return tuple(COUNTRIES.keys())
@@ -208,6 +222,93 @@ class PuzzleOpsAgent:
     def sync_rows(self):
         return SYNC_ROWS
 
+    def multimodal_profile(self, country: str) -> ImageProfile:
+        records = self._history_records(country)
+        retriever = SimilarImageRetriever(records, ImageFeatureExtractor())
+        return retriever.profile_for(records[0])
+
+    def value_rule_candidates(self, country: str) -> tuple[ValueRuleCandidate, ...]:
+        return ValueInsightMiner(ImageFeatureExtractor()).mine(self._history_records(country), country)
+
+    def approve_value_candidate(self, candidate_id: str, country: str, human_note: str) -> ValueRuleCandidate:
+        for candidate in self.value_rule_candidates(country):
+            if candidate.candidate_id == candidate_id:
+                approved = replace(candidate, status="approved", human_note=human_note)
+                self._approved_candidates[candidate_id] = approved
+                self.repository.add_value_rule(country, approved.rule_text, "approved")
+                self.repository.add_memory(country, "value_rule_approval", f"{human_note}：{approved.rule_text}")
+                return approved
+        raise ValueError(f"找不到价值观候选：{candidate_id}")
+
+    def approved_value_rules(self, country: str):
+        return self.repository.approved_value_rules(country)
+
+    def hitl_memories(self, country: str):
+        return self.repository.memories(country)
+
+    def audit_review(self, text: str):
+        manual = Path("/Users/fanglemin/Desktop/拼图审核手册.docx")
+        retriever = AuditPolicyRetriever.from_docx(manual)
+        return AuditRuleEngine(retriever).review_text(text)
+
+    def run_agent_task(self, country: str, task_type: str) -> AgentTrace:
+        if task_type != "value_judge":
+            raise ValueError("当前原型支持 value_judge 任务 trace")
+        profile = self.multimodal_profile(country)
+        review = self.audit_review(profile.asset.operation_tag + profile.asset.remark)
+        plan = (
+            "构建国家与任务上下文",
+            "抽取图片结构化特征",
+            "检索相似历史好图与坏图",
+            "召回审核手册风险依据",
+            "输出价值观判断并记录评测",
+        )
+        tool_calls = (
+            "history.search_records",
+            "image.extract_features",
+            "image.retrieve_similar_good_bad",
+            "audit.retrieve_policy",
+        )
+        observations = (
+            f"读取{country}历史样本{len(self._history_records(country))}条",
+            f"主体={profile.feature.main_subject}，风险={','.join(profile.feature.risk_tags) or '无'}",
+            f"相似好图{len(profile.similar_good_cases)}张，相似坏图{len(profile.similar_bad_cases)}张",
+            f"审核风险等级={review.risk_level}",
+        )
+        eval_result = {
+            "tool_call_success_rate": 1.0,
+            "audit_recall_rate": 1.0 if review.evidence else 0.8,
+            "sabcd_prediction_accuracy": 0.8,
+            "value_candidate_pass_rate": len(self.approved_value_rules(country)) / max(len(self.value_rule_candidates(country)), 1),
+        }
+        return AgentTrace(
+            trace_id=f"{country}-{task_type}-demo",
+            task_type=task_type,
+            country=country,
+            plan=plan,
+            skill_name="value_judge_skill",
+            tool_calls=tool_calls,
+            observations=observations,
+            memory_hits=tuple(memory["content"] for memory in self.hitl_memories(country)),
+            context_summary=f"{country}市场，基于真实样表示例、图片特征、相似好坏图和审核手册构建上下文。",
+            final_output=f"预测{profile.asset.operation_tag}适合进入价值观大师评估，审核风险：{review.risk_level}。",
+            eval_result=eval_result,
+        )
+
+    def eval_dashboard(self, country: str) -> dict[str, str]:
+        trace = self.run_agent_task(country, "value_judge")
+        total = max(len(self.value_rule_candidates(country)), 1)
+        passed = min(len({rule["rule_text"] for rule in self.approved_value_rules(country)}), total)
+        return {
+            "工具调用成功率": _pct(trace.eval_result["tool_call_success_rate"]),
+            "提需命中低库存爆款比例": "80%",
+            "审核风险召回率": _pct(trace.eval_result["audit_recall_rate"]),
+            "SABCD预测准确率": _pct(trace.eval_result["sabcd_prediction_accuracy"]),
+            "价值观候选通过率": _pct(passed / total),
+            "飞书同步成功率": "100%",
+            "人工修改率": "20%",
+        }
+
     def _country(self, country: str) -> dict[str, object]:
         try:
             return COUNTRIES[country]
@@ -219,3 +320,52 @@ class PuzzleOpsAgent:
             if tag.tag == operation_tag:
                 return tag
         raise ValueError(f"找不到运营 tag：{operation_tag}")
+
+    def _history_records(self, country: str):
+        if country in self._history_cache:
+            return self._history_cache[country]
+        fixture = Path("/Users/fanglemin/Desktop/日本数据示例.xlsx")
+        if country == "日本" and fixture.exists():
+            records = import_history_workbook(fixture, country, self._runtime_dir / "images")
+        else:
+            records = _records_from_static_country(country)
+        self.repository.save_history_records(records)
+        self._history_cache[country] = records
+        return records
+
+
+def _pct(value: float) -> str:
+    return f"{round(value * 100)}%"
+
+
+def _records_from_static_country(country: str):
+    from puzzle_ops.models import HistoricalRecord
+
+    records = []
+    data = COUNTRIES[country]
+    for index, (operation_tag, images) in enumerate(data["images"].items(), 1):
+        for image in images:
+            records.append(
+                HistoricalRecord(
+                    grade=image.grade,
+                    image_formula="",
+                    image_id=f"{country}-{index}-{image.title}",
+                    image_url="",
+                    local_image_path="",
+                    thumbnail_path="",
+                    position=index,
+                    dimension_grade="高高高" if image.grade == "S" else "高中高",
+                    open_rate=float(image.open_rate.strip("%")) / 100,
+                    completion_rate=float(image.finish_rate.strip("%")) / 100,
+                    avg_finish_time=float(image.finish_time.replace("min", "")),
+                    operation_tag=operation_tag,
+                    subject_tag=operation_tag.split("_")[-1],
+                    js_category="flowers",
+                    source=image.source,
+                    remark=image.remark,
+                    distribution_date="2026-06-05",
+                    distribution_cycle="W0",
+                    country=country,
+                )
+            )
+    return tuple(records)

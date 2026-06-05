@@ -31,6 +31,8 @@ def render_page(agent: PuzzleOpsAgent, state: AppState) -> str:
         "trial": render_trial,
         "analysis": render_analysis,
         "value": render_value,
+        "runtime": render_runtime,
+        "eval": render_eval,
         "schedule": render_schedule,
         "sync": render_sync,
     }[state.view](agent, state)
@@ -91,6 +93,8 @@ def render_nav(state: AppState) -> str:
         ("trial", "✨", "试新提需"),
         ("analysis", "📈", "数据分析大师"),
         ("value", "🔮", "价值观大师"),
+        ("runtime", "🧠", "多模态底座"),
+        ("eval", "🧪", "Agent 评测"),
         ("schedule", "🗓️", "排图工作台"),
         ("sync", "🔁", "同步记录"),
     )
@@ -282,6 +286,74 @@ def render_value(agent: PuzzleOpsAgent, state: AppState) -> str:
     return f"<section class='panel'><h2>SABCD 预测</h2><div class='pills'>{tabs}</div><div class='cards'>{cards or '<p class=\"empty\">当前等级暂无样例。</p>'}</div></section><section class='panel'><details><summary>查看完整价值观规则库</summary><ul>{rules}</ul></details></section>"
 
 
+def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
+    profile = agent.multimodal_profile(state.country)
+    candidates = agent.value_rule_candidates(state.country)
+    good = "".join(render_record_card(record) for record in profile.similar_good_cases)
+    bad = "".join(render_record_card(record) for record in profile.similar_bad_cases)
+    candidate_rows = "".join(
+        f"<tr><td>{escape(candidate.rule_text)}</td><td>{escape(str(candidate.confidence))}</td><td>{candidate.support_count}</td><td>{candidate.counterexample_count}</td><td>{escape(candidate.status)}</td><td>{escape(candidate.agent_reason)}</td></tr>"
+        for candidate in candidates
+    )
+    feature = profile.feature
+    return f"""
+<section class="panel">
+  <h2>多模态底座</h2>
+  <div class="grid two">
+    <div><h3>ImageProfile</h3><dl class="detail">
+      <div><dt>图片ID</dt><dd>{escape(profile.asset.image_id)}</dd></div>
+      <div><dt>运营tag</dt><dd>{escape(profile.asset.operation_tag)}</dd></div>
+      <div><dt>主体</dt><dd>{escape(feature.main_subject)}</dd></div>
+      <div><dt>色彩</dt><dd>{escape('、'.join(feature.color_palette))}</dd></div>
+      <div><dt>构图</dt><dd>{escape(feature.composition)}</dd></div>
+      <div><dt>Caption</dt><dd>{escape(feature.caption)}</dd></div>
+    </dl></div>
+    <div><h3>图文融合指标</h3><dl class="detail">
+      <div><dt>等级</dt><dd>{grade(str(profile.historical_metrics["grade"]))}</dd></div>
+      <div><dt>开图率</dt><dd>{profile.historical_metrics["open_rate"]}</dd></div>
+      <div><dt>完成率</dt><dd>{profile.historical_metrics["completion_rate"]}</dd></div>
+      <div><dt>完成时长</dt><dd>{profile.historical_metrics["avg_finish_time"]}</dd></div>
+      <div><dt>风险标签</dt><dd>{escape('、'.join(feature.risk_tags) or '无')}</dd></div>
+    </dl></div>
+  </div>
+</section>
+<section class="grid two">
+  <div class="panel"><h2>相似历史好图</h2><div class="cards">{good}</div></div>
+  <div class="panel"><h2>相似历史坏图</h2><div class="cards">{bad}</div></div>
+</section>
+<section class="panel"><h2>价值观候选池</h2><div class="table-wrap"><table><thead><tr><th>候选价值观</th><th>置信度</th><th>支撑样本</th><th>反例样本</th><th>状态</th><th>Agent归因</th></tr></thead><tbody>{candidate_rows}</tbody></table></div></section>
+"""
+
+
+def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
+    metrics = agent.eval_dashboard(state.country)
+    trace = agent.run_agent_task(state.country, "value_judge")
+    metric_cards = "".join(f"<article><span>{escape(key)}</span><strong>{escape(value)}</strong></article>" for key, value in metrics.items())
+    plan = "".join(f"<li>{escape(step)}</li>" for step in trace.plan)
+    tools = "".join(f"<li>{escape(tool)}</li>" for tool in trace.tool_calls)
+    observations = "".join(f"<li>{escape(item)}</li>" for item in trace.observations)
+    return f"""
+<section class="metrics">{metric_cards}</section>
+<section class="panel">
+  <h2>Agent Trace</h2>
+  <dl class="detail">
+    <div><dt>Skill</dt><dd>{escape(trace.skill_name)}</dd></div>
+    <div><dt>上下文</dt><dd>{escape(trace.context_summary)}</dd></div>
+    <div><dt>输出</dt><dd>{escape(trace.final_output)}</dd></div>
+  </dl>
+  <div class="grid three">
+    <div><h3>Plan</h3><ol>{plan}</ol></div>
+    <div><h3>Tool Calls</h3><ol>{tools}</ol></div>
+    <div><h3>Observations</h3><ol>{observations}</ol></div>
+  </div>
+</section>
+"""
+
+
+def render_record_card(record) -> str:
+    return f"<article class='image-card'><div class='thumb'>{escape(record.subject_tag)}</div><strong>{grade(record.grade)} {escape(record.operation_tag)}</strong><small>开图 {record.open_rate:.2%} · 完成 {record.completion_rate:.2%} · {record.avg_finish_time}</small></article>"
+
+
 def render_schedule(agent: PuzzleOpsAgent, state: AppState) -> str:
     days = "".join(f'<a class="pill {"active" if day == state.schedule_day else ""}" href="{href(state, view="schedule", schedule_day=day)}">{day}</a>' for day in ("周一", "周二", "周三", "周四", "周五", "周六", "周日"))
     rule = "周末允许 1-9、12-18 位" if state.schedule_day in {"周六", "周日"} else "工作日允许 1-9、12-15 位"
@@ -381,6 +453,8 @@ def page_title(view: str) -> str:
         "trial": "试新提需",
         "analysis": "数据分析大师",
         "value": "价值观大师",
+        "runtime": "多模态底座",
+        "eval": "Agent 评测",
         "schedule": "排图工作台",
         "sync": "同步记录",
     }[view]
@@ -393,6 +467,8 @@ def view_icon(view: str) -> str:
         "trial": "✨",
         "analysis": "📈",
         "value": "🔮",
+        "runtime": "🧠",
+        "eval": "🧪",
         "schedule": "🗓️",
         "sync": "🔁",
     }[view]

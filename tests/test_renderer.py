@@ -123,7 +123,28 @@ def test_every_view_header_keeps_module_icon():
         "trial": "✨",
         "analysis": "📈",
         "value": "🔮",
+        "runtime": "🧠",
+        "eval": "🧪",
         "schedule": "🗓️",
     }.items():
         html = render_page(agent, AppState(country="日本", view=view))
         assert f'<span class="page-icon">{icon}</span>' in html
+
+
+def test_multimodal_runtime_page_shows_profile_candidates_and_evidence():
+    html = render_page(PuzzleOpsAgent(), AppState(country="日本", view="runtime"))
+
+    assert "多模态底座" in html
+    assert "相似历史好图" in html
+    assert "相似历史坏图" in html
+    assert "价值观候选池" in html
+    assert "pending_review" in html
+
+
+def test_eval_page_shows_agent_trace_and_metrics():
+    html = render_page(PuzzleOpsAgent(), AppState(country="日本", view="eval"))
+
+    assert "Agent 评测" in html
+    assert "工具调用成功率" in html
+    assert "value_judge_skill" in html
+    assert "history.search_records" in html
