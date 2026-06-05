@@ -18,6 +18,8 @@ class ToolRegistry:
             return ToolResult(False, {}, f"{name} 未注册", error="TOOL_NOT_FOUND")
         try:
             data = self._tools[name](**kwargs)
+            if isinstance(data, ToolResult):
+                return data
             if not isinstance(data, dict):
                 data = {"value": data}
             return ToolResult(True, data, f"{name} 调用成功")

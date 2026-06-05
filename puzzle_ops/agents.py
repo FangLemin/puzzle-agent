@@ -4,8 +4,11 @@ from pathlib import Path
 from tempfile import gettempdir
 
 from puzzle_ops.data import COUNTRIES, SYNC_ROWS
+from puzzle_ops.adapters import MCPToolAdapter
 from puzzle_ops.audit import AuditPolicyRetriever, AuditRuleEngine
+from puzzle_ops.cms import MockCMSClient
 from puzzle_ops.excel_importer import import_history_workbook
+from puzzle_ops.feishu import FeishuClientFactory, MockFeishuClient
 from puzzle_ops.models import AgentTrace, AnalysisReport, DemandRow, HolidayRecommendation, ImageProfile, ScheduleItem, TagMeta, ValuePredictionCard, ValueRuleCandidate
 from puzzle_ops.multimodal import ImageFeatureExtractor, SimilarImageRetriever, ValueInsightMiner
 from puzzle_ops.storage import PuzzleRepository
@@ -25,6 +28,10 @@ class PuzzleOpsAgent:
         self._runtime_dir = runtime_dir
         self._history_cache: dict[str, tuple] = {}
         self._approved_candidates: dict[str, ValueRuleCandidate] = {}
+        self.cms = MockCMSClient.with_synthetic_assets(runtime_dir / "cms", "日本", weeks=1)
+        self.adapter = MCPToolAdapter()
+        self.adapter.register_cms(self.cms)
+        self.feishu = FeishuClientFactory.create(runtime_dir / "feishu_mock")
 
     def countries(self) -> tuple[str, ...]:
         return tuple(COUNTRIES.keys())
@@ -256,30 +263,42 @@ class PuzzleOpsAgent:
             raise ValueError("当前原型支持 value_judge 任务 trace")
         profile = self.multimodal_profile(country)
         review = self.audit_review(profile.asset.operation_tag + profile.asset.remark)
+        inventory = self.adapter.registry.call("cms.query_inventory", tag=profile.asset.operation_tag)
+        sync_result = self.feishu.write_table(
+            "AgentTrace",
+            [{"国家": country, "任务": task_type, "运营tag": profile.asset.operation_tag, "审核风险": review.risk_level}],
+        )
         plan = (
             "构建国家与任务上下文",
             "抽取图片结构化特征",
+            "通过 MCP-like adapter 查询 CMS 库存",
             "检索相似历史好图与坏图",
             "召回审核手册风险依据",
+            "同步 Agent trace 到飞书或 Mock fallback",
             "输出价值观判断并记录评测",
         )
         tool_calls = (
             "history.search_records",
+            "cms.query_inventory",
             "image.extract_features",
             "image.retrieve_similar_good_bad",
             "audit.retrieve_policy",
+            "feishu.write_table",
         )
         observations = (
             f"读取{country}历史样本{len(self._history_records(country))}条",
+            f"CMS库存查询：{inventory.message}",
             f"主体={profile.feature.main_subject}，风险={','.join(profile.feature.risk_tags) or '无'}",
             f"相似好图{len(profile.similar_good_cases)}张，相似坏图{len(profile.similar_bad_cases)}张",
             f"审核风险等级={review.risk_level}",
+            f"飞书同步：{sync_result.message}",
         )
         eval_result = {
             "tool_call_success_rate": 1.0,
             "audit_recall_rate": 1.0 if review.evidence else 0.8,
             "sabcd_prediction_accuracy": 0.8,
             "value_candidate_pass_rate": len(self.approved_value_rules(country)) / max(len(self.value_rule_candidates(country)), 1),
+            "external_adapter_success_rate": 1.0 if inventory.success and sync_result.success else 0.5,
         }
         return AgentTrace(
             trace_id=f"{country}-{task_type}-demo",
@@ -301,10 +320,12 @@ class PuzzleOpsAgent:
         passed = min(len({rule["rule_text"] for rule in self.approved_value_rules(country)}), total)
         return {
             "工具调用成功率": _pct(trace.eval_result["tool_call_success_rate"]),
+            "CMS/MCP适配状态": "已启用",
             "提需命中低库存爆款比例": "80%",
             "审核风险召回率": _pct(trace.eval_result["audit_recall_rate"]),
             "SABCD预测准确率": _pct(trace.eval_result["sabcd_prediction_accuracy"]),
             "价值观候选通过率": _pct(passed / total),
+            "飞书同步模式": "Mock" if isinstance(self.feishu, MockFeishuClient) else "Real",
             "飞书同步成功率": "100%",
             "人工修改率": "20%",
         }

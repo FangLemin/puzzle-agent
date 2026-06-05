@@ -2,6 +2,34 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.2 - CMS/MCP-like Adapter 与真实飞书请求骨架
+
+日期：2026-06-05
+
+阶段目标：
+
+- 补齐生产环境中最容易被面试追问的外部系统适配：CMS 库存、MCP-like 工具协议、飞书真实写入请求骨架。
+
+已完成：
+
+- 新增 `MockCMSClient`：模拟公司 CMS 全局未分发素材库，支持按运营 tag 查库存、按国家/JS分类检索素材、识别低库存 tag。
+- 新增 `MCPToolAdapter`：以 MCP-like manifest 形式暴露 `cms.query_inventory`、`cms.search_assets`、`cms.low_stock_tags`。
+- 增强 `RealFeishuClient`：按飞书官方电子表格追加数据接口构造 `POST /open-apis/sheets/v2/spreadsheets/:spreadsheetToken/values_append` 请求。
+- 飞书客户端保留可注入 transport，测试不打真实外网；缺少 `FEISHU_APP_ID/FEISHU_APP_SECRET/FEISHU_SPREADSHEET_TOKEN/FEISHU_ACCESS_TOKEN` 时自动降级 Mock CSV。
+- Agent trace 接入外部工具链，展示 `cms.query_inventory` 和 `feishu.write_table`。
+- Agent 评测页新增 `CMS/MCP适配状态`、`飞书同步模式`。
+
+当前限制：
+
+- MCP-like adapter 是本地协议化工具层，不是独立 MCP Server 进程。
+- 飞书真实写入需要用户自己配置开放平台应用权限、电子表格权限和 access token。
+- CMS 仍为本地 mock，不连接公司真实 CMS。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests -q`：61 passed。
+- `http://127.0.0.1:5190/?country=日本&view=eval`：页面显示 CMS/MCP 适配状态、飞书同步模式和完整 tool calls。
+
 ## v0.3.1 - 大规模模拟数据与 Tool/Skill Runtime 补齐
 
 日期：2026-06-05

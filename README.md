@@ -13,6 +13,8 @@
 - `puzzle_ops/feishu.py`：真实飞书/Mock 飞书同步接口。
 - `puzzle_ops/runtime.py`：Tool Registry 和 Skill Library。
 - `puzzle_ops/synthetic_data.py`：每国每周 139 条的大规模模拟数据生成器。
+- `puzzle_ops/cms.py`：公司 CMS 全局未分发素材库的本地 mock。
+- `puzzle_ops/adapters.py`：MCP-like 工具适配层。
 - `puzzle_ops/data.py`：模拟历史数据、运营 tag、节日、价值观、分析明细。
 - `puzzle_ops/models.py`：业务字段结构。
 - `puzzle_ops/renderer.py`：用 Python 生成后台页面。
@@ -55,9 +57,11 @@ PYTHONPATH=. pytest tests -q
 - HITL Memory：运营通过价值观候选后，系统会写入固定价值观规则和长期 memory。
 - 大规模模拟数据：支持每个国家每周 139 条历史回收数据，自动生成图片路径、指标、SABCD、多维度等级和 JS 分类。
 - Tool/Skill Runtime：显式注册 function calling 工具，并定义常规提需、试新提需、价值观大师、价值观挖掘、数据分析等业务 Skill。
+- CMS/MCP-like Adapter：支持 `cms.query_inventory`、`cms.search_assets`、`cms.low_stock_tags`，Agent trace 会展示对应工具调用。
+- 飞书同步：缺少真实配置时使用 Mock CSV；配置 `FEISHU_APP_ID`、`FEISHU_APP_SECRET`、`FEISHU_SPREADSHEET_TOKEN`、`FEISHU_ACCESS_TOKEN` 后走官方 values_append 请求骨架。
 
 ## 说明
 
-这个版本不接入公司真实 CMS 或内部数据。飞书已预留真实客户端接口，缺少密钥时使用 Mock CSV fallback。项目中没有 Java、Node、Vue、React 或前端构建工具；页面由 Python 服务端渲染。
+这个版本不接入公司真实 CMS 或内部数据，CMS 使用本地 mock。飞书已预留真实客户端接口，缺少密钥时使用 Mock CSV fallback。项目中没有 Java、Node、Vue、React 或前端构建工具；页面由 Python 服务端渲染。
 
 Excel 图片说明：真实样表中的“图片本身”字段使用 `DISPIMG` 公式，项目会解析 `xl/cellimages.xml` 并把图片抽取到本地路径；生产环境有真实 `image_url` 时，可以优先展示 URL。
