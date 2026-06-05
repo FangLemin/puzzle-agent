@@ -74,6 +74,33 @@ def test_analysis_page_places_chart_before_detail_and_summary_at_bottom():
     assert html.index("图片明细与 AI 分析备注") < html.index("周期内容分析")
 
 
+def test_analysis_delta_colors_follow_metric_direction_rules():
+    html = render_page(PuzzleOpsAgent(), AppState(country="日本", view="analysis"))
+
+    assert '<em class="delta delta-good">↑ 4%</em>' in html
+    assert '<em class="delta delta-good">↓ 3%</em>' in html
+    assert '<em class="delta delta-bad">↑ 2%</em>' in html
+
+
+def test_dashboard_okr_coloring_and_alert_rules():
+    agent = PuzzleOpsAgent()
+    japan = render_page(agent, AppState(country="日本", view="dashboard"))
+    france = render_page(agent, AppState(country="法国", view="dashboard"))
+
+    assert '<span class="metric-value metric-miss">72%</span><span class="metric-sep">/</span><span class="okr-value">75%</span>' in japan
+    assert '<span class="metric-value metric-ok">16%</span><span class="metric-sep">/</span><span class="okr-value">15%</span>' in japan
+    assert '<span class="metric-value metric-miss">69%</span><span class="metric-sep">/</span><span class="okr-value">73%</span>' in france
+    assert '<span class="okr-value">75%</span><span class="metric-alert">!</span>' not in japan
+
+
+def test_metric_gap_over_ten_points_gets_red_alert():
+    from puzzle_ops.renderer import render_metric_ratio
+
+    html = render_metric_ratio("20% / 35%", higher_is_better=True)
+
+    assert '<span class="metric-alert">!</span>' in html
+
+
 def test_every_view_header_keeps_module_icon():
     agent = PuzzleOpsAgent()
 

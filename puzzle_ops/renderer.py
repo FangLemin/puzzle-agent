@@ -110,8 +110,8 @@ def render_dashboard(agent: PuzzleOpsAgent, state: AppState) -> str:
     return f"""
 <section class="metrics">
   <article><span>当前国家</span><strong>{escape(dashboard["country_label"])}</strong><small>{escape(dashboard["owner"])}</small></article>
-  <article><span>本季度累计 SA 占比 / OKR</span><strong>{escape(dashboard["sa"])}</strong></article>
-  <article><span>本季度累计 AI 占比 / OKR</span><strong>{escape(dashboard["ai"])}</strong></article>
+  <article><span>本季度累计 SA 占比 / OKR</span><strong>{render_metric_ratio(str(dashboard["sa"]), higher_is_better=True)}</strong></article>
+  <article><span>本季度累计 AI 占比 / OKR</span><strong>{render_metric_ratio(str(dashboard["ai"]), higher_is_better=True)}</strong></article>
 </section>
 <section class="grid two">
   <form class="panel" method="post" action="/save_dashboard"><h2>本周工作流</h2>{render_workflow(state)}<button>保存工作流</button></form>
@@ -265,9 +265,9 @@ def render_analysis(agent: PuzzleOpsAgent, state: AppState) -> str:
     )
     return f"""
 <section class="metrics">
-  <article><span>SA 占比 {escape(report.sa_delta)}</span><strong>{escape(report.sa_ratio)}</strong><small>历史均值 {escape(report.sa_history_avg)} · OKR {escape(report.sa_okr)}</small></article>
-  <article><span>CD 占比 {escape(report.cd_delta)}</span><strong>{escape(report.cd_ratio)}</strong></article>
-  <article><span>AI率 {escape(report.ai_delta)}</span><strong>{escape(report.ai_ratio)}</strong></article>
+  <article><span>SA 占比 {render_delta(report.sa_delta, higher_is_better=True)}</span><strong>{escape(report.sa_ratio)}</strong><small>历史均值 {escape(report.sa_history_avg)} · OKR {escape(report.sa_okr)}</small></article>
+  <article><span>CD 占比 {render_delta(report.cd_delta, higher_is_better=False)}</span><strong>{escape(report.cd_ratio)}</strong></article>
+  <article><span>AI占比 {render_delta(report.ai_delta, higher_is_better=False)}</span><strong>{escape(report.ai_ratio)}</strong></article>
 </section>
 <section class="panel"><h2>趋势对比折线图</h2>{render_line_chart(report)}</section>
 <section class="panel"><h2>图片明细与 AI 分析备注</h2><div class="table-wrap"><table><thead><tr><th>图片</th><th>来源</th><th>等级</th><th>开图率</th><th>完成率</th><th>时长</th><th>分发位置</th><th>备注</th></tr></thead><tbody>{rows}</tbody></table></div></section>
@@ -324,6 +324,28 @@ def render_line_chart(report) -> str:
   <text x="48" y="24">SA占比 {escape(report.sa_ratio)}</text><text x="250" y="24">CD占比 {escape(report.cd_ratio)}</text><text x="445" y="24">AI率 {escape(report.ai_ratio)}</text>
   <text x="470" y="{165 - okr}">OKR {escape(report.sa_okr)}</text>
 </svg>"""
+
+
+def render_metric_ratio(raw: str, higher_is_better: bool) -> str:
+    current_text, okr_text = [part.strip() for part in raw.split("/", 1)]
+    current = int(current_text.rstrip("%"))
+    okr = int(okr_text.rstrip("%"))
+    reached = current >= okr if higher_is_better else current <= okr
+    status_class = "metric-ok" if reached else "metric-miss"
+    alert = '<span class="metric-alert">!</span>' if abs(current - okr) > 10 else ""
+    return (
+        f'<span class="metric-value {status_class}">{escape(current_text)}</span>'
+        f'<span class="metric-sep">/</span>'
+        f'<span class="okr-value">{escape(okr_text)}</span>'
+        f"{alert}"
+    )
+
+
+def render_delta(raw: str, higher_is_better: bool) -> str:
+    is_up = raw.strip().startswith("↑")
+    good = is_up if higher_is_better else not is_up
+    delta_class = "delta-good" if good else "delta-bad"
+    return f'<em class="delta {delta_class}">{escape(raw)}</em>'
 
 
 def select(name: str, options: tuple[str, ...], value: str) -> str:
@@ -413,6 +435,14 @@ nav { display:grid; gap:8px; margin:18px 0; }
 .metrics article, .panel { background:#fff; border:1px solid var(--line); border-radius:10px; padding:16px; box-shadow:0 10px 24px rgba(53,67,75,.06); }
 .metrics span, small { color:var(--muted); }
 .metrics strong { display:block; margin:8px 0; font-size:28px; }
+.metric-value.metric-ok { color:#1f9d68; }
+.metric-value.metric-miss { color:#d84a3a; }
+.metric-sep { margin:0 8px; color:#7d8991; }
+.okr-value { color:#111; }
+.metric-alert { display:inline-grid; place-items:center; width:24px; height:24px; margin-left:8px; border-radius:999px; background:#ffe1de; color:#d84a3a; font-size:16px; font-weight:900; vertical-align:middle; }
+.delta { margin-left:6px; font-style:normal; font-weight:900; }
+.delta-good { color:#1f9d68; }
+.delta-bad { color:#d84a3a; }
 .grid { display:grid; gap:14px; margin-bottom:14px; }
 .grid.two { grid-template-columns:1.1fr .9fr; }
 .grid.three { grid-template-columns:.75fr 1fr 1.4fr; }
