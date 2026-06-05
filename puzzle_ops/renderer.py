@@ -111,7 +111,7 @@ def render_dashboard(agent: PuzzleOpsAgent, state: AppState) -> str:
 <section class="metrics">
   <article><span>当前国家</span><strong>{escape(dashboard["country_label"])}</strong><small>{escape(dashboard["owner"])}</small></article>
   <article><span>本季度累计 SA 占比 / OKR</span><strong>{render_metric_ratio(str(dashboard["sa"]), higher_is_better=True)}</strong></article>
-  <article><span>本季度累计 AI 占比 / OKR</span><strong>{render_metric_ratio(str(dashboard["ai"]), higher_is_better=True)}</strong></article>
+  <article><span>本季度累计 AI率 / OKR</span><strong>{render_ai_rate_ratio(str(dashboard["ai"]))}</strong></article>
 </section>
 <section class="grid two">
   <form class="panel" method="post" action="/save_dashboard"><h2>本周工作流</h2>{render_workflow(state)}<button>保存工作流</button></form>
@@ -341,6 +341,20 @@ def render_metric_ratio(raw: str, higher_is_better: bool) -> str:
     )
 
 
+def render_ai_rate_ratio(raw: str) -> str:
+    current_text, okr_text = [part.strip() for part in raw.split("/", 1)]
+    current = int(current_text.rstrip("%"))
+    okr = int(okr_text.rstrip("%"))
+    status_class = "metric-bad" if current >= okr else "metric-ok"
+    alert = '<span class="metric-alert">!</span>' if current - okr > 10 else ""
+    return (
+        f'<span class="metric-value {status_class}">{escape(current_text)}</span>'
+        f'<span class="metric-sep">/</span>'
+        f'<span class="okr-value">{escape(okr_text)}</span>'
+        f"{alert}"
+    )
+
+
 def render_delta(raw: str, higher_is_better: bool) -> str:
     is_up = raw.strip().startswith("↑")
     good = is_up if higher_is_better else not is_up
@@ -437,6 +451,7 @@ nav { display:grid; gap:8px; margin:18px 0; }
 .metrics strong { display:block; margin:8px 0; font-size:28px; }
 .metric-value.metric-ok { color:#1f9d68; }
 .metric-value.metric-miss { color:#d84a3a; }
+.metric-value.metric-bad { color:#d84a3a; }
 .metric-sep { margin:0 8px; color:#7d8991; }
 .okr-value { color:#111; }
 .metric-alert { display:inline-grid; place-items:center; width:24px; height:24px; margin-left:8px; border-radius:999px; background:#ffe1de; color:#d84a3a; font-size:16px; font-weight:900; vertical-align:middle; }

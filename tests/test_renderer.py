@@ -88,7 +88,9 @@ def test_dashboard_okr_coloring_and_alert_rules():
     france = render_page(agent, AppState(country="法国", view="dashboard"))
 
     assert '<span class="metric-value metric-miss">72%</span><span class="metric-sep">/</span><span class="okr-value">75%</span>' in japan
-    assert '<span class="metric-value metric-ok">16%</span><span class="metric-sep">/</span><span class="okr-value">15%</span>' in japan
+    assert "本季度累计 AI率 / OKR" in japan
+    assert '<span class="metric-value metric-bad">16%</span><span class="metric-sep">/</span><span class="okr-value">15%</span>' in japan
+    assert '<span class="metric-value metric-ok">14%</span><span class="metric-sep">/</span><span class="okr-value">15%</span>' in france
     assert '<span class="metric-value metric-miss">69%</span><span class="metric-sep">/</span><span class="okr-value">73%</span>' in france
     assert '<span class="okr-value">75%</span><span class="metric-alert">!</span>' not in japan
 
@@ -99,6 +101,18 @@ def test_metric_gap_over_ten_points_gets_red_alert():
     html = render_metric_ratio("20% / 35%", higher_is_better=True)
 
     assert '<span class="metric-alert">!</span>' in html
+
+
+def test_ai_rate_okr_is_red_when_equal_or_above_okr():
+    from puzzle_ops.renderer import render_ai_rate_ratio
+
+    below = render_ai_rate_ratio("14% / 15%")
+    equal = render_ai_rate_ratio("15% / 15%")
+    above = render_ai_rate_ratio("16% / 15%")
+
+    assert '<span class="metric-value metric-ok">14%</span>' in below
+    assert '<span class="metric-value metric-bad">15%</span>' in equal
+    assert '<span class="metric-value metric-bad">16%</span>' in above
 
 
 def test_every_view_header_keeps_module_icon():
