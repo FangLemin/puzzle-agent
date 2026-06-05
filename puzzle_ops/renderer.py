@@ -23,6 +23,7 @@ class AppState:
     schedule_replacements: dict[int, object] = field(default_factory=dict)
     sync_message: str = ""
     analysis_edits: dict[str, object] = field(default_factory=dict)
+    trial_uploads: list[dict[str, str]] = field(default_factory=list)
 
 
 def render_page(agent: PuzzleOpsAgent, state: AppState) -> str:
@@ -170,6 +171,11 @@ def render_regular(agent: PuzzleOpsAgent, state: AppState) -> str:
     images = "".join(render_reference_image(state, image, index) for index, image in enumerate(agent.images_for_tag(state.country, state.tag)))
     rows = render_need_rows(state.need_rows)
     sync_message = f'<p class="success">{escape(state.sync_message)}</p>' if state.sync_message else ""
+    feishu_status = agent.feishu.config_status()
+    if agent.feishu.is_real:
+        feishu_copy = f"真实飞书：{escape(str(feishu_status.get('spreadsheet_token', '')))} · {escape(str(feishu_status.get('sheet_range', '')))}"
+    else:
+        feishu_copy = f"真实飞书未配置，缺少：{escape('、'.join(feishu_status['missing']))}"
     return f"""
 <section class="grid three">
   <div class="panel"><h2>分类</h2>{categories}</div>
@@ -180,6 +186,7 @@ def render_regular(agent: PuzzleOpsAgent, state: AppState) -> str:
   <div class="section-line"><h2>批量提需清单</h2>
     <form method="post" action="/generate_descriptions">{hidden_context(state)}<button>AI生成描述</button></form>
   </div>
+  <p class="note">{feishu_copy}</p>
   {sync_message}
   <form method="post" action="/save_needs">{hidden_context(state)}{rows}<div class="section-line"><button class="primary">保存表格修改</button><button formaction="/sync_needs_feishu" formmethod="post">一键同步到飞书表格</button></div></form>
 </section>
@@ -221,10 +228,11 @@ def render_trial(agent: PuzzleOpsAgent, state: AppState) -> str:
     row = state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)
     row_html = render_need_row(row, 0, include_value=True, prefix="")
     upload_copy = "拖拽或选择 1-3 张参考图" if state.trial_mode == "parse" else "上传单张历史好图，自动衍生 2 张类似参考图"
+    previews = "".join(render_upload_preview(item) for item in state.trial_uploads) or '<div class="thumb">参考图 A</div><div class="thumb">参考图 B</div><div class="thumb">参考图 C</div>'
     return f"""
 <section class="panel"><h2>试新模式</h2><div class="mode-grid">{mode_links}</div></section>
 <section class="grid two">
-  <div class="panel"><h2>上传参考图</h2><div class="mock-upload-zone"><strong>{upload_copy}</strong><span>当前为可测试的模拟上传：点击按钮后会生成解析结果并写入提需表。</span><form method="post" action="/simulate_trial_upload">{hidden_context(state)}<button>模拟上传并解析</button></form></div><div class="reference-row"><div class="thumb">参考图 A</div><div class="thumb">参考图 B</div><div class="thumb">参考图 C</div></div></div>
+  <div class="panel"><h2>上传参考图</h2><div class="mock-upload-zone"><strong>{upload_copy}</strong><span>可上传本地图片进行结构化解析；未接 LLM 时使用本地解析适配层。</span><form method="post" action="/upload_trial_images" enctype="multipart/form-data">{hidden_context(state)}<input type="file" name="trial_images" accept="image/*" multiple><button>上传并解析图片</button></form><form method="post" action="/simulate_trial_upload">{hidden_context(state)}<button>模拟上传并解析</button></form></div><div class="reference-row">{previews}</div></div>
   <div class="panel"><h2>Agent 解析结果</h2><dl class="detail"><div><dt>主体</dt><dd>{escape(row.subject)}</dd></div><div><dt>运营tag</dt><dd>{escape(row.operation_tag)}</dd></div><div><dt>加工方式</dt><dd>{escape(row.method)}</dd></div><div><dt>审核备注</dt><dd>{escape(row.remark or "无")}</dd></div></dl></div>
 </section>
 <section class="panel">
@@ -348,12 +356,30 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
 def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
     metrics = agent.eval_dashboard(state.country)
     trace = agent.run_agent_task(state.country, "value_judge")
+    report = agent.eval_report(state.country)
     metric_cards = "".join(f"<article><span>{escape(key)}</span><strong>{escape(value)}</strong></article>" for key, value in metrics.items())
+    eval_metric_rows = "".join(
+        f"<tr><td>{escape(metric.name)}</td><td>{metric.score:.2f}</td><td>{metric.threshold:.2f}</td><td>{escape(metric.status)}</td><td>{escape(metric.reason)}</td></tr>"
+        for metric in report.metric_results
+    )
+    case_rows = "".join(
+        f"<tr><td>{escape(case.case_id)}</td><td>{escape(case.task_type)}</td><td>{escape('、'.join(case.expected_tools))}</td><td>{escape('、'.join(case.actual_tools))}</td><td>{escape(case.judge_reason)}</td></tr>"
+        for case in report.cases
+    )
     plan = "".join(f"<li>{escape(step)}</li>" for step in trace.plan)
     tools = "".join(f"<li>{escape(tool)}</li>" for tool in trace.tool_calls)
     observations = "".join(f"<li>{escape(item)}</li>" for item in trace.observations)
     return f"""
 <section class="metrics">{metric_cards}</section>
+<section class="panel">
+  <h2>Eval Dataset</h2>
+  <p>{escape(report.dataset_name)} · {escape(report.country)} · 评测 RAG 召回、工具调用、计划遵循、步骤效率。</p>
+  <div class="table-wrap"><table><thead><tr><th>Metric</th><th>Score</th><th>Threshold</th><th>Pass/Fail</th><th>Reason</th></tr></thead><tbody>{eval_metric_rows}</tbody></table></div>
+</section>
+<section class="panel">
+  <h2>Case 明细</h2>
+  <div class="table-wrap"><table><thead><tr><th>Case</th><th>任务</th><th>期望工具</th><th>实际工具</th><th>Judge Reason</th></tr></thead><tbody>{case_rows}</tbody></table></div>
+</section>
 <section class="panel">
   <h2>Agent Trace</h2>
   <dl class="detail">
@@ -403,6 +429,10 @@ def render_image_card(image) -> str:
 
 def render_image_preview(image_name: str) -> str:
     return f'<div class="image-preview-cell"><div class="mini-thumb">{escape(image_name)}</div><span>{escape(image_name)}</span></div>'
+
+
+def render_upload_preview(item: dict[str, str]) -> str:
+    return f'<div class="thumb upload-thumb"><img src="{escape(item["url"])}" alt="{escape(item["filename"])}"><span>{escape(item["filename"])}</span></div>'
 
 
 def render_line_chart(report) -> str:
@@ -577,6 +607,8 @@ nav { display:grid; gap:8px; margin:18px 0; }
 .mock-upload-zone span { display:block; color:var(--muted); margin-top:6px; }
 .image-card, .slot { display:grid; gap:8px; padding:12px; border:1px solid var(--line); border-radius:8px; background:#fffdf7; }
 .thumb { min-height:95px; display:grid; place-items:center; padding:12px; border-radius:8px; background:linear-gradient(135deg,#e6f4ee,#fff0cb); text-align:center; font-weight:900; }
+.upload-thumb img { max-width:100%; max-height:120px; border-radius:8px; object-fit:cover; }
+.upload-thumb span { font-size:12px; color:var(--muted); }
 .mini-thumb { width:92px; min-height:64px; display:grid; place-items:center; padding:8px; border-radius:8px; background:linear-gradient(135deg,#f4efe2,#dff1ea); font-size:12px; font-weight:900; text-align:center; }
 .image-preview-cell { display:grid; grid-template-columns:92px minmax(140px,1fr); align-items:center; gap:10px; min-width:260px; }
 .choice { display:flex; justify-content:space-between; gap:10px; padding:10px; margin-bottom:8px; border:1px solid var(--line); border-radius:8px; background:#fffdf7; }

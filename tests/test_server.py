@@ -72,11 +72,25 @@ def test_sync_needs_to_feishu_clears_rows_and_sets_success_message():
         APP.agent.add_regular_demand("日本", "人物", "常规_日本_传统浴袍美女0604", 0),
         APP.agent.add_regular_demand("日本", "人物", "常规_日本_传统浴袍美女0604", 1),
     ]
+    APP.agent.feishu.allow_real_sync = True
 
     handle_action("/sync_needs_feishu", {"country": ["日本"], "view": ["regular"]})
 
     assert APP.state.need_rows == []
     assert APP.state.sync_message == "同步成功，当前已完成提需2条"
+    assert any(row[2] == "提需同步" for row in APP.agent.sync_rows())
+
+
+def test_sync_needs_requires_real_feishu_and_keeps_rows_without_config():
+    APP.state = AppState(country="日本", view="regular", category="人物", tag="常规_日本_传统浴袍美女0604")
+    APP.state.need_rows = [APP.agent.add_regular_demand("日本", "人物", "常规_日本_传统浴袍美女0604", 0)]
+    APP.agent.feishu.allow_real_sync = False
+
+    handle_action("/sync_needs_feishu", {"country": ["日本"], "view": ["regular"]})
+
+    assert len(APP.state.need_rows) == 1
+    assert "未配置真实飞书" in APP.state.sync_message
+    assert any(row[4] == "失败" for row in APP.agent.sync_rows())
 
 
 def test_apply_value_master_action_updates_trial_row():
@@ -98,6 +112,24 @@ def test_simulate_trial_upload_action_updates_trial_row():
 
     assert APP.state.view == "trial"
     assert "已生成2张相似参考图" in APP.state.trial_row.remark
+
+
+def test_upload_trial_images_action_updates_trial_row_and_previews():
+    APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="parse")
+
+    handle_action(
+        "/upload_trial_images",
+        {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["parse"]},
+        files={
+            "trial_images": [
+                {"filename": "cat-koi.png", "content_type": "image/png", "content": b"fake-image"}
+            ]
+        },
+    )
+
+    assert "cat-koi.png" in APP.state.trial_row.image_name
+    assert "本地图片解析" in APP.state.trial_row.remark
+    assert APP.state.trial_uploads[0]["filename"] == "cat-koi.png"
 
 
 def test_save_trial_can_edit_operation_tag():

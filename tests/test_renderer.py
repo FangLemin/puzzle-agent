@@ -56,7 +56,10 @@ def test_trial_page_keeps_core_fields_and_value_match_column():
     assert "价值观匹配度" in html
     assert "自动衍生2张参考图" in html
     assert "模拟上传并解析" in html
+    assert 'type="file"' in html
+    assert 'enctype="multipart/form-data"' in html
     assert 'action="/simulate_trial_upload"' in html
+    assert 'action="/upload_trial_images"' in html
     assert 'name="delivery_date" value=""' in html
     assert 'class="image-preview-cell"' in html
     assert 'class="small-input"' in html
@@ -170,7 +173,11 @@ def test_eval_page_shows_agent_trace_and_metrics():
     html = render_page(PuzzleOpsAgent(), AppState(country="日本", view="eval"))
 
     assert "Agent 评测" in html
-    assert "工具调用成功率" in html
+    assert "Eval Dataset" in html
+    assert "Case 明细" in html
+    assert "Pass/Fail" in html
+    assert "Tool Correctness" in html
+    assert "Context Precision" in html
     assert "TruLens Context Relevance" in html
     assert "value_judge_skill" in html
     assert "history.search_records" in html

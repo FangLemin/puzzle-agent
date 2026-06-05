@@ -1,4 +1,7 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from email.parser import BytesParser
+from email.policy import default
+from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 
 from puzzle_ops.agents import PuzzleOpsAgent
@@ -17,16 +20,20 @@ APP = PuzzleOpsServer()
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
-        query = parse_qs(urlparse(self.path).query)
+        parsed = urlparse(self.path)
+        if parsed.path.startswith("/uploads/"):
+            self.respond_upload(parsed.path.removeprefix("/uploads/"))
+            return
+        query = parse_qs(parsed.query)
         update_state_from_query(APP.state, query)
         self.respond(render_page(APP.agent, APP.state))
 
     def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length", "0"))
-        payload = self.rfile.read(length).decode("utf-8")
-        form = parse_qs(payload)
+        body = self.rfile.read(length)
+        form, files = parse_post_body(self.headers.get("Content-Type", ""), body)
         path = urlparse(self.path).path
-        handle_action(path, form)
+        handle_action(path, form, files)
         self.send_response(303)
         self.send_header("Location", redirect_location(APP.state))
         self.end_headers()
@@ -38,6 +45,19 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(encoded)))
         self.end_headers()
         self.wfile.write(encoded)
+
+    def respond_upload(self, filename: str) -> None:
+        path = (APP.agent._runtime_dir / "trial_uploads" / Path(filename).name)
+        if not path.exists():
+            self.send_response(404)
+            self.end_headers()
+            return
+        data = path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
 
 def update_state_from_query(state: AppState, query: dict[str, list[str]]) -> None:
@@ -56,7 +76,8 @@ def update_state_from_query(state: AppState, query: dict[str, list[str]]) -> Non
         state.trial_row = None
 
 
-def handle_action(path: str, form: dict[str, list[str]]) -> None:
+def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[dict[str, object]]] | None = None) -> None:
+    files = files or {}
     state = APP.state
     agent = APP.agent
     update_state_from_query(state, form)
@@ -90,9 +111,12 @@ def handle_action(path: str, form: dict[str, list[str]]) -> None:
     elif path == "/sync_needs_feishu":
         rows = [_demand_row_payload(row) for row in state.need_rows]
         count = len(rows)
-        result = agent.feishu.write_table("提需表", rows)
-        state.need_rows.clear()
-        state.sync_message = f"同步成功，当前已完成提需{count}条" if result.success else f"同步失败：{result.error}"
+        result = agent.sync_demand_rows(state.country, rows, require_real=True)
+        if result.success:
+            state.need_rows.clear()
+            state.sync_message = f"同步成功，当前已完成提需{count}条"
+        else:
+            state.sync_message = f"同步失败：{result.error}"
         state.view = "regular"
     elif path == "/save_trial":
         row = state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)
@@ -112,6 +136,12 @@ def handle_action(path: str, form: dict[str, list[str]]) -> None:
         state.view = "trial"
     elif path == "/simulate_trial_upload":
         state.trial_row = agent.simulate_trial_upload(state.country, state.category, state.trial_mode)
+        state.trial_uploads = []
+        state.view = "trial"
+    elif path == "/upload_trial_images":
+        row, previews = agent.parse_trial_uploads(state.country, state.category, state.trial_mode, files.get("trial_images", []))
+        state.trial_row = row
+        state.trial_uploads = list(previews)
         state.view = "trial"
     elif path == "/save_analysis":
         report = agent.analysis_report(state.country)
@@ -144,6 +174,29 @@ def redirect_location(state: AppState) -> str:
 
 def value(form: dict[str, list[str]], key: str, default: str) -> str:
     return form.get(key, [default])[0]
+
+
+def parse_post_body(content_type: str, body: bytes) -> tuple[dict[str, list[str]], dict[str, list[dict[str, object]]]]:
+    if "multipart/form-data" not in content_type:
+        return parse_qs(body.decode("utf-8")), {}
+    message = BytesParser(policy=default).parsebytes(
+        f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("utf-8") + body
+    )
+    form: dict[str, list[str]] = {}
+    files: dict[str, list[dict[str, object]]] = {}
+    for part in message.iter_parts():
+        name = part.get_param("name", header="content-disposition")
+        if not name:
+            continue
+        filename = part.get_filename()
+        payload = part.get_payload(decode=True) or b""
+        if filename:
+            files.setdefault(name, []).append(
+                {"filename": filename, "content_type": part.get_content_type(), "content": payload}
+            )
+        else:
+            form.setdefault(name, []).append(payload.decode(part.get_content_charset() or "utf-8"))
+    return form, files
 
 
 def _demand_row_payload(row) -> dict[str, object]:

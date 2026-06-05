@@ -2,6 +2,37 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.5 - 真实飞书门禁、试新图片上传与 Agent Eval 重构
+
+日期：2026-06-05
+
+阶段目标：
+
+- 修复“同步成功但找不到飞书表格”的误导问题，让提需同步必须连接真实飞书；同时补齐试新本地图片上传、同步记录自动更新和更像工程项目的 Agent/RAG 评测面板。
+
+已完成：
+
+- 新增 `.env.example`，列出真实飞书连接所需的 App ID、App Secret、Spreadsheet Token、Sheet Range。
+- `.gitignore` 忽略 `.env`，避免误提交飞书密钥。
+- `RealFeishuClient` 支持在未提供 `FEISHU_ACCESS_TOKEN` 时，用 App ID/App Secret 自动获取 `tenant_access_token`。
+- 提需表“一键同步到飞书表格”改为真实飞书门禁：未配置真实飞书时不会清空提需表，并显示缺失配置。
+- 同步记录改为从 SQLite 动态读取，提交提需同步后自动新增成功/失败记录。
+- 试新提需新增真实本地图片上传入口，支持 `multipart/form-data`，上传后保存图片并回填提需表解析结果和预览。
+- 新增 `TrialImageUploadService`，把上传保存/本地解析从服务端拆出，后续接多模态 LLM 时只替换解析适配层。
+- 新增 `AgentEvalSuite`，评测页展示 eval dataset、case 明细、metric 阈值、pass/fail、judge reason。
+- Agent 评测新增 Context Precision、Context Recall、Tool Correctness、Plan Adherence、Step Efficiency，借鉴 AgentOps、RAGAS、DeepEval、TruLens 的分层评测思路。
+- Agent 评测页的 `feishu.write_table` 仅作为 trace dry-run 展示，不会因为打开评测页而写入真实飞书。
+
+当前限制：
+
+- 真实飞书需要用户在本机 `.env` 填写凭证，并在飞书开放平台授予电子表格读写权限。
+- 试新上传已可用，但图片理解仍是本地规则适配层，不是视觉 LLM。
+- Agent Eval 是本地可解释 eval suite，尚未接真实 LLM-as-Judge provider。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests -q`：77 passed。
+
 ## v0.3.4 - 提需同步、分析持久化与 RAG 评测补齐
 
 日期：2026-06-05

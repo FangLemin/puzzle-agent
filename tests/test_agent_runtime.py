@@ -49,3 +49,19 @@ def test_eval_dashboard_contains_competitive_agent_metrics():
     assert dashboard["审核风险召回率"].endswith("%")
     assert dashboard["SABCD预测准确率"].endswith("%")
     assert dashboard["价值观候选通过率"].endswith("%")
+
+
+def test_eval_trace_does_not_write_to_real_feishu_as_page_side_effect():
+    class FailingFeishu:
+        is_real = True
+
+        def write_table(self, table_name, rows):
+            raise AssertionError("eval trace should not write to Feishu")
+
+    agent = PuzzleOpsAgent()
+    agent.feishu = FailingFeishu()
+
+    trace = agent.run_agent_task("日本", "value_judge")
+
+    assert "feishu.write_table" in trace.tool_calls
+    assert any("dry-run" in observation for observation in trace.observations)

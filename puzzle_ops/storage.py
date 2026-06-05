@@ -58,6 +58,20 @@ class PuzzleRepository:
             ).fetchall()
         return tuple(dict(row) for row in rows)
 
+    def add_sync_event(self, country: str, action: str, target: str, status: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO sync_events(country, action, target, status) VALUES (?, ?, ?, ?)",
+                (country, action, target, status),
+            )
+
+    def sync_events(self) -> tuple[tuple[str, str, str, str, str], ...]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT created_at, country, action, target, status FROM sync_events ORDER BY event_id DESC"
+            ).fetchall()
+        return tuple(tuple(str(row[index]) for index in range(5)) for row in rows)
+
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
@@ -107,6 +121,18 @@ class PuzzleRepository:
                     rule_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     country TEXT NOT NULL,
                     rule_text TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sync_events (
+                    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    country TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    target TEXT NOT NULL,
                     status TEXT NOT NULL,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )

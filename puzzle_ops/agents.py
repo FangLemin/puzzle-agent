@@ -13,6 +13,8 @@ from puzzle_ops.models import AgentTrace, AnalysisReport, DemandRow, HolidayReco
 from puzzle_ops.multimodal import ImageFeatureExtractor, SimilarImageRetriever, ValueInsightMiner
 from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.trulens_eval import TruLensRAGEvaluator
+from puzzle_ops.trial_upload import TrialImageUploadService
+from puzzle_ops.eval_suite import AgentEvalSuite
 
 
 class PuzzleOpsAgent:
@@ -33,6 +35,7 @@ class PuzzleOpsAgent:
         self.adapter = MCPToolAdapter()
         self.adapter.register_cms(self.cms)
         self.feishu = FeishuClientFactory.create(runtime_dir / "feishu_mock")
+        self.trial_uploads = TrialImageUploadService(runtime_dir / "trial_uploads")
 
     def countries(self) -> tuple[str, ...]:
         return tuple(COUNTRIES.keys())
@@ -159,6 +162,10 @@ class PuzzleOpsAgent:
             remark=(row.remark + "；" if row.remark else "") + "已解析3张参考图，可进入试新提需。",
         )
 
+    def parse_trial_uploads(self, country: str, category: str, mode: str, files: list[dict[str, object]]) -> tuple[DemandRow, tuple[dict[str, str], ...]]:
+        row = self.create_trial_demand(country, category, mode)
+        return self.trial_uploads.parse(row, files, mode)
+
     def apply_value_master(self, row: DemandRow) -> DemandRow:
         value_match = self._country(row.country)["trial"]["value_match"]
         return row.edited(value_match=value_match)
@@ -248,7 +255,19 @@ class PuzzleOpsAgent:
         return ScheduleItem("候补", 0, f"未分发候补图：{image.title}", operation_tag, image.grade, image.open_rate, image.finish_rate, image.finish_time)
 
     def sync_rows(self):
-        return SYNC_ROWS
+        return self.repository.sync_events() + SYNC_ROWS
+
+    def sync_demand_rows(self, country: str, rows: list[dict[str, object]], require_real: bool = True):
+        if require_real and not self.feishu.is_real and not getattr(self.feishu, "allow_real_sync", False):
+            missing = ", ".join(self.feishu.config_status()["missing"])
+            message = f"未配置真实飞书：缺少 {missing}"
+            self.repository.add_sync_event(country, "提需同步", "飞书在线表格", "失败")
+            from puzzle_ops.models import ToolResult
+
+            return ToolResult(False, {"missing": missing}, message, error=message)
+        result = self.feishu.write_table("提需表", rows)
+        self.repository.add_sync_event(country, "提需同步", "飞书在线表格", "成功" if result.success else "失败")
+        return result
 
     def multimodal_profile(self, country: str) -> ImageProfile:
         records = self._history_records(country)
@@ -285,10 +304,6 @@ class PuzzleOpsAgent:
         profile = self.multimodal_profile(country)
         review = self.audit_review(profile.asset.operation_tag + profile.asset.remark)
         inventory = self.adapter.registry.call("cms.query_inventory", tag=profile.asset.operation_tag)
-        sync_result = self.feishu.write_table(
-            "AgentTrace",
-            [{"国家": country, "任务": task_type, "运营tag": profile.asset.operation_tag, "审核风险": review.risk_level}],
-        )
         plan = (
             "构建国家与任务上下文",
             "抽取图片结构化特征",
@@ -312,7 +327,7 @@ class PuzzleOpsAgent:
             f"主体={profile.feature.main_subject}，风险={','.join(profile.feature.risk_tags) or '无'}",
             f"相似好图{len(profile.similar_good_cases)}张，相似坏图{len(profile.similar_bad_cases)}张",
             f"审核风险等级={review.risk_level}",
-            f"飞书同步：{sync_result.message}",
+            "飞书同步：dry-run，评测页只记录 trace，不写在线表格",
         )
         rag_eval = TruLensRAGEvaluator().evaluate(
             query=profile.asset.operation_tag,
@@ -324,7 +339,7 @@ class PuzzleOpsAgent:
             "audit_recall_rate": 1.0 if review.evidence else 0.8,
             "sabcd_prediction_accuracy": 0.8,
             "value_candidate_pass_rate": len(self.approved_value_rules(country)) / max(len(self.value_rule_candidates(country)), 1),
-            "external_adapter_success_rate": 1.0 if inventory.success and sync_result.success else 0.5,
+            "external_adapter_success_rate": 1.0 if inventory.success else 0.5,
             "trulens_context_relevance": rag_eval["context_relevance"],
             "trulens_groundedness": rag_eval["groundedness"],
             "trulens_answer_relevance": rag_eval["answer_relevance"],
@@ -361,6 +376,9 @@ class PuzzleOpsAgent:
             "飞书同步成功率": "100%",
             "人工修改率": "20%",
         }
+
+    def eval_report(self, country: str):
+        return AgentEvalSuite(self).run(country)
 
     def _country(self, country: str) -> dict[str, object]:
         try:

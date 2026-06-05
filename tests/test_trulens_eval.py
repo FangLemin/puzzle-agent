@@ -1,4 +1,5 @@
 from puzzle_ops.agents import PuzzleOpsAgent
+from puzzle_ops.eval_suite import AgentEvalSuite
 from puzzle_ops.trulens_eval import TruLensRAGEvaluator
 
 
@@ -23,3 +24,15 @@ def test_agent_eval_dashboard_includes_trulens_rag_metrics():
     assert "TruLens Context Relevance" in dashboard
     assert "TruLens Groundedness" in dashboard
     assert "TruLens Answer Relevance" in dashboard
+
+
+def test_agent_eval_suite_returns_cases_thresholds_and_fail_reasons():
+    report = AgentEvalSuite(PuzzleOpsAgent()).run("日本")
+
+    assert report.dataset_name == "PuzzleOps Agent Eval Set"
+    assert report.cases
+    assert report.metric_results
+    assert all(metric.threshold > 0 for metric in report.metric_results)
+    assert all(metric.status in {"PASS", "FAIL"} for metric in report.metric_results)
+    assert any(case.expected_tools for case in report.cases)
+    assert any("依据" in case.judge_reason for case in report.cases)

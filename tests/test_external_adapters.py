@@ -1,6 +1,6 @@
 from puzzle_ops.adapters import MCPToolAdapter
 from puzzle_ops.cms import MockCMSClient
-from puzzle_ops.feishu import RealFeishuClient
+from puzzle_ops.feishu import FeishuClientFactory, RealFeishuClient
 from puzzle_ops.models import ToolResult
 
 
@@ -52,3 +52,38 @@ def test_real_feishu_client_builds_official_values_append_request():
     assert captured["headers"]["Authorization"] == "Bearer t-token"
     assert captured["json_body"]["valueRange"]["range"] == "Sheet1!A1"
     assert captured["json_body"]["valueRange"]["values"][0] == ["运营tag", "张数"]
+
+
+def test_real_feishu_client_fetches_tenant_access_token_when_token_missing():
+    calls = []
+
+    def transport(method, url, headers, json_body):
+        calls.append({"method": method, "url": url, "headers": headers, "json_body": json_body})
+        if url.endswith("/open-apis/auth/v3/tenant_access_token/internal"):
+            return {"code": 0, "tenant_access_token": "tenant-token"}
+        return {"code": 0, "msg": "success"}
+
+    client = RealFeishuClient(
+        app_id="cli_xxx",
+        app_secret="secret",
+        spreadsheet_token="sht_token",
+        sheet_range="Sheet1!A1",
+        access_token="",
+        transport=transport,
+    )
+
+    result = client.write_table("提需表", [{"运营tag": "常规_日本_猫咪鲤鱼0401"}])
+
+    assert result.success
+    assert calls[0]["json_body"] == {"app_id": "cli_xxx", "app_secret": "secret"}
+    assert calls[1]["headers"]["Authorization"] == "Bearer tenant-token"
+
+
+def test_feishu_factory_reports_missing_real_config(monkeypatch, tmp_path):
+    for key in ("FEISHU_APP_ID", "FEISHU_APP_SECRET", "FEISHU_SPREADSHEET_TOKEN"):
+        monkeypatch.delenv(key, raising=False)
+
+    client = FeishuClientFactory.create(export_dir=tmp_path)
+
+    assert not client.is_real
+    assert "FEISHU_APP_ID" in client.config_status()["missing"]
