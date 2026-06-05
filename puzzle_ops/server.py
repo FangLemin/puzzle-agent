@@ -80,11 +80,19 @@ def handle_action(path: str, form: dict[str, list[str]]) -> None:
                     priority=value(form, f"priority_{index}", row.priority),
                     count=int(value(form, f"count_{index}", str(row.count))),
                     method=value(form, f"method_{index}", row.method),
+                    operation_tag=value(form, f"operation_tag_{index}", row.operation_tag),
                     delivery_date=value(form, f"delivery_date_{index}", row.delivery_date),
                     remark=value(form, f"remark_{index}", row.remark),
                 )
             )
         state.need_rows = saved
+        state.view = "regular"
+    elif path == "/sync_needs_feishu":
+        rows = [_demand_row_payload(row) for row in state.need_rows]
+        count = len(rows)
+        result = agent.feishu.write_table("提需表", rows)
+        state.need_rows.clear()
+        state.sync_message = f"同步成功，当前已完成提需{count}条" if result.success else f"同步失败：{result.error}"
         state.view = "regular"
     elif path == "/save_trial":
         row = state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)
@@ -93,6 +101,7 @@ def handle_action(path: str, form: dict[str, list[str]]) -> None:
             priority=value(form, "priority", row.priority),
             count=int(value(form, "count", str(row.count))),
             method=value(form, "method", row.method),
+            operation_tag=value(form, "operation_tag", row.operation_tag),
             delivery_date=value(form, "delivery_date", row.delivery_date),
             remark=value(form, "remark", row.remark),
         )
@@ -101,6 +110,20 @@ def handle_action(path: str, form: dict[str, list[str]]) -> None:
         row = state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)
         state.trial_row = agent.apply_value_master(row)
         state.view = "trial"
+    elif path == "/simulate_trial_upload":
+        state.trial_row = agent.simulate_trial_upload(state.country, state.category, state.trial_mode)
+        state.view = "trial"
+    elif path == "/save_analysis":
+        report = agent.analysis_report(state.country)
+        state.analysis_edits = {
+            "remarks": {
+                index: value(form, f"analysis_remark_{index}", row.remark)
+                for index, row in enumerate(report.rows)
+            },
+            "cycle_summary": value(form, "cycle_summary", report.cycle_summary),
+            "next_todo": value(form, "next_todo", report.next_todo),
+        }
+        state.view = "analysis"
     elif path == "/replace_schedule":
         slot_index = int(value(form, "slot_index", "0"))
         image_name = value(form, "image_name", "")
@@ -121,6 +144,23 @@ def redirect_location(state: AppState) -> str:
 
 def value(form: dict[str, list[str]], key: str, default: str) -> str:
     return form.get(key, [default])[0]
+
+
+def _demand_row_payload(row) -> dict[str, object]:
+    return {
+        "提需分类": row.need_type,
+        "国家": row.country,
+        "JS分类": row.js_category,
+        "图片本身": row.image_name,
+        "运营tag": row.operation_tag,
+        "主体内容": row.subject,
+        "张数": row.count,
+        "需求等级": row.priority,
+        "加工方式": row.method,
+        "交付日期": row.delivery_date,
+        "主体描述": row.subject_description,
+        "备注": row.remark,
+    }
 
 
 def run(host: str = "127.0.0.1", port: int = 5188) -> None:

@@ -32,6 +32,8 @@ def test_regular_page_renders_business_table_fields_and_empty_delivery_input():
     assert "需求等级" in html
     assert "交付日期" in html
     assert 'name="delivery_date_0" value=""' in html
+    assert 'name="operation_tag_0"' in html
+    assert "一键同步到飞书表格" in html
     assert "常规_日本_传统浴袍美女0604" in html
     assert "stock-hot" in html
     assert "stock-low" in html
@@ -53,6 +55,8 @@ def test_trial_page_keeps_core_fields_and_value_match_column():
     assert "需求等级" in html
     assert "价值观匹配度" in html
     assert "自动衍生2张参考图" in html
+    assert "模拟上传并解析" in html
+    assert 'action="/simulate_trial_upload"' in html
     assert 'name="delivery_date" value=""' in html
     assert 'class="image-preview-cell"' in html
     assert 'class="small-input"' in html
@@ -70,6 +74,13 @@ def test_analysis_page_places_chart_before_detail_and_summary_at_bottom():
     html = render_page(PuzzleOpsAgent(), AppState(country="日本", view="analysis"))
 
     assert "趋势对比折线图" in html
+    assert "CD历史均值" in html
+    assert "AI历史均值" in html
+    assert "AI OKR" in html
+    assert 'action="/save_analysis"' in html
+    assert 'name="analysis_remark_0"' in html
+    assert 'name="cycle_summary"' in html
+    assert 'name="next_todo"' in html
     assert html.index("趋势对比折线图") < html.index("图片明细与 AI 分析备注")
     assert html.index("图片明细与 AI 分析备注") < html.index("周期内容分析")
 
@@ -140,6 +151,19 @@ def test_multimodal_runtime_page_shows_profile_candidates_and_evidence():
     assert "价值观候选池" in html
     assert "pending_review" in html
     assert 'action="/approve_value_candidate"' in html
+    assert "已审批价值观规则" in html
+    assert "HITL Memory" in html
+
+
+def test_multimodal_runtime_page_shows_approved_candidate_after_hitl_action():
+    agent = PuzzleOpsAgent()
+    candidate = agent.value_rule_candidates("日本")[0]
+    agent.approve_value_candidate(candidate.candidate_id, "日本", "运营确认用于后续试新")
+
+    html = render_page(agent, AppState(country="日本", view="runtime"))
+
+    assert "运营确认用于后续试新" in html
+    assert candidate.rule_text in html
 
 
 def test_eval_page_shows_agent_trace_and_metrics():
@@ -147,5 +171,6 @@ def test_eval_page_shows_agent_trace_and_metrics():
 
     assert "Agent 评测" in html
     assert "工具调用成功率" in html
+    assert "TruLens Context Relevance" in html
     assert "value_judge_skill" in html
     assert "history.search_records" in html

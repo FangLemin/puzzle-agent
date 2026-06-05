@@ -21,6 +21,8 @@ class AppState:
     workflow_notes: list[str] = field(default_factory=list)
     task_notes: list[str] = field(default_factory=list)
     schedule_replacements: dict[int, object] = field(default_factory=dict)
+    sync_message: str = ""
+    analysis_edits: dict[str, object] = field(default_factory=dict)
 
 
 def render_page(agent: PuzzleOpsAgent, state: AppState) -> str:
@@ -167,6 +169,7 @@ def render_regular(agent: PuzzleOpsAgent, state: AppState) -> str:
     tags = "".join(render_tag_choice(state, tag) for tag in agent.sorted_tags(state.country, state.category))
     images = "".join(render_reference_image(state, image, index) for index, image in enumerate(agent.images_for_tag(state.country, state.tag)))
     rows = render_need_rows(state.need_rows)
+    sync_message = f'<p class="success">{escape(state.sync_message)}</p>' if state.sync_message else ""
     return f"""
 <section class="grid three">
   <div class="panel"><h2>分类</h2>{categories}</div>
@@ -177,7 +180,8 @@ def render_regular(agent: PuzzleOpsAgent, state: AppState) -> str:
   <div class="section-line"><h2>批量提需清单</h2>
     <form method="post" action="/generate_descriptions">{hidden_context(state)}<button>AI生成描述</button></form>
   </div>
-  <form method="post" action="/save_needs">{hidden_context(state)}{rows}<button class="primary">保存表格修改</button></form>
+  {sync_message}
+  <form method="post" action="/save_needs">{hidden_context(state)}{rows}<div class="section-line"><button class="primary">保存表格修改</button><button formaction="/sync_needs_feishu" formmethod="post">一键同步到飞书表格</button></div></form>
 </section>
 """
 
@@ -220,7 +224,7 @@ def render_trial(agent: PuzzleOpsAgent, state: AppState) -> str:
     return f"""
 <section class="panel"><h2>试新模式</h2><div class="mode-grid">{mode_links}</div></section>
 <section class="grid two">
-  <div class="panel"><h2>上传参考图</h2><div class="mock-upload-zone"><strong>{upload_copy}</strong><span>Python 原型使用模拟图片位，后续可接真实图片上传。</span></div><div class="reference-row"><div class="thumb">参考图 A</div><div class="thumb">参考图 B</div><div class="thumb">参考图 C</div></div></div>
+  <div class="panel"><h2>上传参考图</h2><div class="mock-upload-zone"><strong>{upload_copy}</strong><span>当前为可测试的模拟上传：点击按钮后会生成解析结果并写入提需表。</span><form method="post" action="/simulate_trial_upload">{hidden_context(state)}<button>模拟上传并解析</button></form></div><div class="reference-row"><div class="thumb">参考图 A</div><div class="thumb">参考图 B</div><div class="thumb">参考图 C</div></div></div>
   <div class="panel"><h2>Agent 解析结果</h2><dl class="detail"><div><dt>主体</dt><dd>{escape(row.subject)}</dd></div><div><dt>运营tag</dt><dd>{escape(row.operation_tag)}</dd></div><div><dt>加工方式</dt><dd>{escape(row.method)}</dd></div><div><dt>审核备注</dt><dd>{escape(row.remark or "无")}</dd></div></dl></div>
 </section>
 <section class="panel">
@@ -246,7 +250,7 @@ def render_need_row(row: DemandRow, index: int, include_value: bool, prefix: str
         escape(row.country),
         escape(row.js_category),
         render_image_preview(row.image_name),
-        escape(row.operation_tag),
+        f'<input name="operation_tag{prefix}" value="{escape(row.operation_tag)}">',
         escape(row.subject),
         f'<input class="small-input" name="count{prefix}" value="{row.count}" size="3">',
         select(f"priority{prefix}", ("P0", "P1", "P2"), row.priority),
@@ -263,19 +267,24 @@ def render_need_row(row: DemandRow, index: int, include_value: bool, prefix: str
 
 def render_analysis(agent: PuzzleOpsAgent, state: AppState) -> str:
     report = agent.analysis_report(state.country)
+    edited_remarks = state.analysis_edits.get("remarks", {})
+    cycle_summary = str(state.analysis_edits.get("cycle_summary", report.cycle_summary))
+    next_todo = str(state.analysis_edits.get("next_todo", report.next_todo))
     rows = "".join(
-        f"<tr><td>{escape(row.image_name)}</td><td>{escape(row.source)}</td><td>{grade(row.grade)}</td><td>{escape(row.open_rate)}</td><td>{escape(row.finish_rate)}</td><td>{escape(row.finish_time)}</td><td>{position(row.position)}</td><td><textarea>{escape(row.remark)}</textarea></td></tr>"
-        for row in report.rows
+        f'<tr><td>{escape(row.image_name)}</td><td>{escape(row.source)}</td><td>{grade(row.grade)}</td><td>{escape(row.open_rate)}</td><td>{escape(row.finish_rate)}</td><td>{escape(row.finish_time)}</td><td>{position(row.position)}</td><td><textarea name="analysis_remark_{index}">{escape(edited_remarks.get(index, row.remark) if isinstance(edited_remarks, dict) else row.remark)}</textarea></td></tr>'
+        for index, row in enumerate(report.rows)
     )
     return f"""
 <section class="metrics">
   <article><span>SA 占比 {render_delta(report.sa_delta, higher_is_better=True)}</span><strong>{escape(report.sa_ratio)}</strong><small>历史均值 {escape(report.sa_history_avg)} · OKR {escape(report.sa_okr)}</small></article>
-  <article><span>CD 占比 {render_delta(report.cd_delta, higher_is_better=False)}</span><strong>{escape(report.cd_ratio)}</strong></article>
-  <article><span>AI占比 {render_delta(report.ai_delta, higher_is_better=False)}</span><strong>{escape(report.ai_ratio)}</strong></article>
+  <article><span>CD 占比 {render_delta(report.cd_delta, higher_is_better=False)}</span><strong>{escape(report.cd_ratio)}</strong><small>CD历史均值 {escape(report.cd_history_avg)}</small></article>
+  <article><span>AI占比 {render_delta(report.ai_delta, higher_is_better=False)}</span><strong>{escape(report.ai_ratio)}</strong><small>AI历史均值 {escape(report.ai_history_avg)} · AI OKR {escape(report.ai_okr)}</small></article>
 </section>
 <section class="panel"><h2>趋势对比折线图</h2>{render_line_chart(report)}</section>
+<form method="post" action="/save_analysis">{hidden_context(state)}
 <section class="panel"><h2>图片明细与 AI 分析备注</h2><div class="table-wrap"><table><thead><tr><th>图片</th><th>来源</th><th>等级</th><th>开图率</th><th>完成率</th><th>时长</th><th>分发位置</th><th>备注</th></tr></thead><tbody>{rows}</tbody></table></div></section>
-<section class="panel"><h2>周期内容分析</h2><textarea class="wide">{escape(report.cycle_summary)}</textarea><h2>下一步 todo 和建议</h2><textarea class="wide">{escape(report.next_todo)}</textarea></section>
+<section class="panel"><h2>周期内容分析</h2><textarea class="wide" name="cycle_summary">{escape(cycle_summary)}</textarea><h2>下一步 todo 和建议</h2><textarea class="wide" name="next_todo">{escape(next_todo)}</textarea><button class="primary">保存分析修改</button></section>
+</form>
 """
 
 
@@ -289,12 +298,19 @@ def render_value(agent: PuzzleOpsAgent, state: AppState) -> str:
 def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
     profile = agent.multimodal_profile(state.country)
     candidates = agent.value_rule_candidates(state.country)
+    approved_rules = agent.approved_value_rules(state.country)
+    memories = agent.hitl_memories(state.country)
     good = "".join(render_record_card(record) for record in profile.similar_good_cases)
     bad = "".join(render_record_card(record) for record in profile.similar_bad_cases)
     candidate_rows = "".join(
         f'<tr><td>{escape(candidate.rule_text)}</td><td>{escape(str(candidate.confidence))}</td><td>{candidate.support_count}</td><td>{candidate.counterexample_count}</td><td>{escape(candidate.status)}</td><td>{escape(candidate.agent_reason)}</td><td><form method="post" action="/approve_value_candidate">{hidden_context(state)}<input type="hidden" name="candidate_id" value="{escape(candidate.candidate_id)}"><input name="human_note" value="运营确认加入固定价值观"><button>通过</button></form></td></tr>'
         for candidate in candidates
     )
+    approved_rows = "".join(
+        f'<tr><td>{escape(str(rule["country"]))}</td><td>{escape(str(rule["rule_text"]))}</td><td>{escape(str(rule["status"]))}</td></tr>'
+        for rule in approved_rules
+    )
+    memory_items = "".join(f'<li>{escape(str(memory["content"]))}</li>' for memory in memories)
     feature = profile.feature
     return f"""
 <section class="panel">
@@ -322,6 +338,10 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
   <div class="panel"><h2>相似历史坏图</h2><div class="cards">{bad}</div></div>
 </section>
 <section class="panel"><h2>价值观候选池</h2><div class="table-wrap"><table><thead><tr><th>候选价值观</th><th>置信度</th><th>支撑样本</th><th>反例样本</th><th>状态</th><th>Agent归因</th><th>运营审核</th></tr></thead><tbody>{candidate_rows}</tbody></table></div></section>
+<section class="grid two">
+  <div class="panel"><h2>已审批价值观规则</h2><div class="table-wrap"><table><thead><tr><th>国家</th><th>规则</th><th>状态</th></tr></thead><tbody>{approved_rows or '<tr><td colspan="3">暂无已审批规则，点击上方候选池“通过”后会写入这里。</td></tr>'}</tbody></table></div></div>
+  <div class="panel"><h2>HITL Memory</h2><ul>{memory_items or '<li>暂无人工反馈记忆。</li>'}</ul></div>
+</section>
 """
 
 

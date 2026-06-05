@@ -68,6 +68,18 @@ def test_trial_demand_parse_and_derive_have_matching_core_fields():
     assert parse_row.value_match == ""
 
 
+def test_simulate_trial_upload_updates_parse_and_derive_rows():
+    agent = PuzzleOpsAgent()
+
+    parsed = agent.simulate_trial_upload("日本", "人物", "parse")
+    derived = agent.simulate_trial_upload("日本", "人物", "derive")
+
+    assert "已解析3张参考图" in parsed.remark
+    assert "参考图A+参考图B+参考图C" in parsed.image_name
+    assert "已生成2张相似参考图" in derived.remark
+    assert "历史好图+衍生图1+衍生图2" in derived.image_name
+
+
 def test_value_master_writes_value_match_to_trial_row():
     agent = PuzzleOpsAgent()
     row = agent.create_trial_demand("法国", "花卉", mode="parse")

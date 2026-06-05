@@ -12,6 +12,7 @@ from puzzle_ops.feishu import FeishuClientFactory, MockFeishuClient
 from puzzle_ops.models import AgentTrace, AnalysisReport, DemandRow, HolidayRecommendation, ImageProfile, ScheduleItem, TagMeta, ValuePredictionCard, ValueRuleCandidate
 from puzzle_ops.multimodal import ImageFeatureExtractor, SimilarImageRetriever, ValueInsightMiner
 from puzzle_ops.storage import PuzzleRepository
+from puzzle_ops.trulens_eval import TruLensRAGEvaluator
 
 
 class PuzzleOpsAgent:
@@ -92,6 +93,7 @@ class PuzzleOpsAgent:
         priority: str | None = None,
         count: int | None = None,
         method: str | None = None,
+        operation_tag: str | None = None,
         delivery_date: str | None = None,
         remark: str | None = None,
     ) -> DemandRow:
@@ -108,6 +110,8 @@ class PuzzleOpsAgent:
             if method not in self.editable_methods:
                 raise ValueError("加工方式只能是 纯AI、限素材网 或 先照片后AI")
             changes["method"] = method
+        if operation_tag is not None:
+            changes["operation_tag"] = operation_tag
         if delivery_date is not None:
             changes["delivery_date"] = delivery_date
         if remark is not None:
@@ -141,6 +145,20 @@ class PuzzleOpsAgent:
             value_match="",
         )
 
+    def simulate_trial_upload(self, country: str, category: str, mode: str) -> DemandRow:
+        row = self.create_trial_demand(country, category, mode)
+        if mode == "derive":
+            return row.edited(
+                image_name="历史好图+衍生图1+衍生图2",
+                subject_description=f"主体：{row.subject}；色彩：提取历史好图主色并生成2张相似参考图；构图：保留原图主体位置，补充国家文化场景。",
+                remark=(row.remark + "；" if row.remark else "") + "已生成2张相似参考图，可进入试新提需。",
+            )
+        return row.edited(
+            image_name="参考图A+参考图B+参考图C",
+            subject_description=f"主体：{row.subject}；色彩：综合3张参考图主色；构图：提取共同主体与前中后景关系。",
+            remark=(row.remark + "；" if row.remark else "") + "已解析3张参考图，可进入试新提需。",
+        )
+
     def apply_value_master(self, row: DemandRow) -> DemandRow:
         value_match = self._country(row.country)["trial"]["value_match"]
         return row.edited(value_match=value_match)
@@ -160,6 +178,9 @@ class PuzzleOpsAgent:
             ai_delta=data["ai_delta"],
             sa_history_avg=data["sa_history_avg"],
             sa_okr=data["sa_okr"],
+            cd_history_avg=data["cd_history_avg"],
+            ai_history_avg=data["ai_history_avg"],
+            ai_okr=data["ai_okr"],
             cycle_summary=data["cycle_summary"],
             next_todo=data["next_todo"],
             rows=data["rows"],
@@ -293,12 +314,20 @@ class PuzzleOpsAgent:
             f"审核风险等级={review.risk_level}",
             f"飞书同步：{sync_result.message}",
         )
+        rag_eval = TruLensRAGEvaluator().evaluate(
+            query=profile.asset.operation_tag,
+            contexts=review.evidence or (review.reason,),
+            answer=f"{review.reason} {review.suggestion}",
+        )
         eval_result = {
             "tool_call_success_rate": 1.0,
             "audit_recall_rate": 1.0 if review.evidence else 0.8,
             "sabcd_prediction_accuracy": 0.8,
             "value_candidate_pass_rate": len(self.approved_value_rules(country)) / max(len(self.value_rule_candidates(country)), 1),
             "external_adapter_success_rate": 1.0 if inventory.success and sync_result.success else 0.5,
+            "trulens_context_relevance": rag_eval["context_relevance"],
+            "trulens_groundedness": rag_eval["groundedness"],
+            "trulens_answer_relevance": rag_eval["answer_relevance"],
         }
         return AgentTrace(
             trace_id=f"{country}-{task_type}-demo",
@@ -325,6 +354,9 @@ class PuzzleOpsAgent:
             "审核风险召回率": _pct(trace.eval_result["audit_recall_rate"]),
             "SABCD预测准确率": _pct(trace.eval_result["sabcd_prediction_accuracy"]),
             "价值观候选通过率": _pct(passed / total),
+            "TruLens Context Relevance": _pct(trace.eval_result["trulens_context_relevance"]),
+            "TruLens Groundedness": _pct(trace.eval_result["trulens_groundedness"]),
+            "TruLens Answer Relevance": _pct(trace.eval_result["trulens_answer_relevance"]),
             "飞书同步模式": "Mock" if isinstance(self.feishu, MockFeishuClient) else "Real",
             "飞书同步成功率": "100%",
             "人工修改率": "20%",

@@ -86,6 +86,9 @@ COUNTRIES = {
             "ai_delta": "↑ 2%",
             "sa_history_avg": "68%",
             "sa_okr": "35%",
+            "cd_history_avg": "11%",
+            "ai_history_avg": "14%",
+            "ai_okr": "15%",
             "cycle_summary": "日本市场 SA 占比高于历史均值，樱花、浴袍人物、猫咪鲤鱼表现稳定。",
             "next_todo": "继续补充传统浴袍美女、猫咪鲤鱼、樱花庭院库存；5/10 重点位置优先放 S/A 图。",
             "rows": (
@@ -182,6 +185,9 @@ COUNTRIES = {
             "ai_delta": "↓ 1%",
             "sa_history_avg": "66%",
             "sa_okr": "30%",
+            "cd_history_avg": "12%",
+            "ai_history_avg": "13%",
+            "ai_okr": "15%",
             "cycle_summary": "法国市场薰衣草、巴黎面包店、法式庄园仍是核心好图方向。",
             "next_todo": "常规补充薰衣草、巴黎面包店、法式庄园库存；退回灰调和建筑风格偏美式的素材。",
             "rows": (

@@ -105,6 +105,9 @@ class AnalysisReport:
     ai_delta: str
     sa_history_avg: str
     sa_okr: str
+    cd_history_avg: str
+    ai_history_avg: str
+    ai_okr: str
     cycle_summary: str
     next_todo: str
     rows: tuple[AnalysisRow, ...]

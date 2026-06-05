@@ -8,6 +8,7 @@
 - `puzzle_ops/excel_importer.py`：真实风格 Excel 样表导入，支持 `DISPIMG` 图片抽取。
 - `puzzle_ops/multimodal.py`：图片特征抽取、图文融合、相似好图/坏图检索、价值观候选挖掘。
 - `puzzle_ops/audit.py`：审核手册规则召回与风险审核。
+- `puzzle_ops/trulens_eval.py`：本地 TruLens-style RAG Triad 评测适配层。
 - `puzzle_ops/storage.py`：SQLite 主数据、memory、价值观规则存储。
 - `puzzle_ops/cache.py`：Redis 优先、内存 fallback 的缓存抽象。
 - `puzzle_ops/feishu.py`：真实飞书/Mock 飞书同步接口。
@@ -46,15 +47,17 @@ PYTHONPATH=. pytest tests -q
 - 首页按日本/法国隔离数据，展示季度 SA/AI 指标、本周工作流、今日待办和节日提需建议。
 - 常规提需：分类 -> 完整中文运营 tag + 库存 -> 已分发图片参考 -> 批量提需表。
 - 常规/试新提需表字段包含：提需分类、国家、JS分类、图片本身、运营tag、主体内容、张数、需求等级、加工方式、交付日期、主体描述、备注。
-- 交付日期默认空；需求等级默认 P1；加工方式、张数、交付日期、备注可以在表格里修改并保存。
-- 试新提需支持“参考图解析提需”和“好图衍生提需”，价值观大师会写入价值观匹配度。
-- 数据分析大师展示 SA/CD/AI 指标、5/10 分发位标红、图片来源和可编辑分析备注。
+- 交付日期默认空；需求等级默认 P1；运营tag、加工方式、张数、交付日期、备注可以在表格里修改并保存。
+- 常规提需表支持“一键同步到飞书表格”；同步成功后清空当前提需表，并显示本次完成提需条数。
+- 试新提需支持“参考图解析提需”和“好图衍生提需”，当前用可测试的模拟上传按钮生成解析结果，价值观大师会写入价值观匹配度。
+- 数据分析大师展示 SA/CD/AI 指标、CD历史均值、AI历史均值/OKR、5/10 分发位标红、图片来源和可编辑分析备注。
+- 数据分析明细、周期内容分析、下一步 todo 均支持保存，刷新页面后保留当前服务进程内的编辑状态。
 - 价值观大师按 S/A/B/C/D 按钮筛选预测图片，价值观规则库默认折叠。
 - 排图工作台按周一到周日展示一天 10 张推荐排图；工作日遵守 1-9、12-15 位，周末遵守 1-9、12-18 位。
 - 多模态底座：读取真实风格 Excel 样表示例，解析图片、构建 `ImageProfile`，展示相似历史好图/坏图证据和价值观候选池。
-- Agent 评测：展示工具调用成功率、审核风险召回率、SABCD 预测准确率、价值观候选通过率、Agent plan/tool/observation trace。
+- Agent 评测：展示工具调用成功率、审核风险召回率、SABCD 预测准确率、价值观候选通过率、TruLens-style RAG Triad、Agent plan/tool/observation trace。
 - 审核规则：从 `拼图审核手册.docx` 中召回风险依据，结合规则引擎输出风险等级和修改建议。
-- HITL Memory：运营通过价值观候选后，系统会写入固定价值观规则和长期 memory。
+- HITL Memory：运营通过价值观候选后，系统会写入固定价值观规则和长期 memory，并在多模态底座页面展示已审批规则。
 - 价值观候选池审核：多模态底座页面可直接点击“通过”，将候选规则加入固定价值观规则库。
 - 大规模模拟数据：支持每个国家每周 139 条历史回收数据，自动生成图片路径、指标、SABCD、多维度等级和 JS 分类。
 - Tool/Skill Runtime：显式注册 function calling 工具，并定义常规提需、试新提需、价值观大师、价值观挖掘、数据分析等业务 Skill。
@@ -66,3 +69,5 @@ PYTHONPATH=. pytest tests -q
 这个版本不接入公司真实 CMS 或内部数据，CMS 使用本地 mock。飞书已预留真实客户端接口，缺少密钥时使用 Mock CSV fallback。项目中没有 Java、Node、Vue、React 或前端构建工具；页面由 Python 服务端渲染。
 
 Excel 图片说明：真实样表中的“图片本身”字段使用 `DISPIMG` 公式，项目会解析 `xl/cellimages.xml` 并把图片抽取到本地路径；生产环境有真实 `image_url` 时，可以优先展示 URL。
+
+LLM 大脑说明：当前 v0.3.4 仍是本地规则 + 检索 + Agent workflow 原型，没有接入真实 LLM API，也没有调用真实视觉语言模型。因此不能声称“模型本身擅长多模态”。目前多模态底座是可解释的结构化模拟：Excel 图片/运营 tag/历史指标 -> ImageProfile -> 相似好坏图证据 -> 价值观/审核/排图/分析调用。后续如果接真实大脑，建议接支持图像输入的多模态 LLM，并保留当前 Tool Registry、Skill Library、RAG、HITL Memory 和 Eval Dashboard 作为工程外壳。
