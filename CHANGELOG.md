@@ -2,6 +2,32 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.6 - 飞书真实连接诊断与多维表格适配
+
+日期：2026-06-08
+
+阶段目标：
+
+- 使用用户提供的真实飞书应用和在线表格信息进行联调，定位真实飞书写入链路的外部阻塞点。
+
+已完成：
+
+- 本机 `.env` 已写入真实飞书配置，并通过 `.gitignore` 保证不会提交。
+- 飞书客户端已能读取真实配置并创建 Real client。
+- 修复 Python `urllib` SSL 证书链问题，默认 HTTP transport 改为 `requests`。
+- 识别 `FEISHU_SHEET_RANGE` 以 `tbl` 开头时自动走飞书多维表格/Base `records/batch_create` API。
+- 添加飞书多维表格写入路径测试，保证 table id 不会误走 Sheets `values_append`。
+- 真实请求已打到飞书开放平台，当前阻塞为应用权限缺失：需要开通 `bitable:app` 或 `base:record:create`。
+
+当前限制：
+
+- 飞书开放平台返回 `99991672 No permission`，应用尚未开通多维表格写入所需权限。
+- 用户需要在飞书开放平台为应用开通 `bitable:app` 或 `base:record:create`，并确保目标表格授权给该应用。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_external_adapters.py -q`：8 passed。
+
 ## v0.3.5 - 真实飞书门禁、试新图片上传与 Agent Eval 重构
 
 日期：2026-06-05

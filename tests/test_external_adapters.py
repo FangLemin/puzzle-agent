@@ -1,3 +1,6 @@
+import pytest
+
+from puzzle_ops import feishu
 from puzzle_ops.adapters import MCPToolAdapter
 from puzzle_ops.cms import MockCMSClient
 from puzzle_ops.feishu import FeishuClientFactory, RealFeishuClient
@@ -79,7 +82,31 @@ def test_real_feishu_client_fetches_tenant_access_token_when_token_missing():
     assert calls[1]["headers"]["Authorization"] == "Bearer tenant-token"
 
 
+def test_real_feishu_client_uses_bitable_batch_create_when_range_is_table_id():
+    captured = {}
+
+    def transport(method, url, headers, json_body):
+        captured.update(method=method, url=url, headers=headers, json_body=json_body)
+        return {"code": 0, "msg": "success", "data": {"records": []}}
+
+    client = RealFeishuClient(
+        app_id="cli_xxx",
+        app_secret="secret",
+        spreadsheet_token="app_token",
+        sheet_range="tbl_table_id",
+        access_token="t-token",
+        transport=transport,
+    )
+
+    result = client.write_table("提需表", [{"运营tag": "常规_日本_猫咪鲤鱼0401", "张数": 7}])
+
+    assert result.success
+    assert captured["url"].endswith("/open-apis/bitable/v1/apps/app_token/tables/tbl_table_id/records/batch_create")
+    assert captured["json_body"]["records"] == [{"fields": {"运营tag": "常规_日本_猫咪鲤鱼0401", "张数": 7}}]
+
+
 def test_feishu_factory_reports_missing_real_config(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
     for key in ("FEISHU_APP_ID", "FEISHU_APP_SECRET", "FEISHU_SPREADSHEET_TOKEN"):
         monkeypatch.delenv(key, raising=False)
 
@@ -87,3 +114,45 @@ def test_feishu_factory_reports_missing_real_config(monkeypatch, tmp_path):
 
     assert not client.is_real
     assert "FEISHU_APP_ID" in client.config_status()["missing"]
+
+
+def test_default_transport_uses_requests_json_post(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            captured["raised"] = False
+
+        def json(self):
+            return {"code": 0, "msg": "ok"}
+
+    def fake_request(method, url, headers, json, timeout):
+        captured.update(method=method, url=url, headers=headers, json=json, timeout=timeout)
+        return FakeResponse()
+
+    monkeypatch.setattr(feishu.requests, "request", fake_request)
+
+    response = feishu._default_transport("POST", "https://open.feishu.cn/test", {"A": "B"}, {"x": 1})
+
+    assert response == {"code": 0, "msg": "ok"}
+    assert captured["method"] == "POST"
+    assert captured["json"] == {"x": 1}
+    assert captured["timeout"] == 10
+
+
+def test_default_transport_reports_non_json_http_errors(monkeypatch):
+    class FakeResponse:
+        text = "bad gateway"
+
+        def raise_for_status(self):
+            raise feishu.requests.HTTPError("502")
+
+        def json(self):
+            raise AssertionError("json should not be read after HTTP error")
+
+    monkeypatch.setattr(feishu.requests, "request", lambda *args, **kwargs: FakeResponse())
+
+    with pytest.raises(RuntimeError) as exc:
+        feishu._default_transport("POST", "https://open.feishu.cn/test", {}, {})
+
+    assert "飞书 HTTP 请求失败" in str(exc.value)

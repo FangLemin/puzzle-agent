@@ -41,8 +41,10 @@ def test_cache_provider_uses_in_memory_fallback_when_redis_unavailable():
 
 
 def test_feishu_factory_falls_back_to_mock_without_credentials(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("FEISHU_APP_ID", raising=False)
     monkeypatch.delenv("FEISHU_APP_SECRET", raising=False)
+    monkeypatch.delenv("FEISHU_SPREADSHEET_TOKEN", raising=False)
 
     client = FeishuClientFactory.create(export_dir=tmp_path)
     result = client.write_table("提需表", [{"运营tag": "常规_日本_猫咪鲤鱼0605"}])

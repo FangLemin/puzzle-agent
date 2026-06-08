@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import csv
-import json
 import os
 from pathlib import Path
-from urllib.request import Request, urlopen
+
+import requests
 
 from puzzle_ops.models import ToolResult
 
@@ -66,6 +66,11 @@ class RealFeishuClient:
         }
 
     def write_table(self, table_name: str, rows: list[dict[str, object]]) -> ToolResult:
+        if self.sheet_range.startswith("tbl"):
+            return self._write_bitable(table_name, rows)
+        return self._write_sheet(table_name, rows)
+
+    def _write_sheet(self, table_name: str, rows: list[dict[str, object]]) -> ToolResult:
         headers = _ordered_fields(rows)
         values = [headers] + [[row.get(header, "") for header in headers] for row in rows]
         token = self.access_token or self._fetch_tenant_access_token()
@@ -84,6 +89,26 @@ class RealFeishuClient:
             success,
             {"mode": "real", "table_name": table_name, "row_count": len(rows), "response": response},
             f"飞书真实同步{'成功' if success else '失败'}：{table_name}",
+            error=None if success else str(response),
+        )
+
+    def _write_bitable(self, table_name: str, rows: list[dict[str, object]]) -> ToolResult:
+        token = self.access_token or self._fetch_tenant_access_token()
+        url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{self.spreadsheet_token}/tables/{self.sheet_range}/records/batch_create"
+        response = self.transport(
+            "POST",
+            url,
+            {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json; charset=utf-8",
+            },
+            {"records": [{"fields": row} for row in rows]},
+        )
+        success = response.get("code") == 0
+        return ToolResult(
+            success,
+            {"mode": "real_bitable", "table_name": table_name, "row_count": len(rows), "response": response},
+            f"飞书多维表格真实同步{'成功' if success else '失败'}：{table_name}",
             error=None if success else str(response),
         )
 
@@ -118,14 +143,13 @@ class FeishuClientFactory:
 
 
 def _default_transport(method: str, url: str, headers: dict[str, str], json_body: dict[str, object]) -> dict[str, object]:
-    request = Request(
-        url,
-        data=json.dumps(json_body, ensure_ascii=False).encode("utf-8"),
-        headers=headers,
-        method=method,
-    )
-    with urlopen(request, timeout=10) as response:
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        response = requests.request(method, url, headers=headers, json=json_body, timeout=10)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        text = getattr(getattr(exc, "response", None), "text", "") or getattr(locals().get("response", None), "text", "")
+        raise RuntimeError(f"飞书 HTTP 请求失败：{exc}; {text[:500]}") from exc
+    return response.json()
 
 
 def _ordered_fields(rows: list[dict[str, object]]) -> list[str]:

@@ -1,5 +1,6 @@
 from puzzle_ops.renderer import AppState
 from puzzle_ops.server import APP, handle_action, redirect_location, update_state_from_query
+from puzzle_ops.feishu import MockFeishuClient
 
 
 def test_invalid_country_query_does_not_corrupt_state():
@@ -68,6 +69,7 @@ def test_save_needs_can_edit_operation_tag():
 
 def test_sync_needs_to_feishu_clears_rows_and_sets_success_message():
     APP.state = AppState(country="日本", view="regular", category="人物", tag="常规_日本_传统浴袍美女0604")
+    APP.agent.feishu = MockFeishuClient(APP.agent._runtime_dir / "test_feishu_mock")
     APP.state.need_rows = [
         APP.agent.add_regular_demand("日本", "人物", "常规_日本_传统浴袍美女0604", 0),
         APP.agent.add_regular_demand("日本", "人物", "常规_日本_传统浴袍美女0604", 1),
@@ -83,6 +85,7 @@ def test_sync_needs_to_feishu_clears_rows_and_sets_success_message():
 
 def test_sync_needs_requires_real_feishu_and_keeps_rows_without_config():
     APP.state = AppState(country="日本", view="regular", category="人物", tag="常规_日本_传统浴袍美女0604")
+    APP.agent.feishu = MockFeishuClient(APP.agent._runtime_dir / "test_feishu_mock")
     APP.state.need_rows = [APP.agent.add_regular_demand("日本", "人物", "常规_日本_传统浴袍美女0604", 0)]
     APP.agent.feishu.allow_real_sync = False
 

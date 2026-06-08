@@ -80,7 +80,7 @@ cp .env.example .env
 - `FEISHU_APP_ID`：个人飞书开放平台自建应用的 App ID。
 - `FEISHU_APP_SECRET`：自建应用的 App Secret，只放本地 `.env`，不要提交到 Git。
 - `FEISHU_SPREADSHEET_TOKEN`：在线表格 URL 里的 spreadsheet token。
-- `FEISHU_SHEET_RANGE`：写入起点，例如 `Sheet1!A1`。
+- `FEISHU_SHEET_RANGE`：如果是电子表格，填写入起点，例如 `Sheet1!A1`；如果是多维表格/Base，填 table id，例如 `tblxxxxxxxx`。
 
 可选：
 
@@ -88,7 +88,8 @@ cp .env.example .env
 
 飞书侧还需要：
 
-- 给自建应用开通电子表格读写权限。
+- 如果使用电子表格，给自建应用开通电子表格读写权限。
+- 如果使用多维表格/Base，给自建应用开通 `bitable:app` 或 `base:record:create` 权限。
 - 将你的在线表格授权给这个应用或确保应用所在租户有权限访问。
 - 表格第一行建议预留为字段表头，因为系统会追加写入表头和数据。
 
