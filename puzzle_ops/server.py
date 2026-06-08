@@ -130,6 +130,16 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             remark=value(form, "remark", row.remark),
         )
         state.view = "trial"
+    elif path == "/sync_trial_feishu":
+        row = state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)
+        result = agent.sync_demand_rows(state.country, [_demand_row_payload(row)], require_real=True)
+        if result.success:
+            state.trial_row = agent.create_trial_demand(state.country, state.category, state.trial_mode)
+            state.trial_uploads = []
+            state.sync_message = "同步成功，当前已完成试新提需1条"
+        else:
+            state.sync_message = f"同步失败：{result.error}"
+        state.view = "trial"
     elif path == "/apply_value_master":
         row = state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)
         state.trial_row = agent.apply_value_master(row)

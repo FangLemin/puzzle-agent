@@ -60,6 +60,9 @@ def test_trial_page_keeps_core_fields_and_value_match_column():
     assert 'enctype="multipart/form-data"' in html
     assert 'action="/simulate_trial_upload"' in html
     assert 'action="/upload_trial_images"' in html
+    assert 'formaction="/sync_trial_feishu"' in html
+    assert "解析结果已写入下方试新提需表" in html
+    assert "Agent 解析结果" not in html
     assert 'name="delivery_date" value=""' in html
     assert 'class="image-preview-cell"' in html
     assert 'class="small-input"' in html

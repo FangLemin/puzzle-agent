@@ -102,7 +102,7 @@ class RealFeishuClient:
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json; charset=utf-8",
             },
-            {"records": [{"fields": row} for row in rows]},
+            {"records": [{"fields": _bitable_fields(row)} for row in rows]},
         )
         success = response.get("code") == 0
         return ToolResult(
@@ -160,6 +160,15 @@ def _ordered_fields(rows: list[dict[str, object]]) -> list[str]:
         for key in row:
             if key not in fields:
                 fields.append(key)
+    return fields
+
+
+def _bitable_fields(row: dict[str, object]) -> dict[str, object]:
+    fields = {}
+    for key, value in row.items():
+        if key in {"图片本身"} and not isinstance(value, list):
+            continue
+        fields[key] = value
     return fields
 
 

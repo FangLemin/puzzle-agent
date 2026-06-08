@@ -229,15 +229,17 @@ def render_trial(agent: PuzzleOpsAgent, state: AppState) -> str:
     row_html = render_need_row(row, 0, include_value=True, prefix="")
     upload_copy = "拖拽或选择 1-3 张参考图" if state.trial_mode == "parse" else "上传单张历史好图，自动衍生 2 张类似参考图"
     previews = "".join(render_upload_preview(item) for item in state.trial_uploads) or '<div class="thumb">参考图 A</div><div class="thumb">参考图 B</div><div class="thumb">参考图 C</div>'
+    sync_message = f'<p class="success">{escape(state.sync_message)}</p>' if state.sync_message else ""
     return f"""
 <section class="panel"><h2>试新模式</h2><div class="mode-grid">{mode_links}</div></section>
 <section class="grid two">
   <div class="panel"><h2>上传参考图</h2><div class="mock-upload-zone"><strong>{upload_copy}</strong><span>可上传本地图片进行结构化解析；未接 LLM 时使用本地解析适配层。</span><form method="post" action="/upload_trial_images" enctype="multipart/form-data">{hidden_context(state)}<input type="file" name="trial_images" accept="image/*" multiple><button>上传并解析图片</button></form><form method="post" action="/simulate_trial_upload">{hidden_context(state)}<button>模拟上传并解析</button></form></div><div class="reference-row">{previews}</div></div>
-  <div class="panel"><h2>Agent 解析结果</h2><dl class="detail"><div><dt>主体</dt><dd>{escape(row.subject)}</dd></div><div><dt>运营tag</dt><dd>{escape(row.operation_tag)}</dd></div><div><dt>加工方式</dt><dd>{escape(row.method)}</dd></div><div><dt>审核备注</dt><dd>{escape(row.remark or "无")}</dd></div></dl></div>
+  <div class="panel"><h2>解析状态</h2><p class="alert">解析结果已写入下方试新提需表，可在表格中继续编辑后同步飞书。</p><dl class="detail"><div><dt>当前图片</dt><dd>{escape(row.image_name)}</dd></div><div><dt>解析备注</dt><dd>{escape(row.remark or "等待上传图片")}</dd></div></dl></div>
 </section>
 <section class="panel">
   <div class="section-line"><h2>试新提需表预览</h2><form method="post" action="/apply_value_master">{hidden_context(state)}<button>价值观大师</button></form></div>
-  <form method="post" action="/save_trial">{hidden_context(state)}<div class="table-wrap"><table>{need_header(include_check=True, include_value=True)}<tbody>{row_html}</tbody></table></div><button class="primary">保存试新修改</button></form>
+  {sync_message}
+  <form method="post" action="/save_trial">{hidden_context(state)}<div class="table-wrap"><table>{need_header(include_check=True, include_value=True)}<tbody>{row_html}</tbody></table></div><div class="section-line"><button class="primary">保存试新修改</button><button formaction="/sync_trial_feishu" formmethod="post">一键同步到飞书表格</button></div></form>
 </section>
 """
 

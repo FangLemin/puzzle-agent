@@ -105,6 +105,28 @@ def test_real_feishu_client_uses_bitable_batch_create_when_range_is_table_id():
     assert captured["json_body"]["records"] == [{"fields": {"运营tag": "常规_日本_猫咪鲤鱼0401", "张数": 7}}]
 
 
+def test_real_feishu_client_omits_plain_text_attachment_fields_for_bitable():
+    captured = {}
+
+    def transport(method, url, headers, json_body):
+        captured.update(json_body=json_body)
+        return {"code": 0, "msg": "success", "data": {"records": []}}
+
+    client = RealFeishuClient(
+        app_id="cli_xxx",
+        app_secret="secret",
+        spreadsheet_token="app_token",
+        sheet_range="tbl_table_id",
+        access_token="t-token",
+        transport=transport,
+    )
+
+    result = client.write_table("提需表", [{"图片本身": "温泉街传统浴袍美女", "运营tag": "常规_日本_传统浴袍美女0604"}])
+
+    assert result.success
+    assert captured["json_body"]["records"] == [{"fields": {"运营tag": "常规_日本_传统浴袍美女0604"}}]
+
+
 def test_feishu_factory_reports_missing_real_config(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     for key in ("FEISHU_APP_ID", "FEISHU_APP_SECRET", "FEISHU_SPREADSHEET_TOKEN"):

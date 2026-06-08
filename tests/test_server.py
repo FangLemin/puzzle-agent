@@ -135,6 +135,20 @@ def test_upload_trial_images_action_updates_trial_row_and_previews():
     assert APP.state.trial_uploads[0]["filename"] == "cat-koi.png"
 
 
+def test_sync_trial_to_feishu_records_success_and_resets_trial_row():
+    APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="parse")
+    APP.agent.feishu = MockFeishuClient(APP.agent._runtime_dir / "test_feishu_mock")
+    APP.agent.feishu.allow_real_sync = True
+    APP.state.trial_row = APP.agent.simulate_trial_upload("日本", "人物", "parse")
+
+    handle_action("/sync_trial_feishu", {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["parse"]})
+
+    assert APP.state.view == "trial"
+    assert APP.state.sync_message == "同步成功，当前已完成试新提需1条"
+    assert "上传参考图" in APP.state.trial_row.image_name
+    assert any(row[2] == "提需同步" and row[4] == "成功" for row in APP.agent.sync_rows())
+
+
 def test_save_trial_can_edit_operation_tag():
     APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="parse")
     APP.state.trial_row = APP.agent.create_trial_demand("日本", "人物", "parse")
