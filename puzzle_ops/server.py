@@ -113,6 +113,10 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
     elif path == "/sync_needs_feishu":
         rows = [_demand_row_payload(row) for row in state.need_rows]
         count = len(rows)
+        if count == 0:
+            state.sync_message = "请先加入至少一条常规提需，再同步飞书表格。"
+            state.view = "regular"
+            return None
         result = agent.sync_demand_rows(state.country, rows, require_real=True)
         if result.success:
             state.need_rows.clear()
@@ -142,7 +146,11 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         state.trial_row = saved[-1]
         state.view = "trial"
     elif path == "/sync_trial_feishu":
-        rows_to_sync = state.trial_rows or [state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)]
+        rows_to_sync = state.trial_rows
+        if not rows_to_sync:
+            state.sync_message = "请先上传解析图片或模拟上传，生成至少一条试新提需记录。"
+            state.view = "trial"
+            return None
         result = agent.sync_demand_rows(state.country, [_demand_row_payload(row) for row in rows_to_sync], require_real=True)
         if result.success:
             state.trial_row = agent.create_trial_demand(state.country, state.category, state.trial_mode)

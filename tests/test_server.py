@@ -97,6 +97,20 @@ def test_sync_needs_requires_real_feishu_and_keeps_rows_without_config():
     assert any(row[4] == "失败" for row in APP.agent.sync_rows())
 
 
+def test_sync_needs_rejects_empty_demand_rows_before_feishu_call():
+    APP.state = AppState(country="日本", view="regular", category="人物", tag="常规_日本_传统浴袍美女0604")
+    APP.agent.feishu = MockFeishuClient(APP.agent._runtime_dir / "test_feishu_mock")
+    APP.agent.feishu.allow_real_sync = True
+    before = len(APP.agent.sync_rows())
+
+    redirect = handle_action("/sync_needs_feishu", {"country": ["日本"], "view": ["regular"]})
+
+    assert redirect is None
+    assert APP.state.view == "regular"
+    assert APP.state.sync_message == "请先加入至少一条常规提需，再同步飞书表格。"
+    assert len(APP.agent.sync_rows()) == before
+
+
 def test_apply_value_master_action_updates_trial_row():
     APP.state = AppState(country="法国", view="trial", category="花卉", trial_mode="parse")
     APP.state.trial_row = APP.agent.create_trial_demand("法国", "花卉", "parse")
@@ -152,6 +166,20 @@ def test_sync_trial_to_feishu_records_success_and_resets_trial_row():
     assert "上传参考图" in APP.state.trial_row.image_name
     assert redirect == APP.agent.feishu.web_url()
     assert any(row[2] == "提需同步" and row[4] == "成功" for row in APP.agent.sync_rows())
+
+
+def test_sync_trial_rejects_empty_uploaded_rows_before_feishu_call():
+    APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="parse")
+    APP.agent.feishu = MockFeishuClient(APP.agent._runtime_dir / "test_feishu_mock")
+    APP.agent.feishu.allow_real_sync = True
+    before = len(APP.agent.sync_rows())
+
+    redirect = handle_action("/sync_trial_feishu", {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["parse"]})
+
+    assert redirect is None
+    assert APP.state.view == "trial"
+    assert APP.state.sync_message == "请先上传解析图片或模拟上传，生成至少一条试新提需记录。"
+    assert len(APP.agent.sync_rows()) == before
 
 
 def test_save_trial_can_edit_operation_tag():
