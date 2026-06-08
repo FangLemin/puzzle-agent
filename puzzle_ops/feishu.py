@@ -55,6 +55,7 @@ class RealFeishuClient:
         self.sheet_range = sheet_range
         self.access_token = access_token
         self.transport = transport or _default_transport
+        self._canonical_app_token = ""
 
     @property
     def is_real(self) -> bool:
@@ -78,8 +79,22 @@ class RealFeishuClient:
         if configured:
             return configured
         if self.sheet_range.startswith("tbl"):
-            return f"https://feishu.cn/base/{self.spreadsheet_token}?table={self.sheet_range}"
+            return f"https://feishu.cn/base/{self._canonical_bitable_app_token()}?table={self.sheet_range}"
         return f"https://feishu.cn/sheets/{self.spreadsheet_token}"
+
+    def _canonical_bitable_app_token(self) -> str:
+        if self._canonical_app_token:
+            return self._canonical_app_token
+        token = self.access_token or self._fetch_tenant_access_token()
+        response = self.transport(
+            "GET",
+            f"https://open.feishu.cn/open-apis/bitable/v1/apps/{self.spreadsheet_token}",
+            {"Authorization": f"Bearer {token}"},
+            {},
+        )
+        app = response.get("data", {}).get("app", {})
+        self._canonical_app_token = str(app.get("app_token") or self.spreadsheet_token)
+        return self._canonical_app_token
 
     def _write_sheet(self, table_name: str, rows: list[dict[str, object]]) -> ToolResult:
         headers = _ordered_fields(rows)

@@ -127,6 +127,27 @@ def test_real_feishu_client_omits_plain_text_attachment_fields_for_bitable():
     assert captured["json_body"]["records"] == [{"fields": {"运营tag": "常规_日本_传统浴袍美女0604"}}]
 
 
+def test_real_feishu_client_resolves_canonical_bitable_web_url():
+    calls = []
+
+    def transport(method, url, headers, json_body):
+        calls.append({"method": method, "url": url, "headers": headers, "json_body": json_body})
+        return {"code": 0, "msg": "success", "data": {"app": {"app_token": "canonical_app_token"}}}
+
+    client = RealFeishuClient(
+        app_id="cli_xxx",
+        app_secret="secret",
+        spreadsheet_token="wiki_or_api_token",
+        sheet_range="tbl_table_id",
+        access_token="t-token",
+        transport=transport,
+    )
+
+    assert client.web_url() == "https://feishu.cn/base/canonical_app_token?table=tbl_table_id"
+    assert calls[0]["method"] == "GET"
+    assert calls[0]["url"].endswith("/open-apis/bitable/v1/apps/wiki_or_api_token")
+
+
 def test_feishu_factory_reports_missing_real_config(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     for key in ("FEISHU_APP_ID", "FEISHU_APP_SECRET", "FEISHU_SPREADSHEET_TOKEN"):
