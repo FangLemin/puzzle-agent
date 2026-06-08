@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
 import re
 import uuid
+
+from PIL import Image, ImageStat
 
 from puzzle_ops.models import DemandRow
 
@@ -19,18 +22,17 @@ class TrialImageUploadService:
 
         names = tuple(item["filename"] for item in saved)
         subject = _subject_from_names(names) or row.subject
-        colors = "参考图主色提取：暖色/清透色/高饱和点缀"
-        composition = "构图：主体居中或三分构图，保留拼图可辨识边界"
+        visual = _visual_summary(tuple(item["content"] for item in saved))
         if mode == "derive":
             image_name = f"{names[0]} + 衍生参考图1 + 衍生参考图2"
-            remark = "本地图片解析完成：已按好图衍生模式生成2张相似参考图占位。"
+            remark = f"本地图片解析完成：已按好图衍生模式生成2张相似参考图占位；{visual['remark']}。"
         else:
             image_name = " + ".join(names[:3])
-            remark = f"本地图片解析完成：已读取{len(saved)}张参考图。"
+            remark = f"本地图片解析完成：已读取{len(saved)}张参考图；{visual['remark']}。"
         parsed = row.edited(
             image_name=image_name,
             subject=subject,
-            subject_description=f"主体：{subject}；色彩：{colors}；{composition}。",
+            subject_description=f"主体：{subject}；色彩：{visual['colors']}；构图：{visual['composition']}。",
             remark=(row.remark + "；" if row.remark else "") + remark,
         )
         return parsed, saved
@@ -46,6 +48,7 @@ class TrialImageUploadService:
             "url": f"/uploads/{saved_name}",
             "path": str(path),
             "content_type": str(file.get("content_type", "application/octet-stream")),
+            "content": bytes(file.get("content", b"")),
         }
 
 
@@ -69,3 +72,67 @@ def _subject_from_names(names: tuple[str, ...]) -> str:
         if key in text:
             return value
     return ""
+
+
+def _visual_summary(contents: tuple[bytes, ...]) -> dict[str, str]:
+    features = [_image_feature(content) for content in contents]
+    valid = [feature for feature in features if feature]
+    if not valid:
+        return {
+            "colors": "图片文件已保存，但本地解析器无法读取主色",
+            "composition": "需要人工确认主体位置和画面层次",
+            "remark": "未能读取图片像素信息",
+        }
+    colors = "、".join(dict.fromkeys(feature["color"] for feature in valid))
+    compositions = "、".join(dict.fromkeys(feature["composition"] for feature in valid))
+    sizes = "、".join(feature["size"] for feature in valid)
+    brightness = round(sum(float(feature["brightness"]) for feature in valid) / len(valid))
+    lightness = "明亮" if brightness >= 170 else "偏暗" if brightness < 95 else "中等明度"
+    return {
+        "colors": f"本地视觉解析主色为{colors}，整体{lightness}",
+        "composition": f"{compositions}，建议保留主体清晰边界和可拼层次",
+        "remark": f"视觉解析尺寸{sizes}，平均亮度{brightness}",
+    }
+
+
+def _image_feature(content: bytes) -> dict[str, str] | None:
+    try:
+        with Image.open(BytesIO(content)) as image:
+            rgb = image.convert("RGB")
+            width, height = rgb.size
+            tiny = rgb.resize((1, 1))
+            r, g, b = tiny.getpixel((0, 0))
+            stat = ImageStat.Stat(rgb.convert("L"))
+            brightness = stat.mean[0]
+    except Exception:
+        return None
+    if width > height * 1.15:
+        composition = "横向构图"
+    elif height > width * 1.15:
+        composition = "竖向构图"
+    else:
+        composition = "方形构图"
+    return {
+        "color": _color_name(r, g, b),
+        "composition": composition,
+        "size": f"{width}x{height}",
+        "brightness": f"{brightness:.1f}",
+    }
+
+
+def _color_name(r: int, g: int, b: int) -> str:
+    if max(r, g, b) < 70:
+        return "深色"
+    if min(r, g, b) > 210:
+        return "浅白"
+    if r >= g + 45 and r >= b + 45:
+        return "暖红"
+    if g >= r + 35 and g >= b + 35:
+        return "自然绿色"
+    if b >= r + 35 and b >= g + 35:
+        return "清透蓝"
+    if r >= 180 and g >= 150 and b < 120:
+        return "暖黄色"
+    if r >= 150 and b >= 140 and g < 130:
+        return "粉紫色"
+    return "综合色"

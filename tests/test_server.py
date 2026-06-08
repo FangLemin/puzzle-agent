@@ -1,6 +1,8 @@
 from puzzle_ops.renderer import AppState
 from puzzle_ops.server import APP, handle_action, redirect_location, update_state_from_query
 from puzzle_ops.feishu import MockFeishuClient
+from PIL import Image
+from io import BytesIO
 
 
 def test_invalid_country_query_does_not_corrupt_state():
@@ -150,6 +152,28 @@ def test_upload_trial_images_action_updates_trial_row_and_previews():
     assert len(APP.state.trial_rows) == 1
     assert APP.state.trial_rows[0].image_name == APP.state.trial_row.image_name
     assert APP.state.trial_uploads[0]["filename"] == "cat-koi.png"
+
+
+def test_upload_trial_images_extracts_real_visual_features_into_demand_row():
+    APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="parse")
+    image = Image.new("RGB", (120, 60), (220, 70, 60))
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+
+    handle_action(
+        "/upload_trial_images",
+        {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["parse"]},
+        files={
+            "trial_images": [
+                {"filename": "upload.png", "content_type": "image/png", "content": buffer.getvalue()}
+            ]
+        },
+    )
+
+    assert "暖红" in APP.state.trial_row.subject_description
+    assert "横向构图" in APP.state.trial_row.subject_description
+    assert "120x60" in APP.state.trial_row.remark
+    assert len(APP.state.trial_rows) == 1
 
 
 def test_sync_trial_to_feishu_records_success_and_resets_trial_row():
