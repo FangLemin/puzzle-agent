@@ -34,10 +34,12 @@ def test_regular_page_renders_business_table_fields_and_empty_delivery_input():
     assert 'name="delivery_date_0" value=""' in html
     assert 'name="operation_tag_0"' in html
     assert "一键同步到飞书表格" in html
+    assert 'formtarget="_blank"' in html
     assert "常规_日本_传统浴袍美女0604" in html
     assert "stock-hot" in html
     assert "stock-low" in html
     assert 'name="country" value="日本"' in html
+    assert 'name="view" value="regular"' in html
     assert 'name="tag" value="常规_日本_传统浴袍美女0604"' in html
 
 
@@ -61,9 +63,11 @@ def test_trial_page_keeps_core_fields_and_value_match_column():
     assert 'action="/simulate_trial_upload"' in html
     assert 'action="/upload_trial_images"' in html
     assert 'formaction="/sync_trial_feishu"' in html
+    assert 'formtarget="_blank"' in html
     assert "解析结果已写入下方试新提需表" in html
     assert "Agent 解析结果" not in html
     assert 'name="delivery_date" value=""' in html
+    assert 'name="view" value="trial"' in html
     assert 'class="image-preview-cell"' in html
     assert 'class="small-input"' in html
 

@@ -117,6 +117,7 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         if result.success:
             state.need_rows.clear()
             state.sync_message = f"同步成功，当前已完成提需{count}条"
+            state.view = "regular"
             return agent.feishu.web_url()
         else:
             state.sync_message = f"同步失败：{result.error}"
@@ -148,6 +149,7 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             state.trial_rows = []
             state.trial_uploads = []
             state.sync_message = f"同步成功，当前已完成试新提需{len(rows_to_sync)}条"
+            state.view = "trial"
             return agent.feishu.web_url()
         else:
             state.sync_message = f"同步失败：{result.error}"
