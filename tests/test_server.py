@@ -76,10 +76,11 @@ def test_sync_needs_to_feishu_clears_rows_and_sets_success_message():
     ]
     APP.agent.feishu.allow_real_sync = True
 
-    handle_action("/sync_needs_feishu", {"country": ["日本"], "view": ["regular"]})
+    redirect = handle_action("/sync_needs_feishu", {"country": ["日本"], "view": ["regular"]})
 
     assert APP.state.need_rows == []
     assert APP.state.sync_message == "同步成功，当前已完成提需2条"
+    assert redirect == APP.agent.feishu.web_url()
     assert any(row[2] == "提需同步" for row in APP.agent.sync_rows())
 
 
@@ -132,6 +133,8 @@ def test_upload_trial_images_action_updates_trial_row_and_previews():
 
     assert "cat-koi.png" in APP.state.trial_row.image_name
     assert "本地图片解析" in APP.state.trial_row.remark
+    assert len(APP.state.trial_rows) == 1
+    assert APP.state.trial_rows[0].image_name == APP.state.trial_row.image_name
     assert APP.state.trial_uploads[0]["filename"] == "cat-koi.png"
 
 
@@ -139,13 +142,15 @@ def test_sync_trial_to_feishu_records_success_and_resets_trial_row():
     APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="parse")
     APP.agent.feishu = MockFeishuClient(APP.agent._runtime_dir / "test_feishu_mock")
     APP.agent.feishu.allow_real_sync = True
-    APP.state.trial_row = APP.agent.simulate_trial_upload("日本", "人物", "parse")
+    APP.state.trial_rows = [APP.agent.simulate_trial_upload("日本", "人物", "parse")]
 
-    handle_action("/sync_trial_feishu", {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["parse"]})
+    redirect = handle_action("/sync_trial_feishu", {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["parse"]})
 
     assert APP.state.view == "trial"
     assert APP.state.sync_message == "同步成功，当前已完成试新提需1条"
+    assert APP.state.trial_rows == []
     assert "上传参考图" in APP.state.trial_row.image_name
+    assert redirect == APP.agent.feishu.web_url()
     assert any(row[2] == "提需同步" and row[4] == "成功" for row in APP.agent.sync_rows())
 
 
@@ -208,6 +213,7 @@ def test_approve_value_candidate_action_writes_hitl_memory():
 
     assert APP.state.view == "runtime"
     assert any("运营确认加入固定价值观" in memory["content"] for memory in APP.agent.hitl_memories("日本"))
+    assert candidate.rule_text in dict(APP.agent.value_rules("日本")).values()
 
 
 def test_replace_schedule_action_records_slot_replacement():

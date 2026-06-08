@@ -194,7 +194,13 @@ class PuzzleOpsAgent:
         )
 
     def value_rules(self, country: str):
-        return self._country(country)["value_rules"]
+        base_rules = list(self._country(country)["value_rules"])
+        approved = [
+            (f"运营审批候选{index}", str(rule["rule_text"]))
+            for index, rule in enumerate(self.approved_value_rules(country), 1)
+            if str(rule["rule_text"]) not in {body for _, body in base_rules}
+        ]
+        return tuple(base_rules + approved)
 
     def value_predictions(self, country: str, grade: str) -> tuple[ValuePredictionCard, ...]:
         cards: list[ValuePredictionCard] = []

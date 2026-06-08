@@ -33,9 +33,9 @@ class Handler(BaseHTTPRequestHandler):
         body = self.rfile.read(length)
         form, files = parse_post_body(self.headers.get("Content-Type", ""), body)
         path = urlparse(self.path).path
-        handle_action(path, form, files)
+        location = handle_action(path, form, files)
         self.send_response(303)
-        self.send_header("Location", redirect_location(APP.state))
+        self.send_header("Location", location or redirect_location(APP.state))
         self.end_headers()
 
     def respond(self, html: str) -> None:
@@ -71,12 +71,14 @@ def update_state_from_query(state: AppState, query: dict[str, list[str]]) -> Non
     state.show_holiday = query.get("show_holiday", [""])[0] == "1"
     if state.country != old_country:
         state.need_rows.clear()
+        state.trial_rows.clear()
         state.trial_row = None
     if state.trial_mode != old_trial_mode:
+        state.trial_rows.clear()
         state.trial_row = None
 
 
-def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[dict[str, object]]] | None = None) -> None:
+def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[dict[str, object]]] | None = None) -> str | None:
     files = files or {}
     state = APP.state
     agent = APP.agent
@@ -115,42 +117,59 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         if result.success:
             state.need_rows.clear()
             state.sync_message = f"同步成功，当前已完成提需{count}条"
+            return agent.feishu.web_url()
         else:
             state.sync_message = f"同步失败：{result.error}"
         state.view = "regular"
     elif path == "/save_trial":
-        row = state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)
-        state.trial_row = agent.edit_demand_row(
-            row,
-            priority=value(form, "priority", row.priority),
-            count=int(value(form, "count", str(row.count))),
-            method=value(form, "method", row.method),
-            operation_tag=value(form, "operation_tag", row.operation_tag),
-            delivery_date=value(form, "delivery_date", row.delivery_date),
-            remark=value(form, "remark", row.remark),
-        )
+        rows = state.trial_rows or [state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)]
+        saved = []
+        for index, row in enumerate(rows):
+            suffix = f"_{index}"
+            saved.append(
+                agent.edit_demand_row(
+                    row,
+                    priority=value(form, f"priority{suffix}", value(form, "priority", row.priority)),
+                    count=int(value(form, f"count{suffix}", value(form, "count", str(row.count)))),
+                    method=value(form, f"method{suffix}", value(form, "method", row.method)),
+                    operation_tag=value(form, f"operation_tag{suffix}", value(form, "operation_tag", row.operation_tag)),
+                    delivery_date=value(form, f"delivery_date{suffix}", value(form, "delivery_date", row.delivery_date)),
+                    remark=value(form, f"remark{suffix}", value(form, "remark", row.remark)),
+                )
+            )
+        state.trial_rows = saved if state.trial_rows else []
+        state.trial_row = saved[-1]
         state.view = "trial"
     elif path == "/sync_trial_feishu":
-        row = state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)
-        result = agent.sync_demand_rows(state.country, [_demand_row_payload(row)], require_real=True)
+        rows_to_sync = state.trial_rows or [state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)]
+        result = agent.sync_demand_rows(state.country, [_demand_row_payload(row) for row in rows_to_sync], require_real=True)
         if result.success:
             state.trial_row = agent.create_trial_demand(state.country, state.category, state.trial_mode)
+            state.trial_rows = []
             state.trial_uploads = []
-            state.sync_message = "同步成功，当前已完成试新提需1条"
+            state.sync_message = f"同步成功，当前已完成试新提需{len(rows_to_sync)}条"
+            return agent.feishu.web_url()
         else:
             state.sync_message = f"同步失败：{result.error}"
         state.view = "trial"
     elif path == "/apply_value_master":
-        row = state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)
-        state.trial_row = agent.apply_value_master(row)
+        if state.trial_rows:
+            state.trial_rows = [agent.apply_value_master(row) for row in state.trial_rows]
+            state.trial_row = state.trial_rows[-1]
+        else:
+            row = state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)
+            state.trial_row = agent.apply_value_master(row)
         state.view = "trial"
     elif path == "/simulate_trial_upload":
         state.trial_row = agent.simulate_trial_upload(state.country, state.category, state.trial_mode)
+        state.trial_rows.append(state.trial_row)
         state.trial_uploads = []
         state.view = "trial"
     elif path == "/upload_trial_images":
         row, previews = agent.parse_trial_uploads(state.country, state.category, state.trial_mode, files.get("trial_images", []))
         state.trial_row = row
+        if previews:
+            state.trial_rows.append(row)
         state.trial_uploads = list(previews)
         state.view = "trial"
     elif path == "/save_analysis":
@@ -176,6 +195,7 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             value(form, "human_note", "运营确认加入固定价值观"),
         )
         state.view = "runtime"
+    return None
 
 
 def redirect_location(state: AppState) -> str:

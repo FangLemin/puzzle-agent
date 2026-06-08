@@ -24,6 +24,7 @@ class AppState:
     sync_message: str = ""
     analysis_edits: dict[str, object] = field(default_factory=dict)
     trial_uploads: list[dict[str, str]] = field(default_factory=list)
+    trial_rows: list[DemandRow] = field(default_factory=list)
 
 
 def render_page(agent: PuzzleOpsAgent, state: AppState) -> str:
@@ -226,7 +227,12 @@ def render_trial(agent: PuzzleOpsAgent, state: AppState) -> str:
         )
     )
     row = state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)
-    row_html = render_need_row(row, 0, include_value=True, prefix="")
+    rows = state.trial_rows or [row]
+    row_html = (
+        "".join(render_need_row(item, index, include_value=True) for index, item in enumerate(rows))
+        if state.trial_rows
+        else render_need_row(row, 0, include_value=True, prefix="")
+    )
     upload_copy = "拖拽或选择 1-3 张参考图" if state.trial_mode == "parse" else "上传单张历史好图，自动衍生 2 张类似参考图"
     previews = "".join(render_upload_preview(item) for item in state.trial_uploads) or '<div class="thumb">参考图 A</div><div class="thumb">参考图 B</div><div class="thumb">参考图 C</div>'
     sync_message = f'<p class="success">{escape(state.sync_message)}</p>' if state.sync_message else ""

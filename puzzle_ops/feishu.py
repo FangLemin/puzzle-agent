@@ -35,6 +35,9 @@ class MockFeishuClient:
             writer.writerows(rows)
         return ToolResult(True, {"path": str(path), "mode": "mock"}, f"已写入飞书 Mock：{table_name}")
 
+    def web_url(self) -> str:
+        return str(self.export_dir)
+
 
 class RealFeishuClient:
     def __init__(
@@ -69,6 +72,14 @@ class RealFeishuClient:
         if self.sheet_range.startswith("tbl"):
             return self._write_bitable(table_name, rows)
         return self._write_sheet(table_name, rows)
+
+    def web_url(self) -> str:
+        configured = os.getenv("FEISHU_WEB_URL")
+        if configured:
+            return configured
+        if self.sheet_range.startswith("tbl"):
+            return f"https://feishu.cn/base/{self.spreadsheet_token}?table={self.sheet_range}"
+        return f"https://feishu.cn/sheets/{self.spreadsheet_token}"
 
     def _write_sheet(self, table_name: str, rows: list[dict[str, object]]) -> ToolResult:
         headers = _ordered_fields(rows)
