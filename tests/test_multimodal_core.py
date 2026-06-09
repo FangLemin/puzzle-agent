@@ -1,7 +1,10 @@
 from pathlib import Path
 
+from PIL import Image
+
 from puzzle_ops.audit import AuditPolicyRetriever, AuditRuleEngine
 from puzzle_ops.excel_importer import import_history_workbook
+from puzzle_ops.models import HistoricalRecord
 from puzzle_ops.multimodal import ImageFeatureExtractor, SimilarImageRetriever, ValueInsightMiner
 
 
@@ -22,6 +25,43 @@ def test_image_feature_extractor_builds_structured_feature_from_real_row(tmp_pat
     assert "animal" in feature.caption
     assert feature.feature_confidence >= 0.7
     assert feature.risk_tags == ()
+    assert feature.palette_summary
+    assert feature.brightness_level
+    assert feature.puzzle_readability
+
+
+def test_image_feature_extractor_prefers_local_image_visual_features(tmp_path):
+    image_path = tmp_path / "warm-horizontal.png"
+    Image.new("RGB", (120, 60), (220, 70, 60)).save(image_path)
+    record = HistoricalRecord(
+        grade="S",
+        image_formula="",
+        image_id="local-1",
+        image_url="",
+        local_image_path=str(image_path),
+        thumbnail_path=str(image_path),
+        position=1,
+        dimension_grade="高高高",
+        open_rate=0.3,
+        completion_rate=0.95,
+        avg_finish_time=20.0,
+        operation_tag="常规_日本_猫咪鲤鱼0605",
+        subject_tag="猫",
+        js_category="animal",
+        source="AI",
+        remark="",
+        distribution_date="2026-06-05",
+        distribution_cycle="W1",
+        country="日本",
+    )
+
+    feature = ImageFeatureExtractor().extract(record)
+
+    assert "暖红" in feature.color_palette
+    assert feature.composition.startswith("横向构图")
+    assert feature.temperature == "暖色"
+    assert "低对比/纯色风险" in feature.visual_quality_tags
+    assert feature.feature_confidence >= 0.85
 
 
 def test_similar_retriever_returns_good_and_bad_evidence(tmp_path):
@@ -47,6 +87,7 @@ def test_value_insight_miner_creates_pending_candidate_with_evidence(tmp_path):
     assert candidate.counterexample_count >= 1
     assert candidate.evidence_image_ids
     assert "猫" in candidate.rule_text or "AI" in candidate.rule_text
+    assert "视觉证据" in candidate.agent_reason
 
 
 def test_audit_policy_retriever_loads_docx_and_recalls_matching_rules():

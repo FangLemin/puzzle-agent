@@ -1,5 +1,6 @@
 from puzzle_ops.runtime import SkillLibrary, ToolRegistry
 from puzzle_ops.synthetic_data import SyntheticDataGenerator
+from PIL import Image
 
 
 def test_synthetic_generator_creates_139_rows_per_country_week_with_images(tmp_path):
@@ -13,6 +14,8 @@ def test_synthetic_generator_creates_139_rows_per_country_week_with_images(tmp_p
     assert all(record.local_image_path for record in records)
     assert all(record.thumbnail_path == record.local_image_path for record in records)
     assert {record.js_category for record in records} <= generator.allowed_categories
+    with Image.open(records[0].thumbnail_path) as image:
+        assert image.size == (360, 240)
 
 
 def test_synthetic_generator_can_create_two_country_dataset(tmp_path):

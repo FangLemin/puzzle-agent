@@ -1,16 +1,11 @@
 from __future__ import annotations
 
-import base64
 from datetime import date, timedelta
 from pathlib import Path
 
 from puzzle_ops.grading import dimension_grade, expected_grade
 from puzzle_ops.models import HistoricalRecord, JS_CATEGORIES
-
-
-PLACEHOLDER_PNG = base64.b64decode(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
-)
+from puzzle_ops.visual_assets import image_bytes
 
 
 class SyntheticDataGenerator:
@@ -39,8 +34,8 @@ class SyntheticDataGenerator:
                 dims = dimension_grade(country, open_rate, completion_rate, finish_time)
                 grade = expected_grade(dims)
                 image_id = f"{country.lower()}_w{week:02d}_{index + 1:03d}"
-                image_path = self._write_placeholder(image_id)
                 subject = self._subject(country, category, index)
+                image_path = self._write_visual_image(image_id, subject)
                 need_type = "试新" if index % 7 == 0 else "常规"
                 records.append(
                     HistoricalRecord(
@@ -67,10 +62,10 @@ class SyntheticDataGenerator:
                 )
         return tuple(records)
 
-    def _write_placeholder(self, image_id: str) -> Path:
+    def _write_visual_image(self, image_id: str, subject: str) -> Path:
         path = self.image_dir / f"{image_id}.png"
         if not path.exists():
-            path.write_bytes(PLACEHOLDER_PNG)
+            path.write_bytes(image_bytes(image_id, subject))
         return path
 
     def _metrics(self, country: str, index: int) -> tuple[float, float, float]:

@@ -1,20 +1,33 @@
 from __future__ import annotations
 
 from collections import Counter
+from pathlib import Path
 
 from puzzle_ops.models import HistoricalRecord, ImageFeature, ImageProfile, ValueRuleCandidate
+from puzzle_ops.visual_analysis import LocalImageAnalyzer
 
 
 class ImageFeatureExtractor:
+    def __init__(self, analyzer: LocalImageAnalyzer | None = None):
+        self.analyzer = analyzer or LocalImageAnalyzer()
+
     def extract(self, record: HistoricalRecord) -> ImageFeature:
         subjects = _subjects(record)
         risk_tags = _risk_tags(record)
         style = "AI插画" if record.source.upper() == "AI" else "素材网写实图"
-        colors = _color_palette(record)
-        composition = "主体居中，适合拼图识别；需保留前中后景层次"
+        visual = self._visual_feature(record)
+        colors = visual.palette if visual else _color_palette(record)
+        composition = (
+            f"{visual.orientation}；{visual.puzzle_readability}"
+            if visual
+            else "主体居中，适合拼图识别；需保留前中后景层次"
+        )
+        visual_quality_tags = visual.quality_tags if visual else ()
+        combined_risks = tuple(dict.fromkeys(risk_tags + visual_quality_tags))
         caption = (
             f"{record.country} {record.js_category} {record.operation_tag}，主体为{record.subject_tag}，"
-            f"来源{record.source}，历史等级{record.grade}，多维度{record.dimension_grade}。"
+            f"来源{record.source}，历史等级{record.grade}，多维度{record.dimension_grade}"
+            + (f"，本地视觉特征：{visual.palette_summary}/{visual.orientation}/{visual.brightness_level}。" if visual else "。")
         )
         return ImageFeature(
             image_id=record.image_id,
@@ -25,11 +38,25 @@ class ImageFeatureExtractor:
             style=style,
             culture_elements=_culture_elements(record),
             festival_elements=_festival_elements(record),
-            ai_artifacts=tuple(tag for tag in risk_tags if "AI" in tag),
-            risk_tags=risk_tags,
+            ai_artifacts=tuple(tag for tag in combined_risks if "AI" in tag),
+            risk_tags=combined_risks,
             caption=caption,
-            feature_confidence=0.82 if record.local_image_path else 0.72,
+            feature_confidence=0.9 if visual else 0.72,
+            visual_quality_tags=visual_quality_tags,
+            brightness_level=visual.brightness_level if visual else "未知",
+            saturation_level=visual.saturation_level if visual else "未知",
+            temperature=visual.temperature if visual else "未知",
+            palette_summary=visual.palette_summary if visual else "、".join(colors),
+            puzzle_readability=visual.puzzle_readability if visual else "需结合真实图片人工确认拼图层次",
         )
+
+    def _visual_feature(self, record: HistoricalRecord):
+        if not record.local_image_path:
+            return None
+        path = Path(record.local_image_path)
+        if not path.exists():
+            return None
+        return self.analyzer.analyze_path(path)
 
 
 class SimilarImageRetriever:
@@ -87,6 +114,7 @@ class ValueInsightMiner:
         top_subject = good_subjects.most_common(1)[0][0]
         top_category = good_categories.most_common(1)[0][0]
         ai_good = sum(1 for record in good if record.source.upper() == "AI")
+        visual_evidence = _visual_evidence(good, self.extractor)
         rule_text = f"{country}市场可优先关注{top_subject}/{top_category}类高表现元素，并结合SA图的清晰主体与文化语境做提需。"
         if ai_good:
             rule_text += " AI图需同步检查低质感与版权风格风险。"
@@ -100,7 +128,10 @@ class ValueInsightMiner:
                 counterexample_count=len(bad),
                 evidence_image_ids=tuple(record.image_id for record in good[:3]),
                 status="pending_review",
-                agent_reason=f"近周期SA样本{len(good)}条，CD反例{len(bad)}条；{top_subject}/{top_category}在好图组更突出。",
+                agent_reason=(
+                    f"近周期SA样本{len(good)}条，CD反例{len(bad)}条；{top_subject}/{top_category}在好图组更突出。"
+                    f" 视觉证据：{visual_evidence}。"
+                ),
             ),
         )
 
@@ -154,6 +185,21 @@ def _positive_signals(record: HistoricalRecord) -> tuple[str, ...]:
     if record.position in {1, 3, 5, 8, 10}:
         signals.append("重点位置有参考价值")
     return tuple(signals)
+
+
+def _visual_evidence(records: list[HistoricalRecord], extractor: ImageFeatureExtractor) -> str:
+    features = [extractor.extract(record) for record in records[:3]]
+    temperatures = tuple(dict.fromkeys(feature.temperature for feature in features if feature.temperature and feature.temperature != "未知"))
+    brightness = tuple(dict.fromkeys(feature.brightness_level for feature in features if feature.brightness_level and feature.brightness_level != "未知"))
+    readability = tuple(dict.fromkeys(feature.puzzle_readability for feature in features if feature.puzzle_readability))
+    parts = []
+    if temperatures:
+        parts.append("、".join(temperatures))
+    if brightness:
+        parts.append("、".join(brightness))
+    if readability:
+        parts.append(readability[0])
+    return " + ".join(parts) if parts else "暂无可读本地图片，沿用运营tag与历史指标"
 
 
 def _tokens(text: str) -> tuple[str, ...]:
