@@ -1,6 +1,7 @@
 from puzzle_ops.renderer import AppState
 from puzzle_ops.server import APP, handle_action, redirect_location, update_state_from_query
 from puzzle_ops.feishu import MockFeishuClient
+from puzzle_ops.image_generation import MockImageGenerationProvider
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.vision_llm import MissingVisionLLMConfig, OpenAIVisionLLMClient
 from PIL import Image
@@ -452,6 +453,35 @@ def test_derive_upload_outputs_derivative_direction_without_claiming_real_genera
     assert "衍生方向" in APP.state.trial_row.remark
     assert "视觉LLM：未运行" in APP.state.trial_row.remark
     assert "已生成2张相似参考图" not in APP.state.trial_row.remark
+
+
+def test_generate_trial_derivatives_requires_provider_without_faking_images():
+    APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="derive")
+    APP.agent.image_generator = None
+    APP.state.trial_row = APP.agent.simulate_trial_upload("日本", "人物", "derive")
+
+    handle_action("/generate_trial_derivatives", {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["derive"]})
+
+    assert "生成 provider 未配置" in APP.state.trial_row.remark
+    assert APP.state.trial_rows == []
+
+
+def test_generate_trial_derivatives_creates_two_audited_reference_rows(tmp_path):
+    APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="derive")
+    APP.agent.image_generator = MockImageGenerationProvider(APP.agent._runtime_dir / "trial_uploads")
+    APP.state.trial_row = APP.agent.simulate_trial_upload("日本", "人物", "derive").edited(
+        reference_image_path=str(tmp_path / "good.png"),
+        subject="日式塔楼游客",
+        subject_description="主体内容：日式塔楼游客；色彩氛围：明亮清透；构图环境：海边步道远景。",
+    )
+
+    handle_action("/generate_trial_derivatives", {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["derive"]})
+
+    assert len(APP.state.trial_rows) == 2
+    assert all("衍生参考图" in row.image_name for row in APP.state.trial_rows)
+    assert all(row.reference_image_url.startswith("/uploads/") for row in APP.state.trial_rows)
+    assert all("二次 VLM 解析与审核" in row.remark for row in APP.state.trial_rows)
+    assert "已生成2张衍生参考图" in APP.state.trial_row.remark
 
 
 def test_sync_trial_to_feishu_records_success_and_resets_trial_row():

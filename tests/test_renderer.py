@@ -77,6 +77,9 @@ def test_trial_page_keeps_core_fields_and_value_match_column(tmp_path):
     assert 'type="file"' in html
     assert 'enctype="multipart/form-data"' in html
     assert 'action="/simulate_trial_upload"' in html
+    assert 'action="/generate_trial_derivatives"' in html
+    assert "生成衍生参考图" in html
+    assert "生成 provider 未配置" in html
     assert 'action="/upload_trial_images"' in html
     assert 'formaction="/sync_trial_feishu"' in html
     assert 'formtarget="_blank"' not in html
@@ -226,6 +229,16 @@ def test_eval_page_shows_clear_agent_evaluation_workflow():
     html = render_page(PuzzleOpsAgent(), AppState(country="日本", view="eval"))
 
     assert "Agent 评测" in html
+    assert "Harness Dashboard" in html
+    assert "数据集概览" in html
+    assert "本次运行" in html
+    assert "失败样本" in html
+    assert "版本对比" in html
+    assert "HITL 修正入口" in html
+    assert "真实样本数" in html
+    assert "合成样本数" in html
+    assert "生成图审核通过率" in html
+    assert "derive_generation_eval" in html
     assert "任务目标" in html
     assert "输入与上下文" in html
     assert "工具调用链路" in html

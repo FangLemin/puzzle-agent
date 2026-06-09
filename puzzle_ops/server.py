@@ -188,6 +188,13 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             state.trial_rows.append(row)
         state.trial_uploads = list(previews)
         state.view = "trial"
+    elif path == "/generate_trial_derivatives":
+        row = state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)
+        updated, rows, previews = agent.generate_trial_derivatives(row)
+        state.trial_row = updated
+        state.trial_rows = list(rows)
+        state.trial_uploads = list(previews)
+        state.view = "trial"
     elif path == "/save_analysis":
         report = agent.analysis_report(state.country)
         state.analysis_edits = {

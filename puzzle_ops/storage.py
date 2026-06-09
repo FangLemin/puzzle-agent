@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import asdict
+import json
 from pathlib import Path
 
 from puzzle_ops.models import HistoricalRecord
@@ -72,6 +73,60 @@ class PuzzleRepository:
             ).fetchall()
         return tuple(tuple(str(row[index]) for index in range(5)) for row in rows)
 
+    def save_harness_run(self, run) -> None:
+        payload = json.dumps(asdict(run), ensure_ascii=False)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO harness_runs(run_id, version, dataset_name, model_provider, generator_provider, payload, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(run_id) DO UPDATE SET
+                    version=excluded.version,
+                    dataset_name=excluded.dataset_name,
+                    model_provider=excluded.model_provider,
+                    generator_provider=excluded.generator_provider,
+                    payload=excluded.payload,
+                    created_at=excluded.created_at
+                """,
+                (
+                    run.run_id,
+                    run.version,
+                    run.dataset_name,
+                    run.model_provider,
+                    run.generator_provider,
+                    payload,
+                    run.created_at,
+                ),
+            )
+
+    def harness_runs(self, limit: int = 10):
+        from puzzle_ops.harness import HarnessCaseResult, HarnessRun
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT payload FROM harness_runs ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        runs = []
+        for row in rows:
+            payload = json.loads(row["payload"])
+            cases = tuple(HarnessCaseResult(**case) for case in payload["cases"])
+            failures = tuple(HarnessCaseResult(**case) for case in payload["failures"])
+            runs.append(
+                HarnessRun(
+                    run_id=payload["run_id"],
+                    version=payload["version"],
+                    dataset_name=payload["dataset_name"],
+                    model_provider=payload["model_provider"],
+                    generator_provider=payload["generator_provider"],
+                    cases=cases,
+                    metrics=payload["metrics"],
+                    failures=failures,
+                    created_at=payload["created_at"],
+                )
+            )
+        return tuple(runs)
+
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
@@ -135,6 +190,19 @@ class PuzzleRepository:
                     target TEXT NOT NULL,
                     status TEXT NOT NULL,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS harness_runs (
+                    run_id TEXT PRIMARY KEY,
+                    version TEXT NOT NULL,
+                    dataset_name TEXT NOT NULL,
+                    model_provider TEXT NOT NULL,
+                    generator_provider TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    created_at TEXT NOT NULL
                 )
                 """
             )

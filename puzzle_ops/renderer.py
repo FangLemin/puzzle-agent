@@ -223,6 +223,7 @@ def render_need_rows(rows: list[DemandRow]) -> str:
 
 def render_trial(agent: PuzzleOpsAgent, state: AppState) -> str:
     vision_status = agent.vision_llm_status()
+    generation_status = agent.generation_provider_status()
     mode_links = "".join(
         f'<a class="mode-card {"active" if state.trial_mode == mode else ""}" href="{href(state, view="trial", trial_mode=mode)}"><strong>{label}</strong><span>{copy}</span></a>'
         for mode, label, copy in (
@@ -232,6 +233,7 @@ def render_trial(agent: PuzzleOpsAgent, state: AppState) -> str:
     )
     row = state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)
     rows = state.trial_rows or [row]
+    is_derive_mode = state.trial_mode == "derive" or "衍生" in row.operation_tag or "衍生" in row.image_name
     row_html = (
         "".join(render_need_card(item, index, include_value=True) for index, item in enumerate(rows))
         if state.trial_rows
@@ -241,11 +243,16 @@ def render_trial(agent: PuzzleOpsAgent, state: AppState) -> str:
     previews = "".join(render_upload_preview(item) for item in state.trial_uploads) or '<div class="thumb">参考图 A</div><div class="thumb">参考图 B</div><div class="thumb">参考图 C</div>'
     sync_message = render_sync_message(state)
     context = hidden_context(state, view="trial")
+    derivative_form = (
+        f'<form method="post" action="/generate_trial_derivatives">{context}<button>生成衍生参考图</button></form>'
+        if is_derive_mode
+        else ""
+    )
     return f"""
 <section class="panel"><h2>试新模式</h2><div class="mode-grid">{mode_links}</div></section>
 <section class="grid two">
-  <div class="panel"><h2>上传参考图</h2><div class="mock-upload-zone"><strong>{upload_copy}</strong><span>可上传本地图片进行结构化解析；未接 LLM 时使用本地解析适配层。</span><form method="post" action="/upload_trial_images" enctype="multipart/form-data">{context}<input type="file" name="trial_images" accept="image/*" multiple><button>上传并解析图片</button></form><form method="post" action="/simulate_trial_upload">{context}<button>模拟上传并解析</button></form></div><div class="reference-row">{previews}</div></div>
-  <div class="panel"><h2>解析状态</h2><p class="alert">解析结果已写入下方试新提需表，可在表格中继续编辑后同步飞书。</p><dl class="detail"><div><dt>视觉 LLM 语义解析</dt><dd>{vision_mode_copy(vision_status)}</dd></div><div><dt>当前图片</dt><dd>{escape(row.image_name)}</dd></div><div><dt>解析备注</dt><dd>{escape(row.remark or "等待上传图片")}</dd></div></dl></div>
+  <div class="panel"><h2>上传参考图</h2><div class="mock-upload-zone"><strong>{upload_copy}</strong><span>可上传本地图片进行结构化解析；未接 LLM 时使用本地解析适配层。</span><form method="post" action="/upload_trial_images" enctype="multipart/form-data">{context}<input type="file" name="trial_images" accept="image/*" multiple><button>上传并解析图片</button></form><form method="post" action="/simulate_trial_upload">{context}<button>模拟上传并解析</button></form>{derivative_form}</div><div class="reference-row">{previews}</div></div>
+  <div class="panel"><h2>解析状态</h2><p class="alert">解析结果已写入下方试新提需表，可在表格中继续编辑后同步飞书。</p><dl class="detail"><div><dt>视觉 LLM 语义解析</dt><dd>{vision_mode_copy(vision_status)}</dd></div><div><dt>图像生成 Provider</dt><dd>{escape(str(generation_status.get("message", "生成 provider 未配置")))}</dd></div><div><dt>当前图片</dt><dd>{escape(row.image_name)}</dd></div><div><dt>解析备注</dt><dd>{escape(row.remark or "等待上传图片")}</dd></div></dl></div>
 </section>
 <section class="panel">
   <div class="section-line"><h2>试新提需表预览</h2><form method="post" action="/apply_value_master">{context}<button>价值观大师</button></form></div>
@@ -443,7 +450,26 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
     metrics = agent.eval_dashboard(state.country)
     trace = agent.run_agent_task(state.country, "value_judge")
     report = agent.eval_report(state.country)
+    harness_summary = agent.harness_summary(state.country)
+    harness_run = agent.harness_run(state.country)
+    version_compare = agent.harness_compare(harness_run)
     metric_cards = "".join(f"<article><span>{escape(key)}</span><strong>{escape(value)}</strong></article>" for key, value in metrics.items())
+    harness_metric_cards = "".join(
+        f"<article><span>{escape(key)}</span><strong>{escape(_pct_text(value))}</strong></article>"
+        for key, value in harness_run.metrics.items()
+    )
+    summary_rows = "".join(
+        f"<tr><td>{escape(key)}</td><td>{render_summary_value(value)}</td></tr>"
+        for key, value in harness_summary.items()
+    )
+    failure_rows = "".join(
+        f"<tr><td>{escape(case.sample_id)}</td><td>{escape(case.task_type)}</td><td>{escape(case.agent_output)}</td><td>{escape('；'.join(case.failure_reasons))}</td><td><button>人工修正</button></td></tr>"
+        for case in harness_run.failures[:6]
+    )
+    compare_rows = "".join(
+        f"<tr><td>{escape(key)}</td><td>{escape(value)}</td></tr>"
+        for key, value in version_compare.items()
+    )
     eval_metric_rows = "".join(
         f"<tr><td>{escape(metric.name)}</td><td>{metric.score:.2f}</td><td>{metric.threshold:.2f}</td><td>{escape(metric.status)}</td><td>{escape(metric.reason)}</td></tr>"
         for metric in report.metric_results
@@ -456,6 +482,24 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
     tools = "".join(f"<li>{escape(tool)}</li>" for tool in trace.tool_calls)
     observations = "".join(f"<li>{escape(item)}</li>" for item in trace.observations)
     return f"""
+<section class="panel">
+  <h2>Harness Dashboard</h2>
+  <p>内置轻量 Harness：按真实样本与合成 demo 分开统计，批量运行 trial_parse_eval、value_match_eval、audit_eval、grade_predict_eval、derive_generation_eval 和 feishu_sync_eval。</p>
+</section>
+<section class="grid two">
+  <div class="panel"><h2>数据集概览</h2><div class="table-wrap"><table><tbody>{summary_rows}</tbody></table></div></div>
+  <div class="panel"><h2>本次运行</h2><dl class="detail">
+    <div><dt>run_id</dt><dd>{escape(harness_run.run_id)}</dd></div>
+    <div><dt>版本</dt><dd>{escape(harness_run.version)}</dd></div>
+    <div><dt>模型</dt><dd>{escape(harness_run.model_provider)}</dd></div>
+    <div><dt>生成 provider</dt><dd>{escape(harness_run.generator_provider)}</dd></div>
+  </dl></div>
+</section>
+<section class="metrics">{harness_metric_cards}</section>
+<section class="grid two">
+  <div class="panel"><h2>失败样本</h2><div class="table-wrap"><table><thead><tr><th>样本</th><th>任务</th><th>Agent 输出</th><th>失败原因</th><th>HITL 修正入口</th></tr></thead><tbody>{failure_rows or '<tr><td colspan="5">暂无失败样本。</td></tr>'}</tbody></table></div></div>
+  <div class="panel"><h2>版本对比</h2><div class="table-wrap"><table><tbody>{compare_rows}</tbody></table></div></div>
+</section>
 <section class="metrics">{metric_cards}</section>
 <section class="panel">
   <h2>任务目标</h2>
@@ -489,6 +533,18 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
 </section>
 <section class="panel"><h2>Agent Trace</h2><p>Trace 已在上方按输入、工具调用和指标结论拆解。</p></section>
 """
+
+
+def render_summary_value(value: object) -> str:
+    if isinstance(value, dict):
+        return escape("；".join(f"{key}:{item}" for key, item in value.items()) or "无")
+    return escape(str(value))
+
+
+def _pct_text(value: object) -> str:
+    if isinstance(value, float):
+        return f"{round(value * 100)}%"
+    return str(value)
 
 
 def render_record_card(record) -> str:

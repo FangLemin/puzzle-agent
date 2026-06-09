@@ -17,6 +17,7 @@ from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.trulens_eval import TruLensRAGEvaluator
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.eval_suite import AgentEvalSuite
+from puzzle_ops.harness import AgentHarness
 from puzzle_ops.visual_analysis import LocalImageAnalyzer
 from puzzle_ops.visual_assets import image_bytes
 
@@ -49,6 +50,7 @@ class PuzzleOpsAgent:
         self.adapter.register_cms(self.cms)
         self.feishu = FeishuClientFactory.create(runtime_dir / "feishu_mock")
         self.trial_uploads = TrialImageUploadService(runtime_dir / "trial_uploads")
+        self.image_generator = None
 
     def countries(self) -> tuple[str, ...]:
         return tuple(COUNTRIES.keys())
@@ -205,6 +207,66 @@ class PuzzleOpsAgent:
     def parse_trial_uploads(self, country: str, category: str, mode: str, files: list[dict[str, object]]) -> tuple[DemandRow, tuple[dict[str, str], ...]]:
         row = self.create_trial_demand(country, category, mode)
         return self.trial_uploads.parse(row, files, mode)
+
+    def generation_provider_status(self) -> dict[str, object]:
+        if self.image_generator:
+            return self.image_generator.healthcheck()
+        return {"provider": "not_configured", "configured": False, "message": "生成 provider 未配置"}
+
+    def generate_trial_derivatives(self, row: DemandRow) -> tuple[DemandRow, tuple[DemandRow, ...], tuple[dict[str, str], ...]]:
+        provider = self.image_generator
+        if provider is None:
+            return (
+                row.edited(remark=(row.remark + "；" if row.remark else "") + "生成 provider 未配置：当前只保留衍生方向，不伪造新参考图。"),
+                (),
+                (),
+            )
+        prompt = (
+            f"基于参考图衍生2张{row.country}市场拼图参考图；保留{row.subject}的核心吸引力、色彩氛围和构图层次，"
+            "变化具体场景、季节元素、道具组合，并保持主体清晰、适合中老年用户拼图。"
+        )
+        negative_prompt = "避免品牌logo、文字水印、知名动漫/IP风格、宗教政治风险、文化混淆、低清晰度。"
+        derivatives = provider.generate_derivatives(
+            reference_image=row.reference_image_path or row.image_name,
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            count=2,
+            seed=int(self.today.strftime("%m%d")),
+            style_constraints={
+                "source_sample_id": row.operation_tag,
+                "retained_features": f"{row.subject}；{row.subject_description}",
+                "changed_features": "季节元素；场景道具；人物/动物动作",
+                "risk_notes": "生成图必须经过二次 VLM 解析与审核后才能同步飞书",
+            },
+        )
+        rows: list[DemandRow] = []
+        previews: list[dict[str, str]] = []
+        for index, image in enumerate(derivatives, 1):
+            path = Path(image.local_image_path)
+            image_name = f"衍生参考图{index}_{path.name}"
+            remark = (
+                f"{row.remark}；生成provider={image.provider}，seed={image.seed}；"
+                "已进入二次 VLM 解析与审核待办，通过后才能同步飞书；"
+                f"Prompt：{image.prompt}；Negative：{image.negative_prompt}"
+            )
+            generated_row = row.edited(
+                image_name=image_name,
+                reference_image_url=f"/uploads/{path.name}",
+                reference_image_path=str(path),
+                reference_image_content_type="image/png",
+                remark=remark,
+            )
+            rows.append(generated_row)
+            previews.append(
+                {
+                    "filename": image_name,
+                    "url": f"/uploads/{path.name}",
+                    "path": str(path),
+                    "content_type": "image/png",
+                }
+            )
+        updated = row.edited(remark=(row.remark + "；" if row.remark else "") + f"已生成{len(rows)}张衍生参考图，等待二次 VLM 解析与审核。")
+        return updated, tuple(rows), tuple(previews)
 
     def apply_value_master(self, row: DemandRow) -> DemandRow:
         client = self.trial_uploads.vision_client
@@ -440,6 +502,30 @@ class PuzzleOpsAgent:
 
     def eval_report(self, country: str):
         return AgentEvalSuite(self).run(country)
+
+    def harness_samples(self, country: str):
+        return AgentHarness(self, self.image_generator).default_samples(country)
+
+    def harness_run(self, country: str, *, save: bool = True):
+        version_path = Path(__file__).resolve().parent.parent / "VERSION"
+        version = version_path.read_text(encoding="utf-8").strip() if version_path.exists() else "dev"
+        harness = AgentHarness(self, self.image_generator)
+        run = harness.run(self.harness_samples(country), dataset_name=f"{country} small-real-eval", version=version)
+        if save:
+            self.repository.save_harness_run(run)
+        return run
+
+    def harness_summary(self, country: str) -> dict[str, object]:
+        harness = AgentHarness(self, self.image_generator)
+        return harness.dataset_summary(self.harness_samples(country))
+
+    def harness_version_compare(self, country: str) -> dict[str, str]:
+        return self.harness_compare(self.harness_run(country))
+
+    def harness_compare(self, current) -> dict[str, str]:
+        harness = AgentHarness(self, self.image_generator)
+        previous = next((run for run in self.repository.harness_runs(limit=3) if run.run_id != current.run_id), None)
+        return harness.compare_runs(current, previous=previous)
 
     def _country(self, country: str) -> dict[str, object]:
         try:

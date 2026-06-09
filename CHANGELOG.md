@@ -2,6 +2,60 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.28 - Agent Harness 主线与好图衍生生成接口
+
+日期：2026-06-09
+
+阶段目标：
+
+- 把 Agent 评测从“单条 demo 指标展示”升级为内置轻量 Agent Harness。
+- 把好图衍生从“只输出衍生方向”推进到 provider 化生成接口，为后续接 ComfyUI 或云端图像生成 API 做准备。
+- 保持双层设计：本地 Harness 可独立跑，Phoenix / DeepEval / Promptfoo / Argilla / Label Studio 等先做结构化导出，不强依赖外部服务。
+
+已完成：
+
+- 新增 `puzzle_ops/harness.py`：
+  - `EvalSample` 支持真实样本与 synthetic demo 样本区分。
+  - `HarnessRun` 记录版本、数据集、模型 provider、生成 provider、cases、metrics、failures。
+  - `HarnessCaseResult` 记录输入、输出、工具调用、trace steps、scores、失败原因和人工覆盖入口。
+  - 覆盖 6 类任务：`trial_parse_eval`、`value_match_eval`、`audit_eval`、`grade_predict_eval`、`derive_generation_eval`、`feishu_sync_eval`。
+  - 缺图片路径、缺 gold label、未配置生成 provider 时明确标记 `not_evaluable` 或失败原因，不伪造效果。
+- 新增 `puzzle_ops/image_generation.py`：
+  - `ImageGenerationProvider` 抽象。
+  - `DerivativeImage` 记录 provider、prompt、negative prompt、seed、来源样本、保留/变化特征、风险备注。
+  - `MockImageGenerationProvider` 用于本地测试和页面链路验证；它只生成占位图片记录，不声明真实生成能力。
+- 好图衍生提需增加生成入口：
+  - derive 模式展示“生成衍生参考图”按钮。
+  - 未配置 provider 时提示“生成 provider 未配置”，不会伪造参考图。
+  - 配置 provider 时生成 2 条可进入试新表的参考图行，保留图片路径、预览、seed、prompt、negative prompt、二次 VLM 解析与审核提示。
+- Agent 评测页升级为 Harness Dashboard：
+  - 展示数据集概览、真实/合成样本数、国家/等级/来源分布。
+  - 展示本次 run 的 run_id、版本、模型、生成 provider。
+  - 展示任务级指标：三段式描述合规率、价值观一致率、审核风险召回率、SABCD预测准确率、工具调用正确率、Step Efficiency、生成图审核通过率、飞书同步成功率。
+  - 展示失败样本、Agent 输出、失败原因、HITL 修正入口。
+  - 展示当前 run 与历史 run 的版本对比。
+- 本地存储新增 Harness run 持久化：
+  - SQLite 新增 `harness_runs` 表。
+  - 支持保存/读取历史 run，后续可用于回放和版本对比。
+- 外部开源集成预留：
+  - `PhoenixExporter` 导出 trace/eval payload。
+  - `DeepEvalAdapter` 导出 pytest-style test cases。
+  - `PromptfooExporter` 导出 prompt/model 对比配置 payload。
+  - `ArgillaExporter` / `LabelStudioExporter` 导出 HITL 标注记录 payload。
+
+当前限制：
+
+- 还没有接真实 ComfyUI、通义万相、Qwen Image 或 Stable Diffusion API；真实好图衍生生成需要后续配置具体 provider。
+- Mock provider 只用于测试和本地链路验证，不代表真实图像生成质量。
+- 真实业务效果仍依赖 30-50 张人工 gold label 小样本；合成数据只能用于 demo、开发和边界测试。
+- 生成图进入飞书前仍需要二次 VLM 解析、审核和人工确认，不能自动当作最终生产图。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_harness.py -q`：5 passed。
+- `PYTHONPATH=. pytest tests/test_harness.py tests/test_agent_runtime.py tests/test_renderer.py tests/test_server.py tests/test_external_adapters.py -q`：76 passed。
+- `PYTHONPATH=. pytest tests -q`：131 passed。
+
 ## v0.3.27 - 修复同步成功后飞书打开 404
 
 日期：2026-06-09
