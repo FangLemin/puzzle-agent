@@ -1,5 +1,16 @@
 from puzzle_ops.agents import PuzzleOpsAgent
 from puzzle_ops.renderer import AppState, render_page
+from puzzle_ops.trial_upload import TrialImageUploadService
+from puzzle_ops.vision_llm import MissingVisionLLMConfig
+
+
+def agent_without_vlm(tmp_path):
+    agent = PuzzleOpsAgent()
+    agent.trial_uploads = TrialImageUploadService(
+        tmp_path / "uploads",
+        vision_config_error=MissingVisionLLMConfig(("QWEN_API_KEY",), provider="qwen"),
+    )
+    return agent
 
 
 def test_dashboard_page_contains_country_workflow_and_holiday_ai_themes():
@@ -33,8 +44,12 @@ def test_regular_page_renders_business_table_fields_and_empty_delivery_input():
     assert "交付日期" in html
     assert 'name="delivery_date_0" value=""' in html
     assert 'name="operation_tag_0"' in html
+    assert 'name="subject_description_0"' in html
+    assert 'class="demand-card-list regular-demand-list"' in html
+    assert 'class="demand-card-grid"' in html
+    assert 'class="demand-long-fields"' in html
     assert "一键同步到飞书表格" in html
-    assert 'formtarget="_blank"' in html
+    assert 'formtarget="_blank"' not in html
     assert "常规_日本_传统浴袍美女0604" in html
     assert "stock-hot" in html
     assert "stock-low" in html
@@ -43,8 +58,8 @@ def test_regular_page_renders_business_table_fields_and_empty_delivery_input():
     assert 'name="tag" value="常规_日本_传统浴袍美女0604"' in html
 
 
-def test_trial_page_keeps_core_fields_and_value_match_column():
-    agent = PuzzleOpsAgent()
+def test_trial_page_keeps_core_fields_and_value_match_column(tmp_path):
+    agent = agent_without_vlm(tmp_path)
     state = AppState(country="法国", view="trial")
     state.trial_row = agent.create_trial_demand("法国", "花卉", mode="derive")
 
@@ -56,20 +71,41 @@ def test_trial_page_keeps_core_fields_and_value_match_column():
     assert "参考图 A" in html
     assert "需求等级" in html
     assert "价值观匹配度" in html
-    assert "自动衍生2张参考图" in html
+    assert "衍生方向" in html
+    assert "自动衍生2张参考图" not in html
     assert "模拟上传并解析" in html
     assert 'type="file"' in html
     assert 'enctype="multipart/form-data"' in html
     assert 'action="/simulate_trial_upload"' in html
     assert 'action="/upload_trial_images"' in html
     assert 'formaction="/sync_trial_feishu"' in html
-    assert 'formtarget="_blank"' in html
+    assert 'formtarget="_blank"' not in html
     assert "解析结果已写入下方试新提需表" in html
+    assert "视觉 LLM 语义解析" in html
+    assert "需要配置真实视觉 LLM" in html
+    assert "QWEN_API_KEY" in html
     assert "Agent 解析结果" not in html
     assert 'name="delivery_date" value=""' in html
     assert 'name="view" value="trial"' in html
+    assert 'name="subject_description"' in html
+    assert 'class="demand-card-list trial-demand-list"' in html
+    assert 'class="demand-card-grid"' in html
+    assert 'class="demand-long-fields"' in html
     assert 'class="image-preview-cell"' in html
+    assert 'class="operation-tag-input"' in html
     assert 'class="small-input"' in html
+
+
+def test_sync_success_message_renders_feishu_link_without_popup_dependency():
+    agent = PuzzleOpsAgent()
+    state = AppState(country="日本", view="trial", sync_message="同步成功，当前已完成试新提需1条", sync_url="https://feishu.cn/base/app?table=tbl")
+
+    html = render_page(agent, state)
+
+    assert 'class="sync-success-card"' in html
+    assert 'href="https://feishu.cn/base/app?table=tbl"' in html
+    assert 'target="_blank"' in html
+    assert "已同步，打开飞书表格" in html
 
 
 def test_schedule_page_mentions_allowed_positions_and_renders_ten_slots():
@@ -93,6 +129,8 @@ def test_analysis_page_places_chart_before_detail_and_summary_at_bottom():
     assert 'name="next_todo"' in html
     assert html.index("趋势对比折线图") < html.index("图片明细与 AI 分析备注")
     assert html.index("图片明细与 AI 分析备注") < html.index("周期内容分析")
+    assert 'class="image-preview-cell"' in html
+    assert '<img src="data:image/png;base64,' in html
 
 
 def test_analysis_delta_colors_follow_metric_direction_rules():
@@ -101,6 +139,14 @@ def test_analysis_delta_colors_follow_metric_direction_rules():
     assert '<em class="delta delta-good">↑ 4%</em>' in html
     assert '<em class="delta delta-good">↓ 3%</em>' in html
     assert '<em class="delta delta-bad">↑ 2%</em>' in html
+
+
+def test_runtime_page_shows_vision_llm_adapter_status(tmp_path):
+    html = render_page(agent_without_vlm(tmp_path), AppState(country="日本", view="runtime"))
+
+    assert "视觉 LLM 适配器" in html
+    assert "需要配置真实视觉 LLM" in html
+    assert "QWEN_API_KEY" in html
 
 
 def test_dashboard_okr_coloring_and_alert_rules():
@@ -176,10 +222,14 @@ def test_multimodal_runtime_page_shows_approved_candidate_after_hitl_action():
     assert candidate.rule_text in html
 
 
-def test_eval_page_shows_agent_trace_and_metrics():
+def test_eval_page_shows_clear_agent_evaluation_workflow():
     html = render_page(PuzzleOpsAgent(), AppState(country="日本", view="eval"))
 
     assert "Agent 评测" in html
+    assert "任务目标" in html
+    assert "输入与上下文" in html
+    assert "工具调用链路" in html
+    assert "指标与结论" in html
     assert "Eval Dataset" in html
     assert "Case 明细" in html
     assert "Pass/Fail" in html
@@ -188,3 +238,30 @@ def test_eval_page_shows_agent_trace_and_metrics():
     assert "TruLens Context Relevance" in html
     assert "value_judge_skill" in html
     assert "history.search_records" in html
+    assert html.index("任务目标") < html.index("输入与上下文")
+    assert html.index("输入与上下文") < html.index("工具调用链路")
+    assert html.index("工具调用链路") < html.index("指标与结论")
+
+
+def test_stock_and_value_cards_render_real_image_tags_instead_of_text_cards():
+    html = render_page(PuzzleOpsAgent(), AppState(country="日本", view="regular"))
+    value_html = render_page(PuzzleOpsAgent(), AppState(country="日本", view="value", value_grade="S"))
+
+    assert '<img src="data:image/png;base64,' in html
+    assert '<img src="data:image/png;base64,' in value_html
+    assert 'class="thumb visual-thumb"' in html
+
+
+def test_trial_need_table_renders_uploaded_image_url_when_available(tmp_path):
+    agent = agent_without_vlm(tmp_path)
+    state = AppState(country="日本", view="trial")
+    state.trial_row = agent.create_trial_demand("日本", "人物", "parse").edited(
+        image_name="train-shop-girl.png",
+        reference_image_url="/uploads/train-shop-girl.png",
+        operation_tag="试新_日本_日式火车店铺少女0609",
+    )
+
+    html = render_page(agent, state)
+
+    assert '<img src="/uploads/train-shop-girl.png"' in html
+    assert 'value="试新_日本_日式火车店铺少女0609"' in html

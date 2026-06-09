@@ -11,7 +11,7 @@ from puzzle_ops.renderer import AppState, render_page
 
 class PuzzleOpsServer:
     def __init__(self) -> None:
-        self.agent = PuzzleOpsAgent()
+        self.agent = PuzzleOpsAgent(enable_regular_vision=True)
         self.state = AppState()
 
 
@@ -105,6 +105,7 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
                     method=value(form, f"method_{index}", row.method),
                     operation_tag=value(form, f"operation_tag_{index}", row.operation_tag),
                     delivery_date=value(form, f"delivery_date_{index}", row.delivery_date),
+                    subject_description=value(form, f"subject_description_{index}", row.subject_description),
                     remark=value(form, f"remark_{index}", row.remark),
                 )
             )
@@ -115,16 +116,18 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         count = len(rows)
         if count == 0:
             state.sync_message = "请先加入至少一条常规提需，再同步飞书表格。"
+            state.sync_url = ""
             state.view = "regular"
             return None
         result = agent.sync_demand_rows(state.country, rows, require_real=True)
         if result.success:
             state.need_rows.clear()
             state.sync_message = f"同步成功，当前已完成提需{count}条"
+            state.sync_url = agent.feishu.web_url()
             state.view = "regular"
-            return agent.feishu.web_url()
         else:
             state.sync_message = f"同步失败：{result.error}"
+            state.sync_url = ""
         state.view = "regular"
     elif path == "/save_trial":
         rows = state.trial_rows or [state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)]
@@ -139,6 +142,7 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
                     method=value(form, f"method{suffix}", value(form, "method", row.method)),
                     operation_tag=value(form, f"operation_tag{suffix}", value(form, "operation_tag", row.operation_tag)),
                     delivery_date=value(form, f"delivery_date{suffix}", value(form, "delivery_date", row.delivery_date)),
+                    subject_description=value(form, f"subject_description{suffix}", value(form, "subject_description", row.subject_description)),
                     remark=value(form, f"remark{suffix}", value(form, "remark", row.remark)),
                 )
             )
@@ -149,6 +153,7 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         rows_to_sync = state.trial_rows
         if not rows_to_sync:
             state.sync_message = "请先上传解析图片或模拟上传，生成至少一条试新提需记录。"
+            state.sync_url = ""
             state.view = "trial"
             return None
         result = agent.sync_demand_rows(state.country, [_demand_row_payload(row) for row in rows_to_sync], require_real=True)
@@ -157,10 +162,11 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             state.trial_rows = []
             state.trial_uploads = []
             state.sync_message = f"同步成功，当前已完成试新提需{len(rows_to_sync)}条"
+            state.sync_url = agent.feishu.web_url()
             state.view = "trial"
-            return agent.feishu.web_url()
         else:
             state.sync_message = f"同步失败：{result.error}"
+            state.sync_url = ""
         state.view = "trial"
     elif path == "/apply_value_master":
         if state.trial_rows:
@@ -240,11 +246,14 @@ def parse_post_body(content_type: str, body: bytes) -> tuple[dict[str, list[str]
 
 
 def _demand_row_payload(row) -> dict[str, object]:
-    return {
+    image_value: object = row.image_name
+    if row.reference_image_url:
+        image_value = [{"text": row.image_name, "link": row.reference_image_url}]
+    payload = {
         "提需分类": row.need_type,
         "国家": row.country,
         "JS分类": row.js_category,
-        "图片本身": row.image_name,
+        "图片本身": image_value,
         "运营tag": row.operation_tag,
         "主体内容": row.subject,
         "张数": row.count,
@@ -254,6 +263,12 @@ def _demand_row_payload(row) -> dict[str, object]:
         "主体描述": row.subject_description,
         "备注": row.remark,
     }
+    if row.value_match:
+        payload["价值观匹配度"] = row.value_match
+    if row.reference_image_path:
+        payload["_reference_image_path"] = row.reference_image_path
+        payload["_reference_image_content_type"] = row.reference_image_content_type or "image/png"
+    return payload
 
 
 def run(host: str = "127.0.0.1", port: int = 5188) -> None:

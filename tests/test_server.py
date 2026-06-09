@@ -1,8 +1,23 @@
 from puzzle_ops.renderer import AppState
 from puzzle_ops.server import APP, handle_action, redirect_location, update_state_from_query
 from puzzle_ops.feishu import MockFeishuClient
+from puzzle_ops.trial_upload import TrialImageUploadService
+from puzzle_ops.vision_llm import MissingVisionLLMConfig, OpenAIVisionLLMClient
 from PIL import Image
 from io import BytesIO
+import json
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def isolate_vision_llm_from_real_api(tmp_path):
+    previous_uploads = APP.agent.trial_uploads
+    APP.agent.trial_uploads = TrialImageUploadService(
+        tmp_path / "isolated_uploads",
+        vision_config_error=MissingVisionLLMConfig(("QWEN_API_KEY",), provider="qwen"),
+    )
+    yield
+    APP.agent.trial_uploads = previous_uploads
 
 
 def test_invalid_country_query_does_not_corrupt_state():
@@ -37,7 +52,7 @@ def test_add_regular_action_uses_submitted_context_and_adds_need_row():
 
     assert APP.state.view == "regular"
     assert len(APP.state.need_rows) == 1
-    assert APP.state.need_rows[0].operation_tag == "常规_日本_传统浴袍美女0604"
+    assert APP.state.need_rows[0].operation_tag == "常规_日本_传统浴袍美女0609"
 
 
 def test_generate_descriptions_action_updates_existing_need_rows():
@@ -46,7 +61,9 @@ def test_generate_descriptions_action_updates_existing_need_rows():
 
     handle_action("/generate_descriptions", {})
 
-    assert "主体：" in APP.state.need_rows[0].subject_description
+    assert "主体内容：" in APP.state.need_rows[0].subject_description
+    assert "色彩氛围：" in APP.state.need_rows[0].subject_description
+    assert "构图环境：" in APP.state.need_rows[0].subject_description
 
 
 def test_save_needs_can_edit_operation_tag():
@@ -82,7 +99,8 @@ def test_sync_needs_to_feishu_clears_rows_and_sets_success_message():
 
     assert APP.state.need_rows == []
     assert APP.state.sync_message == "同步成功，当前已完成提需2条"
-    assert redirect == APP.agent.feishu.web_url()
+    assert APP.state.sync_url == APP.agent.feishu.web_url()
+    assert redirect is None
     assert any(row[2] == "提需同步" for row in APP.agent.sync_rows())
 
 
@@ -119,7 +137,42 @@ def test_apply_value_master_action_updates_trial_row():
 
     handle_action("/apply_value_master", {"country": ["法国"], "category": ["花卉"], "trial_mode": ["parse"]})
 
-    assert "法国市场" in APP.state.trial_row.value_match
+    assert "需要配置真实视觉 LLM" in APP.state.trial_row.value_match
+
+
+def test_apply_value_master_action_uses_real_llm_result_when_configured(tmp_path):
+    previous_uploads = APP.agent.trial_uploads
+    try:
+        APP.agent.trial_uploads = TrialImageUploadService(
+            tmp_path / "value_master",
+            vision_client=OpenAIVisionLLMClient(
+                api_key="sk-test",
+                transport=lambda payload, api_key: {
+                    "output_text": json.dumps(
+                        {
+                            "value_match": "LLM判断：寿司图符合日本本土饮食文化价值观，需避免品牌露出。",
+                            "confidence": 0.9,
+                            "evidence": ["主体内容：寿司拼盘"],
+                            "risk_tags": ["品牌露出"],
+                        },
+                        ensure_ascii=False,
+                    )
+                },
+            ),
+        )
+        APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="parse")
+        APP.state.trial_row = APP.agent.create_trial_demand("日本", "人物", "parse").edited(
+            subject="寿司拼盘",
+            operation_tag="试新_日本_寿司拼盘0609",
+            subject_description="主体内容：寿司拼盘；色彩氛围：米白、鲑鱼橙；构图环境：日式料理店铺餐桌俯拍。",
+        )
+
+        handle_action("/apply_value_master", {"country": ["日本"], "category": ["人物"], "trial_mode": ["parse"]})
+
+        assert "LLM判断：寿司图符合日本本土饮食文化价值观" in APP.state.trial_row.value_match
+        assert "价值观LLM：真实openai" in APP.state.trial_row.value_match
+    finally:
+        APP.agent.trial_uploads = previous_uploads
 
 
 def test_simulate_trial_upload_action_updates_trial_row():
@@ -131,7 +184,8 @@ def test_simulate_trial_upload_action_updates_trial_row():
     )
 
     assert APP.state.view == "trial"
-    assert "已生成2张相似参考图" in APP.state.trial_row.remark
+    assert "衍生方向" in APP.state.trial_row.remark
+    assert "已生成2张相似参考图" not in APP.state.trial_row.remark
 
 
 def test_upload_trial_images_action_updates_trial_row_and_previews():
@@ -176,6 +230,230 @@ def test_upload_trial_images_extracts_real_visual_features_into_demand_row():
     assert len(APP.state.trial_rows) == 1
 
 
+def test_upload_trial_images_summarizes_multiple_visual_features():
+    APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="parse")
+    warm = Image.new("RGB", (120, 60), (220, 70, 60))
+    cool = Image.new("RGB", (80, 180), (40, 170, 190))
+    warm_buffer = BytesIO()
+    cool_buffer = BytesIO()
+    warm.save(warm_buffer, format="PNG")
+    cool.save(cool_buffer, format="PNG")
+
+    handle_action(
+        "/upload_trial_images",
+        {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["parse"]},
+        files={
+            "trial_images": [
+                {"filename": "cat-warm.png", "content_type": "image/png", "content": warm_buffer.getvalue()},
+                {"filename": "koi-cool.png", "content_type": "image/png", "content": cool_buffer.getvalue()},
+            ]
+        },
+    )
+
+    assert "已读取2张参考图" in APP.state.trial_row.remark
+    assert "暖红" in APP.state.trial_row.subject_description
+    assert "清透蓝" in APP.state.trial_row.subject_description or "自然绿色" in APP.state.trial_row.subject_description
+    assert "横向构图" in APP.state.trial_row.subject_description
+    assert "竖向构图" in APP.state.trial_row.subject_description
+    assert "拼图友好度" in APP.state.trial_row.remark
+
+
+def test_upload_trial_images_requires_real_vlm_config_for_semantics():
+    APP.state = AppState(country="日本", view="trial", category="动物", trial_mode="parse")
+    image = Image.new("RGB", (100, 100), (210, 150, 120))
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+
+    handle_action(
+        "/upload_trial_images",
+        {"country": ["日本"], "view": ["trial"], "category": ["动物"], "trial_mode": ["parse"]},
+        files={
+            "trial_images": [
+                {"filename": "shiba-sakura.png", "content_type": "image/png", "content": buffer.getvalue()}
+            ]
+        },
+    )
+
+    assert "主体内容：" in APP.state.trial_row.subject_description
+    assert "色彩氛围：" in APP.state.trial_row.subject_description
+    assert "构图环境：" in APP.state.trial_row.subject_description
+    assert "语义主体" not in APP.state.trial_row.subject_description
+    assert "视觉LLM：未运行" in APP.state.trial_row.remark
+
+
+def test_upload_trial_images_writes_real_openai_semantics_when_configured(tmp_path):
+    def fake_transport(payload, api_key):
+        return {
+            "output_text": json.dumps(
+                {
+                    "subject": "柴犬樱花",
+                    "scene": "日式庭院樱花季",
+                    "culture_elements": ["樱花", "柴犬"],
+                    "style": "明亮治愈写实插画",
+                    "risk_tags": [],
+                    "prompt_keywords": ["日本", "柴犬", "樱花"],
+                    "confidence": 0.91,
+                    "analysis": "真实 OpenAI 视觉模型返回的结构化语义。",
+                },
+                ensure_ascii=False,
+            )
+        }
+
+    previous_uploads = APP.agent.trial_uploads
+    try:
+        APP.agent.trial_uploads = TrialImageUploadService(
+            tmp_path / "uploads",
+            vision_client=OpenAIVisionLLMClient(api_key="sk-test", transport=fake_transport),
+        )
+        APP.state = AppState(country="日本", view="trial", category="动物", trial_mode="parse")
+        image = Image.new("RGB", (100, 100), (210, 150, 120))
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+
+        handle_action(
+            "/upload_trial_images",
+            {"country": ["日本"], "view": ["trial"], "category": ["动物"], "trial_mode": ["parse"]},
+            files={
+                "trial_images": [
+                    {"filename": "shiba-sakura.png", "content_type": "image/png", "content": buffer.getvalue()}
+                ]
+            },
+        )
+
+        assert APP.state.trial_row.subject == "柴犬樱花"
+        assert APP.state.trial_row.operation_tag == "试新_日本_柴犬樱花0609"
+        assert APP.state.trial_row.reference_image_url.startswith("/uploads/")
+        assert "主体内容：柴犬樱花" in APP.state.trial_row.subject_description
+        assert "色彩氛围：" in APP.state.trial_row.subject_description
+        assert "构图环境：日式庭院樱花季" in APP.state.trial_row.subject_description
+        assert "语义主体" not in APP.state.trial_row.subject_description
+        assert "视觉LLM：真实openai" in APP.state.trial_row.remark
+    finally:
+        APP.agent.trial_uploads = previous_uploads
+
+
+def test_trial_upload_uses_real_semantic_subject_in_operation_tag_and_feishu_payload(tmp_path):
+    def fake_transport(payload, api_key):
+        return {
+            "output_text": json.dumps(
+                {
+                    "subject": "日式火车店铺少女",
+                    "scene": "复古日式站台旁的街边店铺",
+                    "culture_elements": ["日式火车", "街边店铺"],
+                    "style": "明亮暖色写实插画",
+                    "risk_tags": [],
+                    "prompt_keywords": ["日本", "火车", "少女", "店铺"],
+                    "confidence": 0.93,
+                    "analysis": "真实视觉模型识别为日式火车店铺少女。",
+                },
+                ensure_ascii=False,
+            )
+        }
+
+    from puzzle_ops.server import _demand_row_payload
+
+    previous_uploads = APP.agent.trial_uploads
+    try:
+        APP.agent.trial_uploads = TrialImageUploadService(
+            tmp_path / "uploads",
+            vision_client=OpenAIVisionLLMClient(api_key="sk-test", transport=fake_transport),
+        )
+        APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="parse")
+        image = Image.new("RGB", (160, 100), (230, 160, 90))
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+
+        handle_action(
+            "/upload_trial_images",
+            {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["parse"]},
+            files={
+                "trial_images": [
+                    {"filename": "train-shop-girl.png", "content_type": "image/png", "content": buffer.getvalue()}
+                ]
+            },
+        )
+
+        row = APP.state.trial_row
+        payload = _demand_row_payload(row)
+        assert row.subject == "日式火车店铺少女"
+        assert row.operation_tag == "试新_日本_日式火车店铺少女0609"
+        assert row.image_name == "train-shop-girl.png"
+        assert row.reference_image_url.startswith("/uploads/")
+        assert row.reference_image_path
+        assert payload["_reference_image_path"] == row.reference_image_path
+        assert payload["_reference_image_content_type"] == "image/png"
+        assert payload["图片本身"] == [{"text": "train-shop-girl.png", "link": row.reference_image_url}]
+    finally:
+        APP.agent.trial_uploads = previous_uploads
+
+
+def test_trial_upload_compacts_long_semantic_subject_for_operation_tag(tmp_path):
+    def fake_transport(payload, api_key):
+        return {
+            "output_text": json.dumps(
+                {
+                    "subject": "游客群体含儿童与背包行人在观景步道上行走背景为传统日式多层塔楼建筑",
+                    "scene": "日式多层塔楼建筑旁的观景步道",
+                    "culture_elements": ["日式塔楼", "观景步道"],
+                    "style": "明亮旅行纪实",
+                    "risk_tags": [],
+                    "prompt_keywords": ["日本", "游客", "塔楼"],
+                    "confidence": 0.9,
+                    "analysis": "主体较长，需要压缩运营 tag。",
+                },
+                ensure_ascii=False,
+            )
+        }
+
+    previous_uploads = APP.agent.trial_uploads
+    try:
+        APP.agent.trial_uploads = TrialImageUploadService(
+            tmp_path / "uploads",
+            vision_client=OpenAIVisionLLMClient(api_key="sk-test", transport=fake_transport),
+        )
+        APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="parse")
+        image = Image.new("RGB", (160, 100), (230, 160, 90))
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+
+        handle_action(
+            "/upload_trial_images",
+            {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["parse"]},
+            files={
+                "trial_images": [
+                    {"filename": "tourists-tower.png", "content_type": "image/png", "content": buffer.getvalue()}
+                ]
+            },
+        )
+
+        tag_subject = APP.state.trial_row.operation_tag.removeprefix("试新_日本_").removesuffix("0609")
+        assert tag_subject == "游客塔楼"
+        assert len(tag_subject) <= 8
+    finally:
+        APP.agent.trial_uploads = previous_uploads
+
+
+def test_derive_upload_outputs_derivative_direction_without_claiming_real_generation():
+    APP.state = AppState(country="法国", view="trial", category="花卉", trial_mode="derive")
+    image = Image.new("RGB", (140, 140), (240, 210, 80))
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+
+    handle_action(
+        "/upload_trial_images",
+        {"country": ["法国"], "view": ["trial"], "category": ["花卉"], "trial_mode": ["derive"]},
+        files={
+            "trial_images": [
+                {"filename": "lavender-house.png", "content_type": "image/png", "content": buffer.getvalue()}
+            ]
+        },
+    )
+
+    assert "衍生方向" in APP.state.trial_row.remark
+    assert "视觉LLM：未运行" in APP.state.trial_row.remark
+    assert "已生成2张相似参考图" not in APP.state.trial_row.remark
+
+
 def test_sync_trial_to_feishu_records_success_and_resets_trial_row():
     APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="parse")
     APP.agent.feishu = MockFeishuClient(APP.agent._runtime_dir / "test_feishu_mock")
@@ -186,9 +464,10 @@ def test_sync_trial_to_feishu_records_success_and_resets_trial_row():
 
     assert APP.state.view == "trial"
     assert APP.state.sync_message == "同步成功，当前已完成试新提需1条"
+    assert APP.state.sync_url == APP.agent.feishu.web_url()
     assert APP.state.trial_rows == []
     assert "上传参考图" in APP.state.trial_row.image_name
-    assert redirect == APP.agent.feishu.web_url()
+    assert redirect is None
     assert any(row[2] == "提需同步" and row[4] == "成功" for row in APP.agent.sync_rows())
 
 
@@ -228,6 +507,30 @@ def test_save_trial_can_edit_operation_tag():
 
     assert APP.state.trial_row.operation_tag == "试新_日本_猫咪鲤鱼0605"
     assert APP.state.trial_row.priority == "P0"
+
+
+def test_save_trial_can_edit_subject_description():
+    APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="parse")
+    APP.state.trial_row = APP.agent.create_trial_demand("日本", "人物", "parse")
+
+    handle_action(
+        "/save_trial",
+        {
+            "country": ["日本"],
+            "view": ["trial"],
+            "category": ["人物"],
+            "trial_mode": ["parse"],
+            "operation_tag": ["试新_日本_寿司0609"],
+            "priority": ["P1"],
+            "count": ["3"],
+            "method": ["先照片后AI"],
+            "delivery_date": [""],
+            "subject_description": ["主体内容：寿司；色彩氛围：暖色；构图环境：日式料理店。"],
+            "remark": [""],
+        },
+    )
+
+    assert APP.state.trial_row.subject_description == "主体内容：寿司；色彩氛围：暖色；构图环境：日式料理店。"
 
 
 def test_save_analysis_persists_editable_rows_summary_and_todo():
