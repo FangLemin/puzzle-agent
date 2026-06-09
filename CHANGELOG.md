@@ -2,6 +2,492 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.27 - 修复同步成功后飞书打开 404
+
+日期：2026-06-09
+
+阶段目标：
+
+- 修复点击同步成功提示里的飞书入口后，飞书显示“页面不存在”的问题。
+
+根因：
+
+- `FEISHU_SPREADSHEET_TOKEN` 当前是云文档节点 token。
+- `web_url()` 仍用这个 token 拼 `https://feishu.cn/base/{token}?table=...`。
+- 飞书网页端需要真实 bitable app token，所以打开后进入 404/页面不存在。
+
+已完成：
+
+- `RealFeishuClient.web_url()` 在 bitable 场景使用 canonical app token：
+  - 如果已经配置或缓存 `FEISHU_BITABLE_APP_TOKEN`，直接使用。
+  - 如果没有，则通过飞书接口解析真实 app token 后生成链接。
+  - 同步成功后的“打开飞书表格”按钮会指向真实 base app token URL。
+- 保留 `FEISHU_WEB_URL` 的最高优先级：
+  - 如果你手动配置了完整飞书网页链接，仍以手动配置为准。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_external_adapters.py::test_real_feishu_client_bitable_web_url_uses_configured_canonical_app_token tests/test_external_adapters.py::test_real_feishu_client_bitable_web_url_resolves_canonical_app_token_when_needed -q`：2 passed。
+- `PYTHONPATH=. pytest tests/test_external_adapters.py -q`：21 passed。
+- `PYTHONPATH=. pytest tests -q`：124 passed。
+- 真实配置下 `RealFeishuClient.web_url()` 生成 `https://feishu.cn/base/AgqW...?...`，不再使用 `CxCTw...` 云文档节点 token。
+
+## v0.3.26 - 按真实飞书字段动态过滤同步 payload
+
+日期：2026-06-09
+
+阶段目标：
+
+- 修复真实飞书表缺少 `价值观匹配度` 字段时，同步报 `FieldNameNotFound` 的问题。
+
+根因：
+
+- 本地 bitable 白名单允许写入 `价值观匹配度`。
+- 但用户当前真实飞书提需表没有这个字段，飞书 batch_create 会直接拒绝整个请求。
+
+已完成：
+
+- 多维表格同步前读取真实表字段：
+  - 调用 `/bitable/v1/apps/{app_token}/tables/{table_id}/fields?page_size=200`。
+  - 有远端字段列表时，只写当前飞书表真实存在的字段。
+  - 如果字段列表取不到或为空，才回退到本地白名单，避免弱权限场景完全不可用。
+- `价值观匹配度` 变为可选同步字段：
+  - 飞书表有这个字段就写。
+  - 飞书表没有这个字段就自动跳过，不影响图片、运营 tag、主体描述等核心字段同步。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_external_adapters.py::test_real_feishu_client_omits_bitable_fields_missing_from_remote_schema -q`：1 passed。
+- `PYTHONPATH=. pytest tests/test_external_adapters.py -q`：19 passed。
+- `PYTHONPATH=. pytest tests -q`：122 passed。
+
+## v0.3.25 - 修复飞书附件上传异常导致本地页面断连
+
+日期：2026-06-09
+
+阶段目标：
+
+- 修复点击“同步试新到飞书”后 Safari 停在 `/sync_trial_feishu` 并提示本地服务器中断连接的问题。
+
+根因：
+
+- 真实飞书附件上传接口返回 `parent node not exist`。
+- 当前代码没有捕获附件上传阶段的 `RuntimeError`，导致本地 HTTP 请求处理线程异常退出，浏览器只能看到“服务器意外中断了连接”。
+- 当前 `.env` 里的 `FEISHU_SPREADSHEET_TOKEN` 是云文档节点 token 形态，附件上传需要真实 bitable app token 作为 `parent_node`。
+
+已完成：
+
+- `RealFeishuClient.write_table()` 捕获真实飞书 HTTP/素材上传异常：
+  - 失败时返回 `ToolResult(success=False)`。
+  - 页面会显示“同步失败：...”的具体飞书错误，不再让浏览器断连。
+- 多维表格附件上传改用 canonical bitable app token：
+  - 优先读取可选配置 `FEISHU_BITABLE_APP_TOKEN`。
+  - 如果未配置，则通过飞书 bitable app 查询接口自动把当前 token 解析为真实 app token。
+  - `upload_all` 的 `parent_node` 使用解析后的 app token。
+  - 写入记录的 batch_create URL 也使用解析后的 app token。
+- `.env.example` 增加 `FEISHU_BITABLE_APP_TOKEN` 可选项说明。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_external_adapters.py::test_real_feishu_client_upload_uses_canonical_bitable_app_token tests/test_external_adapters.py::test_real_feishu_client_returns_failure_when_bitable_attachment_upload_fails -q`：2 passed。
+- `PYTHONPATH=. pytest tests/test_external_adapters.py tests/test_server.py::test_sync_trial_to_feishu_records_success_and_resets_trial_row tests/test_server.py::test_sync_needs_to_feishu_clears_rows_and_sets_success_message -q`：20 passed。
+- `PYTHONPATH=. pytest tests -q`：121 passed。
+
+## v0.3.24 - 同步确认页与单页提需卡片
+
+日期：2026-06-09
+
+阶段目标：
+
+- 修复点击同步后飞书页面无法稳定打开的问题，并把常规/试新提需表改成更适合运营审核的单页编辑布局。
+
+已完成：
+
+- 同步成功后不再把 POST 请求直接 303 到飞书外链：
+  - 服务端先回到当前 Agent 页面，展示同步成功状态。
+  - 成功提示里提供“已同步，打开飞书表格”按钮，保留 `target="_blank"` 让运营主动打开飞书。
+  - 即使浏览器拦截弹窗或外链跳转，页面也会明确显示同步结果和飞书入口。
+- 常规提需和试新提需从超宽表格改为卡片式行编辑：
+  - 图片、运营 tag、主体内容、张数、需求等级、加工方式、交付日期放在紧凑网格里。
+  - 主体描述、备注、价值观匹配度放到下方宽区域，避免在窄列里夹缝审核 AI 文案。
+  - 同步按钮不再依赖 `formtarget="_blank"`，减少浏览器弹窗策略影响。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_server.py::test_sync_needs_to_feishu_clears_rows_and_sets_success_message tests/test_server.py::test_sync_trial_to_feishu_records_success_and_resets_trial_row tests/test_renderer.py::test_regular_page_renders_business_table_fields_and_empty_delivery_input tests/test_renderer.py::test_trial_page_keeps_core_fields_and_value_match_column tests/test_renderer.py::test_sync_success_message_renders_feishu_link_without_popup_dependency -q`：5 passed。
+- `PYTHONPATH=. pytest tests -q`：119 passed。
+
+## v0.3.23 - 同步跳转稳定性与提需表列宽优化
+
+日期：2026-06-09
+
+阶段目标：
+
+- 修复同步成功后新页面打不开的问题，并优化试新/常规提需表列宽，避免主体描述在窄列中难以审核。
+
+已完成：
+
+- 同步跳转不再额外调用飞书 API：
+  - `RealFeishuClient.web_url()` 对 bitable 直接返回 `https://feishu.cn/base/{app_token}?table={table_id}`。
+  - 避免同步成功后为了获取 canonical app token 又发一次 GET，导致新窗口打不开或卡住。
+  - 如果配置了 `FEISHU_WEB_URL` 但没有 `https://`，会自动补齐协议。
+- 提需表增加固定列宽：
+  - 新增 `demand-table`、`regular-demand-table`、`trial-demand-table` 和 `colgroup`。
+  - 张数列压到 72px，需求等级 118px，加工方式 150px，交付日期 92px。
+  - 主体描述列常规 520px，试新 620px，价值观匹配度 760px。
+  - 主体描述 textarea 高度提升到 220px，便于运营审核和改写 AI 文案。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_external_adapters.py::test_real_feishu_client_bitable_web_url_does_not_require_extra_api_call tests/test_external_adapters.py::test_real_feishu_client_normalizes_configured_web_url tests/test_renderer.py::test_regular_page_renders_business_table_fields_and_empty_delivery_input tests/test_renderer.py::test_trial_page_keeps_core_fields_and_value_match_column -q`：4 passed。
+- `PYTHONPATH=. pytest tests -q`：118 passed。
+- 浏览器验证：试新表 `col-count=72px`、`col-priority=118px`、主体描述 textarea `min-height=220px`、同步按钮 `formtarget=_blank`。
+
+## v0.3.22 - 试新上传图片自动同步为飞书附件
+
+日期：2026-06-09
+
+阶段目标：
+
+- 打通“Agent 试新模块上传一次图片 -> 飞书素材上传 -> 获取 file_token -> 写入多维表格附件字段”的完整链路。
+
+已完成：
+
+- 试新上传解析后保留本地图片路径：
+  - `DemandRow` 新增 `reference_image_path` 和 `reference_image_content_type`。
+  - 上传图片保存到本地后，提需行会携带 URL、path、content-type。
+- `RealFeishuClient` 新增 `upload_bitable_attachment`：
+  - 调用飞书 `POST /open-apis/drive/v1/medias/upload_all`。
+  - `parent_type` 根据文件类型选择 `bitable_image` 或 `bitable_file`。
+  - `parent_node` 使用多维表格 app token。
+  - 成功后读取 `data.file_token`。
+- 真实 bitable 同步前自动上传附件：
+  - 如果提需 payload 带 `_reference_image_path`，且 `图片本身` 还不是 `file_token` 附件格式，会先上传素材。
+  - 上传成功后将 `图片本身` 改写为 `[{file_token: "..."}]`。
+  - `_reference_image_path`、`_reference_image_content_type` 等内部字段不会写入飞书表。
+- 真实飞书多维表格里 `图片本身` 可以继续保持附件字段：
+  - 不需要新增 `图片链接` 字段。
+  - 不需要把 `图片本身` 改成文本字段。
+
+当前限制：
+
+- 飞书素材上传接口限制单文件不超过 20 MB；更大的文件需要后续接分片上传。
+- 应用需要具备多维表格编辑与上传图片/附件到云文档相关权限，否则飞书会返回权限错误。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_external_adapters.py::test_real_feishu_client_uploads_bitable_image_and_returns_file_token tests/test_external_adapters.py::test_real_feishu_client_uploads_local_image_before_bitable_create tests/test_server.py::test_trial_upload_uses_real_semantic_subject_in_operation_tag_and_feishu_payload -q`：3 passed。
+- `PYTHONPATH=. pytest tests -q`：117 passed。
+
+## v0.3.21 - 飞书字段白名单、短 tag 主体与主体描述编辑
+
+日期：2026-06-09
+
+阶段目标：
+
+- 修复真实飞书表不存在 `图片链接` 字段导致同步失败、AI 生成运营 tag 主体过长、常规/试新提需表主体描述不可编辑的问题。
+
+已完成：
+
+- 飞书 bitable 同步增加字段白名单：
+  - 只写入当前提需表已有字段：提需分类、国家、JS分类、图片本身、运营tag、主体内容、张数、需求等级、加工方式、交付日期、主体描述、备注、价值观匹配度。
+  - `图片链接`、`不存在字段` 等未建字段不再写入真实多维表格，避免 `FieldNameNotFound`。
+  - `图片本身` 仍只在有真实附件 `file_token` 时写入。
+- 试新运营 tag 主体压缩：
+  - 不再把 VLM 的完整长句直接写入 tag。
+  - 长主体会抽取 8 字以内运营短主体，例如 `游客群体含儿童与背包行人在观景步道上行走背景为传统日式多层塔楼建筑` 压缩为 `游客塔楼`。
+  - 保留常见业务短主体，如寿司、抹茶、传统浴袍美女、3D渲染动物拟人化等。
+- 常规提需表和试新提需表的 `主体描述` 改为可编辑：
+  - 页面渲染为 textarea。
+  - 保存接口会保存运营人工改写后的主体描述。
+
+当前限制：
+
+- 如果需要把上传图片真正内嵌到飞书附件字段，仍需新增飞书文件上传流程并拿到 `file_token`。
+- tag 主体压缩目前是运营短词抽取规则，后续可让 LLM 单独输出 `operation_tag_subject` 字段，并限制 8 字以内。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_external_adapters.py::test_real_feishu_client_omits_link_style_image_field_for_bitable_attachment tests/test_external_adapters.py::test_real_feishu_client_omits_unknown_bitable_fields_to_match_existing_schema tests/test_server.py::test_trial_upload_compacts_long_semantic_subject_for_operation_tag tests/test_server.py::test_save_trial_can_edit_subject_description tests/test_renderer.py::test_regular_page_renders_business_table_fields_and_empty_delivery_input tests/test_renderer.py::test_trial_page_keeps_core_fields_and_value_match_column -q`：6 passed。
+- `PYTHONPATH=. pytest tests -q`：115 passed。
+
+## v0.3.20 - 修复飞书多维表格图片附件字段同步失败
+
+日期：2026-06-09
+
+阶段目标：
+
+- 修复真实飞书多维表格同步报错 `AttachFieldConvFail`，原因是把普通图片链接对象写入了附件字段 `图片本身`。
+
+已完成：
+
+- 修复 bitable 字段转换：
+  - `图片本身` 只有在值为真正附件格式 `[{file_token: "..."}]` 时才写入。
+  - 普通文本、普通链接对象 `[{text, link}]` 不再写入 `图片本身`，避免飞书附件字段转换失败。
+  - `图片链接` 字段继续保留上传图 URL，用于同步后追溯参考图。
+- 保留未来扩展空间：
+  - 后续若接入飞书文件上传拿到 `file_token`，`图片本身` 附件字段会自动保留并写入。
+
+当前限制：
+
+- 当前还没有实现飞书附件上传，所以真实多维表格里不会把图片作为附件内嵌到 `图片本身` 字段；本版先保证同步成功，并把图片 URL 写入 `图片链接` 字段。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_external_adapters.py::test_real_feishu_client_omits_plain_text_attachment_fields_for_bitable tests/test_external_adapters.py::test_real_feishu_client_omits_link_style_image_field_for_bitable_attachment tests/test_external_adapters.py::test_real_feishu_client_keeps_real_attachment_file_tokens_for_bitable tests/test_server.py::test_trial_upload_uses_real_semantic_subject_in_operation_tag_and_feishu_payload -q`：4 passed。
+- `PYTHONPATH=. pytest tests -q`：112 passed。
+
+## v0.3.19 - 价值观大师接入真实 LLM 判断链路
+
+日期：2026-06-09
+
+阶段目标：
+
+- 修正 v0.3.18 将价值观大师做成文本规则分支的问题，改为通过 LLM 基于当前图片解析结果和已有价值观规则做判断。
+
+已完成：
+
+- `OpenAIVisionLLMClient` 和 `QwenVisionLLMClient` 新增 `judge_value_match`：
+  - 输入当前提需行的国家、JS分类、运营 tag、主体、主体描述、解析备注。
+  - 输入当前国家已有价值观规则库。
+  - Prompt 明确要求不要套默认模板，必须引用当前主体、色彩氛围、构图环境证据。
+  - 输出 JSON：`value_match`、`confidence`、`evidence`、`risk_tags`。
+- `apply_value_master` 改为调用真实 LLM 判断：
+  - 有 Qwen/OpenAI 配置时返回真实 LLM 的价值观判断。
+  - 缺少真实 LLM 配置时只提示需要配置，不再伪造“符合/不符合”结论。
+- 删除 v0.3.18 的手写主体规则分支：
+  - 寿司、火车少女、猫咪等不再靠 if/else 判断。
+  - 价值观结论由模型读取当前图片解析结果和规则库后生成。
+
+当前限制：
+
+- 当前价值观大师复用视觉 LLM provider 做文本判断，仍以试新上传时保存的 VLM 解析结果作为主要视觉证据；如果要在价值观按钮点击时重新读原图做二次视觉判断，可以继续把 `reference_image_url` 解析成图片 bytes 后传入同一次多模态请求。
+- 模型判断仍需运营审核，尤其是版权/IP、文化混淆和品牌露出风险。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_vision_llm.py::test_openai_client_judges_value_match_with_current_visual_context tests/test_vision_llm.py::test_qwen_client_judges_value_match_with_chat_completions_payload tests/test_agents.py::test_value_master_writes_value_match_to_trial_row tests/test_agents.py::test_value_master_uses_current_trial_subject_instead_of_default_template tests/test_agents.py::test_value_master_requires_real_llm_instead_of_rule_fallback -q`：5 passed。
+- `PYTHONPATH=. pytest tests -q`：110 passed。
+
+## v0.3.18 - 价值观大师改为基于当前解析主体判断
+
+日期：2026-06-09
+
+阶段目标：
+
+- 修复试新上传寿司图后，价值观大师仍套用日本默认“猫咪鲤鱼/动物互动”文案的问题。
+
+已完成：
+
+- `apply_value_master` 不再直接读取国家默认 trial 模板。
+- 价值观大师会读取当前提需行的：
+  - `subject`
+  - `operation_tag`
+  - `subject_description`
+- 日本市场按主体类型生成匹配理由：
+  - 寿司、抹茶、料理等走“本土饮食文化、清爽色彩、生活烟火气”。
+  - 猫、犬、鲤鱼等动物主体才走“治愈、季节感、动物互动”。
+  - 火车、站台、店铺、少女、人物等走“日常故事感、街景氛围、主体清晰”。
+- 法国市场保留花艺/庭院/餐饮等主体分支，不再只套固定文案。
+
+当前限制：
+
+- 价值观大师当前仍是规则化业务判断，不调用额外 LLM；好处是稳定、便宜、可控，后续可以把真实 VLM 解析结果和 RAG 价值观规则一起交给 LLM 做更自然的解释。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_agents.py::test_value_master_writes_value_match_to_trial_row tests/test_agents.py::test_value_master_uses_current_trial_subject_instead_of_default_template tests/test_server.py::test_apply_value_master_action_updates_trial_row -q`：3 passed。
+- `PYTHONPATH=. pytest tests -q`：106 passed。
+
+## v0.3.17 - 试新 tag、上传图片同步与图片数据可信度修复
+
+日期：2026-06-09
+
+阶段目标：
+
+- 修复试新提需表里运营 tag 拥挤、tag 未跟随视觉解析主体更新、上传图片未进入提需表和飞书 payload、合成数据仍是 1x1 占位图的问题。
+
+已完成：
+
+- 试新上传解析后会用视觉模型返回的主体重写运营 tag：
+  - 例如真实视觉模型识别为 `日式火车店铺少女` 时，tag 写为 `试新_日本_日式火车店铺少女0609`。
+  - 日期使用当天日期后缀，不再保留旧的 `0604`。
+- 试新提需表新增上传图贯通：
+  - `DemandRow` 增加 `reference_image_url`。
+  - 上传解析后保存第一张上传图片的 `/uploads/...` URL。
+  - 提需表“图片本身”列优先展示真实上传图，不再只根据图片名生成示意图。
+- 飞书同步 payload 增加图片信息：
+  - `图片本身` 在有上传图时写为带 `text/link` 的结构化链接。
+  - 额外写入 `图片链接` 字段，便于飞书表格里追溯上传参考图。
+- 提需表运营 tag 输入框加宽：
+  - 增加 `operation-tag-input` 样式，长 tag 不再挤成看不见字。
+- 合成历史数据不再写 1x1 透明占位图：
+  - `SyntheticDataGenerator` 改为生成 360x240 本地拼图风格 PNG。
+  - 这仍是本地演示数据，不等同真实生产图库。
+
+当前限制：
+
+- 真实飞书多维表格若“图片本身”字段是附件类型，仍需要后续接飞书附件上传/file_token 才能变成真正内嵌附件；当前先同步可点击图片链接和结构化链接。
+- 静态库存和合成历史数据已经不是文字卡/1x1 占位图，但仍是本地生成演示图。要完全解决“真实拼图图片数据集”，需要接真实 CMS/素材库图片 URL 或导入带真实图片的业务 Excel。
+- 视觉主体以真实 VLM 返回为准，但仍建议运营审核后再同步飞书。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_server.py::test_upload_trial_images_writes_real_openai_semantics_when_configured tests/test_server.py::test_trial_upload_uses_real_semantic_subject_in_operation_tag_and_feishu_payload tests/test_renderer.py::test_trial_page_keeps_core_fields_and_value_match_column tests/test_renderer.py::test_trial_need_table_renders_uploaded_image_url_when_available tests/test_synthetic_runtime_tools.py::test_synthetic_generator_creates_139_rows_per_country_week_with_images -q`：5 passed。
+- `PYTHONPATH=. pytest tests -q`：105 passed。
+
+## v0.3.16 - 多模态业务闭环与页面可信度修正
+
+日期：2026-06-09
+
+阶段目标：
+
+- 把真实视觉模型能力接到更贴近业务的提需与展示链路，修正常规提需日期、试新解析标准、库存图片展示、数据分析明细和 Agent 测评逻辑。
+
+已完成：
+
+- 常规提需加入时会把运营 tag 尾部日期替换为当天日期：
+  - 例如 `常规_日本_传统浴袍美女0604` 在 2026-06-09 加入提需后写为 `常规_日本_传统浴袍美女0609`。
+  - 手动编辑保存仍保留运营自己输入的 tag。
+- 常规提需“AI生成描述”改为业务三段式：
+  - 只输出 `主体内容`、`色彩氛围`、`构图环境`。
+  - 服务端启用真实视觉模型通道；缺模型或调用失败时保留本地视觉特征和人工确认提示，不伪造真实主体识别。
+- 试新上传解析统一为三段式业务文案：
+  - 图片主体、色彩氛围、构图环境进入 `subject_description`。
+  - 视觉模型 provider、置信度、风险和未配置提示留在备注。
+  - “好图衍生提需”明确只输出衍生方向，不声称生成新参考图。
+- 库存、价值观、数据分析明细和多模态底座不再使用文字卡：
+  - 新增本地 PNG 视觉资产层，页面以真实 `<img>` 渲染参考图和明细图片。
+  - 数据分析图片明细第一列展示图片预览和图片名，便于复盘色彩、构图、来源和位置差异。
+- Agent 测评页按工作流重构：
+  - 拆为任务目标、输入与上下文、工具调用链路、指标与结论。
+  - 保留 Eval Dataset、Case 明细、Pass/Fail、工具正确性和 TruLens 指标，展示逻辑更适合讲 Agent 工作流闭环。
+
+当前限制：
+
+- 库存参考图目前是本地生成的拼图风格 PNG，用于替代文字卡和支撑页面多模态展示；若要完全等同真实生产图库，还需要接入真实素材库/CMS 图片 URL。
+- 常规提需的视觉模型输出仍需要人工审核，版权/IP、主体识别和文化元素不能自动放行。
+- 试新衍生模式仍不会生成新图，只提供衍生方向和提需文案。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests -q`：103 passed。
+
+## v0.3.15 - 强制真实视觉 LLM 配置
+
+日期：2026-06-08
+
+阶段目标：
+
+- 按用户要求取消视觉语义解析的 Mock 运行路径，试新图片语义解析必须接真实视觉模型。
+
+已完成：
+
+- `VisionLLMClientFactory` 改为强制真实视觉 LLM：
+  - 默认 provider 为 `qwen`。
+  - 默认模型为 `qwen3-vl-flash`，走 Qwen Cloud OpenAI-compatible Chat Completions。
+  - 缺少 `QWEN_API_KEY` 时不再回退 Mock。
+  - 仍保留 OpenAI 作为可选真实 provider，但不作为默认方案。
+  - 页面和上传结果会明确提示“需要配置真实视觉 LLM”，当前不会做语义解析。
+- 删除视觉 LLM Mock client 的运行路径，保留本地视觉解析作为低成本像素层：
+  - 本地解析仍可输出颜色、构图、明暗、质量和拼图友好度。
+  - 语义主体、场景、文化元素、风格和风险必须由真实视觉模型返回。
+- 试新上传链路新增真实模型单元验证：
+  - 使用 fake transport 验证 Qwen Chat Completions payload、OpenAI Responses API payload 和结构化结果融合。
+  - 缺真实配置时，提需字段会写入“待真实视觉 LLM 解析”，不会伪造主体。
+- `.env.example` 改为真实模型配置模板：
+  - `VISION_LLM_PROVIDER=qwen`
+  - `QWEN_API_KEY=`
+  - `QWEN_VISION_MODEL=qwen3-vl-flash`
+  - `QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions`
+
+当前限制：
+
+- 当前已通过真实 Qwen3-VL-Flash API 验证直连解析；后续可继续补更贴近业务真实图的回归样例。
+- 真实模型输出仍需人工审核，版权/IP、文化元素和主体判断不能完全自动放行。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_vision_llm.py tests/test_renderer.py tests/test_server.py -q`：40 passed。
+- `PYTHONPATH=. pytest tests -q`：101 passed。
+- 真实 Qwen3-VL-Flash 调用验证通过：返回 `provider=qwen`、主体、场景、文化元素、风险标签和置信度。
+- 页面上传链路端到端验证通过：`/upload_trial_images` 写入 `视觉LLM：真实qwen`、语义主体、场景、文化元素、语义风险和置信度。
+
+## v0.3.14 - 视觉 LLM 适配层与语义解析 Mock
+
+日期：2026-06-08
+
+阶段目标：
+
+- 在不破坏本地 demo 和现有飞书链路的前提下，搭建真正多模态语义解析的工程入口：默认 Mock，可选接入 OpenAI 视觉 LLM。
+
+已完成：
+
+- 新增 `VisionLLMClient` 适配层：
+  - 默认使用 `MockVisionLLMClient`，无需网络、无需密钥、无 API 成本。
+  - 可通过 `VISION_LLM_PROVIDER=openai` + `OPENAI_API_KEY` 启用真实 OpenAI 视觉解析。
+  - OpenAI 适配器使用 Responses API 的 `input_text + input_image(data URL)` 形态，支持 `OPENAI_VISION_MODEL` 和 `OPENAI_VISION_DETAIL` 配置。
+- 试新上传链路升级为“双层解析”：
+  - 本地视觉解析负责尺寸、色彩、构图、明暗、质量和拼图友好度。
+  - 视觉 LLM 适配层负责主体、场景、文化元素、风格、语义风险和 prompt 关键词。
+  - 默认 Mock 会明确标注“不代表真实主体识别”；真实 OpenAI 模式才会调用外部视觉模型。
+- 页面增加模型状态说明：
+  - 试新提需页展示“视觉 LLM 语义解析”当前模式。
+  - 多模态底座展示“视觉 LLM 适配器”状态，便于面试演示工程边界。
+- `.env.example` 增加可选视觉 LLM 配置，不新增必填项，不提交真实密钥。
+
+当前限制：
+
+- Mock 模式仍然不是图片真实语义理解，只是为了稳定演示 Agent 工程链路。
+- 真实 OpenAI 模式需要用户在本地 `.env` 配置 `OPENAI_API_KEY`，且会产生网络调用和 API 成本。
+- 真实模型输出仍需人工审核，版权/IP、文化混淆和主体判断不能完全自动放行。
+
+验证记录：
+
+- 新增视觉 LLM Mock、OpenAI payload 构造、试新语义融合、页面模型状态测试。
+- `PYTHONPATH=. pytest tests/test_vision_llm.py tests/test_server.py -q`：24 passed。
+- `PYTHONPATH=. pytest tests/test_renderer.py tests/test_vision_llm.py tests/test_server.py -q`：38 passed。
+- `PYTHONPATH=. pytest tests -q`：99 passed。
+
+## v0.3.13 - 多模态本地解析与分析增强
+
+日期：2026-06-08
+
+阶段目标：
+
+- 在不接真实视觉 LLM 的前提下，把试新上传图片解析升级为可复用的本地多模态特征层，并接入多模态底座、价值观大师和数据分析展示。
+
+已完成：
+
+- 新增 `LocalImageAnalyzer` 本地视觉解析器：
+  - 支持多主色/调色板摘要。
+  - 识别明暗、饱和度、冷暖色倾向。
+  - 判断横向/竖向/方形构图。
+  - 标记过暗、过亮、低对比/纯色等本地质量风险。
+  - 输出拼图友好度建议，提示主体边界、材质纹理和前中后景层次。
+- 试新上传解析改为复用本地视觉解析器：
+  - `parse` 模式支持多张参考图的共同视觉特征汇总。
+  - `derive` 模式输出衍生方向，不再声称真实生成新图。
+  - 解析结果继续写入现有试新提需表字段，不改变飞书表结构。
+- 多模态底座增强：
+  - 有本地历史图片时优先使用真实像素特征。
+  - 无本地图片时保留运营 tag/source 规则 fallback。
+  - 页面展示明暗、饱和度、冷暖、质量标签和拼图友好度。
+- 多模态分析增强：
+  - 数据分析大师增加视觉维度复盘。
+  - 价值观候选理由增加视觉证据，用于面试展示 Agent 的图文融合归因链路。
+
+当前限制：
+
+- 当前仍未接入视觉 LLM，不能真正识别图片主体、IP、版权来源或复杂语义。主体仍依赖文件名、运营 tag 或默认配置；版权/IP 审核仍以文本规则和审核手册召回为主。
+
+验证记录：
+
+- 新增本地视觉解析、试新多图汇总、好图衍生方向、多模态特征优先级、价值观视觉证据测试。
+- `PYTHONPATH=. pytest tests/test_visual_analysis.py tests/test_multimodal_core.py tests/test_server.py -q`：31 passed。
+- `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py tests/test_server.py tests/test_multimodal_core.py -q`：52 passed。
+- `PYTHONPATH=. pytest tests -q`：94 passed。
+
 ## v0.3.12 - 试新图片真实本地视觉解析
 
 日期：2026-06-08
