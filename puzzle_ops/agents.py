@@ -1,6 +1,8 @@
 from dataclasses import replace
+from datetime import date
 import os
 from pathlib import Path
+import re
 from tempfile import gettempdir
 
 from puzzle_ops.data import COUNTRIES, SYNC_ROWS
@@ -15,6 +17,8 @@ from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.trulens_eval import TruLensRAGEvaluator
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.eval_suite import AgentEvalSuite
+from puzzle_ops.visual_analysis import LocalImageAnalyzer
+from puzzle_ops.visual_assets import image_bytes
 
 
 class PuzzleOpsAgent:
@@ -25,10 +29,19 @@ class PuzzleOpsAgent:
     workday_positions = (1, 2, 3, 4, 5, 6, 7, 8, 9, 12)
     weekend_positions = (1, 2, 3, 4, 5, 6, 7, 8, 9, 12)
 
-    def __init__(self, repository: PuzzleRepository | None = None):
+    def __init__(
+        self,
+        repository: PuzzleRepository | None = None,
+        *,
+        today: date | None = None,
+        enable_regular_vision: bool = False,
+    ):
         runtime_dir = Path(gettempdir()) / "puzzle_ops_agent_runtime"
         self.repository = repository or PuzzleRepository(runtime_dir / f"puzzle_ops_{os.getpid()}.db")
         self._runtime_dir = runtime_dir
+        self.today = today or date.today()
+        self.enable_regular_vision = enable_regular_vision
+        self.local_image_analyzer = LocalImageAnalyzer()
         self._history_cache: dict[str, tuple] = {}
         self._approved_candidates: dict[str, ValueRuleCandidate] = {}
         self.cms = MockCMSClient.with_synthetic_assets(runtime_dir / "cms", "日本", weeks=1)
@@ -74,12 +87,13 @@ class PuzzleOpsAgent:
     def add_regular_demand(self, country: str, category: str, operation_tag: str, image_index: int) -> DemandRow:
         tag_meta = self._tag_meta(country, category, operation_tag)
         image = self.images_for_tag(country, operation_tag)[image_index]
+        current_tag = _replace_tag_date_suffix(operation_tag, self.today)
         return DemandRow(
             need_type="常规",
             country=country,
             js_category=category,
             image_name=image.title,
-            operation_tag=operation_tag,
+            operation_tag=current_tag,
             subject=tag_meta.subject,
             count=7,
             priority="P1",
@@ -98,6 +112,7 @@ class PuzzleOpsAgent:
         method: str | None = None,
         operation_tag: str | None = None,
         delivery_date: str | None = None,
+        subject_description: str | None = None,
         remark: str | None = None,
     ) -> DemandRow:
         changes: dict[str, object] = {}
@@ -117,20 +132,45 @@ class PuzzleOpsAgent:
             changes["operation_tag"] = operation_tag
         if delivery_date is not None:
             changes["delivery_date"] = delivery_date
+        if subject_description is not None:
+            changes["subject_description"] = subject_description
         if remark is not None:
             changes["remark"] = remark
         return row.edited(**changes)
 
     def generate_subject_description(self, row: DemandRow) -> DemandRow:
-        description = f"主体：{row.subject}；色彩：贴合{row.country}市场偏好；构图：前景主体清晰，中景场景丰富，远景保留空间层次。"
-        return row.edited(subject_description=description)
+        visual_bytes = image_bytes(row.image_name, row.subject)
+        visual = self.local_image_analyzer.summarize_bytes((visual_bytes,))
+        semantic = None
+        if self.enable_regular_vision and self.trial_uploads.vision_client:
+            try:
+                semantic = self.trial_uploads.vision_client.analyze(
+                    [
+                        {
+                            "filename": f"{row.image_name}.png",
+                            "content": visual_bytes,
+                            "content_type": "image/png",
+                        }
+                    ],
+                    row.country,
+                    row.js_category,
+                    visual,
+                )
+            except Exception:
+                semantic = None
+        subject = semantic.subject if semantic and semantic.subject else row.subject
+        description = _business_subject_description(subject, row.country, visual, semantic)
+        remark = row.remark
+        if semantic:
+            remark = (remark + "；" if remark else "") + f"视觉LLM：真实{semantic.provider}，置信度{semantic.confidence:.2f}。"
+        return row.edited(subject=subject, subject_description=description, remark=remark)
 
     def create_trial_demand(self, country: str, category: str, mode: str) -> DemandRow:
         data = self._country(country)["trial"]
         if mode not in {"parse", "derive"}:
             raise ValueError("试新模式只能是 parse 或 derive")
         tag = data["derive_tag"] if mode == "derive" else data["parse_tag"]
-        image_name = "上传好图 + 自动衍生2张参考图" if mode == "derive" else "上传参考图1-3张"
+        image_name = "上传好图解析衍生方向" if mode == "derive" else "上传参考图1-3张"
         risk = "" if data["risk"].startswith("未发现明显") else f"! {data['risk']}"
         return DemandRow(
             need_type="试新",
@@ -143,7 +183,7 @@ class PuzzleOpsAgent:
             priority="P1",
             method="先照片后AI",
             delivery_date="",
-            subject_description=f"{data['subject']}；{data['colors']}；{data['composition']}",
+            subject_description=f"主体内容：{data['subject']}；色彩氛围：{data['colors']}；构图环境：{data['composition']}",
             remark=risk,
             value_match="",
         )
@@ -152,13 +192,13 @@ class PuzzleOpsAgent:
         row = self.create_trial_demand(country, category, mode)
         if mode == "derive":
             return row.edited(
-                image_name="历史好图+衍生图1+衍生图2",
-                subject_description=f"主体：{row.subject}；色彩：提取历史好图主色并生成2张相似参考图；构图：保留原图主体位置，补充国家文化场景。",
-                remark=(row.remark + "；" if row.remark else "") + "已生成2张相似参考图，可进入试新提需。",
+                image_name="历史好图解析衍生方向",
+                subject_description=f"主体内容：{row.subject}；色彩氛围：提取历史好图主色，保留高辨识暖色/冷色基调；构图环境：保留原图主体位置，补充国家文化场景。",
+                remark=(row.remark + "；" if row.remark else "") + "已解析历史好图，可整理衍生方向进入试新提需。",
             )
         return row.edited(
             image_name="参考图A+参考图B+参考图C",
-            subject_description=f"主体：{row.subject}；色彩：综合3张参考图主色；构图：提取共同主体与前中后景关系。",
+            subject_description=f"主体内容：{row.subject}；色彩氛围：综合3张参考图主色；构图环境：提取共同主体与前中后景关系。",
             remark=(row.remark + "；" if row.remark else "") + "已解析3张参考图，可进入试新提需。",
         )
 
@@ -167,7 +207,14 @@ class PuzzleOpsAgent:
         return self.trial_uploads.parse(row, files, mode)
 
     def apply_value_master(self, row: DemandRow) -> DemandRow:
-        value_match = self._country(row.country)["trial"]["value_match"]
+        client = self.trial_uploads.vision_client
+        if not client:
+            value_match = _missing_value_llm_message(self.trial_uploads.vision_config_error)
+        else:
+            try:
+                value_match = client.judge_value_match(_value_row_payload(row), self.value_rules(row.country))
+            except Exception as exc:
+                value_match = f"价值观大师：真实视觉 LLM 调用失败，暂不生成匹配结论；请检查模型配置后重试。错误：{exc}"
         return row.edited(value_match=value_match)
 
     def holiday_recommendation(self, country: str) -> HolidayRecommendation:
@@ -175,6 +222,7 @@ class PuzzleOpsAgent:
 
     def analysis_report(self, country: str) -> AnalysisReport:
         data = self._country(country)["analysis"]
+        visual_recap = self._visual_analysis_recap(country)
         return AnalysisReport(
             country=country,
             sa_ratio=data["sa_ratio"],
@@ -188,8 +236,8 @@ class PuzzleOpsAgent:
             cd_history_avg=data["cd_history_avg"],
             ai_history_avg=data["ai_history_avg"],
             ai_okr=data["ai_okr"],
-            cycle_summary=data["cycle_summary"],
-            next_todo=data["next_todo"],
+            cycle_summary=f"{data['cycle_summary']} 视觉维度复盘：{visual_recap}",
+            next_todo=f"{data['next_todo']} 多模态建议：优先补充主体清晰、文化语境准确、质量风险低的试新参考图。",
             rows=data["rows"],
         )
 
@@ -262,6 +310,13 @@ class PuzzleOpsAgent:
 
     def sync_rows(self):
         return self.repository.sync_events() + SYNC_ROWS
+
+    def vision_llm_status(self) -> dict[str, object]:
+        if self.trial_uploads.vision_client:
+            return self.trial_uploads.vision_client.config_status()
+        if self.trial_uploads.vision_config_error:
+            return self.trial_uploads.vision_config_error.config_status()
+        return {"provider": "qwen", "mode": "missing", "missing": ("QWEN_API_KEY",)}
 
     def sync_demand_rows(self, country: str, rows: list[dict[str, object]], require_real: bool = True):
         if require_real and not self.feishu.is_real and not getattr(self.feishu, "allow_real_sync", False):
@@ -410,9 +465,63 @@ class PuzzleOpsAgent:
         self._history_cache[country] = records
         return records
 
+    def _visual_analysis_recap(self, country: str) -> str:
+        extractor = ImageFeatureExtractor()
+        records = self._history_records(country)
+        good = [record for record in records if record.grade in {"S", "A"}]
+        bad = [record for record in records if record.grade in {"C", "D"}]
+        good_features = [extractor.extract(record) for record in good[:3]]
+        bad_features = [extractor.extract(record) for record in bad[:3]]
+        good_palette = _first_non_empty(feature.palette_summary for feature in good_features)
+        good_readability = _first_non_empty(feature.puzzle_readability for feature in good_features)
+        bad_risks = tuple(dict.fromkeys(tag for feature in bad_features for tag in feature.visual_quality_tags))
+        bad_text = "、".join(bad_risks) if bad_risks else "暂未命中明显本地质量风险"
+        return f"SA图常见视觉信号：{good_palette or '需补充真实图片'}，{good_readability or '需人工确认拼图层次'}；CD图质量风险：{bad_text}。"
+
 
 def _pct(value: float) -> str:
     return f"{round(value * 100)}%"
+
+
+def _replace_tag_date_suffix(operation_tag: str, today: date) -> str:
+    suffix = today.strftime("%m%d")
+    if re.search(r"\d{4}$", operation_tag):
+        return re.sub(r"\d{4}$", suffix, operation_tag)
+    return f"{operation_tag}{suffix}"
+
+
+def _business_subject_description(subject: str, country: str, visual, semantic) -> str:
+    color = visual.palette_summary
+    if semantic and semantic.style:
+        color = f"{visual.palette_summary}，整体风格为{semantic.style}"
+    scene = semantic.scene if semantic and semantic.scene else visual.composition_summary
+    culture = "、".join(semantic.culture_elements) if semantic and semantic.culture_elements else f"{country}市场元素待运营确认"
+    return f"主体内容：{subject}；色彩氛围：{color}；构图环境：{scene}，结合{culture}。"
+
+
+def _value_row_payload(row: DemandRow) -> dict[str, object]:
+    return {
+        "country": row.country,
+        "js_category": row.js_category,
+        "image_name": row.image_name,
+        "operation_tag": row.operation_tag,
+        "subject": row.subject,
+        "subject_description": row.subject_description,
+        "remark": row.remark,
+        "reference_image_url": row.reference_image_url,
+    }
+
+
+def _missing_value_llm_message(error) -> str:
+    missing = "、".join(error.missing) if error else "QWEN_API_KEY"
+    return f"价值观大师：需要配置真实视觉 LLM 后，才能基于当前图片解析结果和已有价值观规则判断匹配度；当前缺少 {missing}。"
+
+
+def _first_non_empty(items) -> str:
+    for item in items:
+        if item:
+            return item
+    return ""
 
 
 def _records_from_static_country(country: str):

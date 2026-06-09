@@ -72,6 +72,9 @@ class DemandRow:
     subject_description: str
     remark: str
     value_match: str = ""
+    reference_image_url: str = ""
+    reference_image_path: str = ""
+    reference_image_content_type: str = ""
 
     def edited(self, **changes: object) -> "DemandRow":
         return replace(self, **changes)
@@ -178,6 +181,12 @@ class ImageFeature:
     risk_tags: tuple[str, ...]
     caption: str
     feature_confidence: float
+    visual_quality_tags: tuple[str, ...] = ()
+    brightness_level: str = ""
+    saturation_level: str = ""
+    temperature: str = ""
+    palette_summary: str = ""
+    puzzle_readability: str = ""
 
 
 @dataclass(frozen=True)

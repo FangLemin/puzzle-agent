@@ -1,4 +1,6 @@
 from puzzle_ops.agents import PuzzleOpsAgent
+from puzzle_ops.trial_upload import TrialImageUploadService
+from puzzle_ops.vision_llm import MissingVisionLLMConfig, OpenAIVisionLLMClient
 
 
 def test_country_data_is_isolated_between_japan_and_france():
@@ -21,7 +23,7 @@ def test_regular_demand_row_has_real_business_fields_and_empty_delivery_date():
     assert row.need_type == "常规"
     assert row.country == "日本"
     assert row.js_category == "人物"
-    assert row.operation_tag == "常规_日本_传统浴袍美女0604"
+    assert row.operation_tag == "常规_日本_传统浴袍美女0609"
     assert row.count == 7
     assert row.priority == "P1"
     assert row.delivery_date == ""
@@ -47,7 +49,7 @@ def test_demand_editing_only_changes_requested_editable_fields():
     assert edited.method == "先照片后AI"
     assert edited.delivery_date == "06-20"
     assert edited.remark == "过图会要求提前交付"
-    assert edited.operation_tag == "常规_法国_薰衣草0604"
+    assert edited.operation_tag == "常规_法国_薰衣草0609"
 
 
 def test_trial_demand_parse_and_derive_have_matching_core_fields():
@@ -64,7 +66,8 @@ def test_trial_demand_parse_and_derive_have_matching_core_fields():
     assert parse_row.delivery_date == ""
     assert derive_row.delivery_date == ""
     assert "上传参考图" in parse_row.image_name
-    assert "自动衍生2张参考图" in derive_row.image_name
+    assert "衍生方向" in derive_row.image_name
+    assert "自动衍生" not in derive_row.image_name
     assert parse_row.value_match == ""
 
 
@@ -76,18 +79,79 @@ def test_simulate_trial_upload_updates_parse_and_derive_rows():
 
     assert "已解析3张参考图" in parsed.remark
     assert "参考图A+参考图B+参考图C" in parsed.image_name
-    assert "已生成2张相似参考图" in derived.remark
-    assert "历史好图+衍生图1+衍生图2" in derived.image_name
+    assert "衍生方向" in derived.remark
+    assert "已生成2张相似参考图" not in derived.remark
+    assert "历史好图解析衍生方向" in derived.image_name
+
+
+def test_generated_subject_description_uses_business_three_part_standard():
+    agent = PuzzleOpsAgent()
+    row = agent.add_regular_demand("日本", "人物", "常规_日本_传统浴袍美女0604", 0)
+
+    described = agent.generate_subject_description(row)
+
+    assert described.subject_description.count("主体内容：") == 1
+    assert described.subject_description.count("色彩氛围：") == 1
+    assert described.subject_description.count("构图环境：") == 1
+    assert "主体：" not in described.subject_description
+    assert "语义主体" not in described.subject_description
 
 
 def test_value_master_writes_value_match_to_trial_row():
     agent = PuzzleOpsAgent()
+    agent.trial_uploads = TrialImageUploadService(
+        agent._runtime_dir / "value_master_fake",
+        vision_client=OpenAIVisionLLMClient(
+            api_key="sk-test",
+            transport=lambda payload, api_key: {
+                "output_text": '{"value_match":"LLM判断：符合法国市场浪漫生活艺术价值观，建议强化法式窗台。","confidence":0.9,"evidence":["法式窗台"],"risk_tags":[]}'
+            },
+        ),
+    )
     row = agent.create_trial_demand("法国", "花卉", mode="parse")
 
     judged = agent.apply_value_master(row)
 
     assert "法国市场" in judged.value_match
     assert "法式窗台" in judged.value_match
+
+
+def test_value_master_uses_current_trial_subject_instead_of_default_template():
+    agent = PuzzleOpsAgent()
+    agent.trial_uploads = TrialImageUploadService(
+        agent._runtime_dir / "value_master_fake",
+        vision_client=OpenAIVisionLLMClient(
+            api_key="sk-test",
+            transport=lambda payload, api_key: {
+                "output_text": '{"value_match":"LLM判断：寿司拼盘符合日本本土饮食文化与清爽色彩价值观，不应套用动物互动。","confidence":0.91,"evidence":["主体内容：寿司拼盘"],"risk_tags":[]}'
+            },
+        ),
+    )
+    row = agent.create_trial_demand("日本", "人物", mode="parse").edited(
+        subject="寿司拼盘",
+        operation_tag="试新_日本_寿司拼盘0609",
+        subject_description="主体内容：寿司拼盘；色彩氛围：米白、鲑鱼橙、海苔绿；构图环境：日式料理店铺餐桌俯拍。",
+    )
+
+    judged = agent.apply_value_master(row)
+
+    assert "寿司拼盘" in judged.value_match
+    assert "饮食文化" in judged.value_match
+    assert "LLM判断" in judged.value_match
+
+
+def test_value_master_requires_real_llm_instead_of_rule_fallback():
+    agent = PuzzleOpsAgent()
+    agent.trial_uploads = TrialImageUploadService(
+        agent._runtime_dir / "value_master_missing",
+        vision_config_error=MissingVisionLLMConfig(("QWEN_API_KEY",), provider="qwen"),
+    )
+    row = agent.create_trial_demand("日本", "人物", mode="parse").edited(subject="寿司拼盘")
+
+    judged = agent.apply_value_master(row)
+
+    assert "需要配置真实视觉 LLM" in judged.value_match
+    assert "动物互动" not in judged.value_match
 
 
 def test_holiday_recommendation_is_ai_subject_planning_not_tag_copying():
