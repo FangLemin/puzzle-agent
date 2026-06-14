@@ -18,7 +18,7 @@ from puzzle_ops.trulens_eval import TruLensRAGEvaluator
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.eval_suite import AgentEvalSuite
 from puzzle_ops.harness import AgentHarness
-from puzzle_ops.image_generation import ImageGenerationProviderFactory
+from puzzle_ops.image_generation import DerivativeImage, ImageGenerationProviderFactory
 from puzzle_ops.visual_analysis import LocalImageAnalyzer
 from puzzle_ops.visual_assets import image_bytes
 
@@ -245,8 +245,7 @@ class PuzzleOpsAgent:
         for index, image in enumerate(derivatives, 1):
             path = Path(image.local_image_path)
             image_name = f"衍生参考图{index}_{path.name}"
-            second_review_passed = image.provider not in {"mock", "not_configured"} and Path(image.local_image_path).exists()
-            review_status = "二次 VLM 解析与审核通过" if second_review_passed else "已进入二次 VLM 解析与审核待办"
+            second_review_passed, review_status, reviewed_subject, reviewed_description = self._review_generated_derivative(row, image)
             remark = (
                 f"{row.remark}；生成provider={image.provider}，seed={image.seed}；"
                 f"{review_status}，通过后才能同步飞书；"
@@ -254,6 +253,8 @@ class PuzzleOpsAgent:
             )
             generated_row = row.edited(
                 image_name=image_name,
+                subject=reviewed_subject or row.subject,
+                subject_description=reviewed_description or row.subject_description,
                 reference_image_url=f"/uploads/{path.name}",
                 reference_image_path=str(path),
                 reference_image_content_type="image/png",
@@ -271,6 +272,45 @@ class PuzzleOpsAgent:
             )
         updated = row.edited(remark=(row.remark + "；" if row.remark else "") + f"已生成{len(rows)}张衍生参考图，等待二次 VLM 解析与审核。")
         return updated, tuple(rows), tuple(previews)
+
+    def _review_generated_derivative(self, row: DemandRow, image: DerivativeImage) -> tuple[bool, str, str, str]:
+        path = Path(image.local_image_path)
+        if image.provider in {"mock", "not_configured"}:
+            return False, "已进入二次 VLM 解析与审核待办：生成 provider 非真实出图", "", ""
+        if not path.exists():
+            return False, "二次 VLM 解析未通过：生成图文件不存在", "", ""
+        client = self.trial_uploads.vision_client
+        if not client:
+            return False, "二次 VLM 解析未通过：视觉 LLM 未配置", "", ""
+
+        visual_feature = self.local_image_analyzer.analyze_path(path)
+        local_summary = self.local_image_analyzer.summarize_features((visual_feature,) if visual_feature else ())
+        try:
+            semantic = client.analyze(
+                [{"filename": path.name, "path": str(path), "content_type": image_content_type(path)}],
+                row.country,
+                row.js_category,
+                local_summary,
+            )
+        except Exception as exc:
+            return False, f"二次 VLM 解析未通过：真实视觉 LLM 调用失败：{exc}", "", ""
+
+        description = _generated_subject_description(row.country, local_summary, semantic)
+        subject = semantic.subject or row.subject
+        audit_text = " ".join(
+            (
+                subject,
+                semantic.scene,
+                semantic.style,
+                " ".join(semantic.culture_elements),
+                " ".join(semantic.risk_tags),
+            )
+        )
+        audit = self.audit_review(audit_text)
+        if semantic.risk_tags or audit.risk_level == "高":
+            risks = "、".join(semantic.risk_tags) or audit.reason
+            return False, f"二次 VLM 解析未通过：{risks}；{audit.reason}", subject, description
+        return True, f"二次 VLM 解析与审核通过（{semantic.provider}，置信度{semantic.confidence:.2f}）", subject, description
 
     def apply_value_master(self, row: DemandRow) -> DemandRow:
         client = self.trial_uploads.vision_client
@@ -587,6 +627,23 @@ def _business_subject_description(subject: str, country: str, visual, semantic) 
     scene = semantic.scene if semantic and semantic.scene else visual.composition_summary
     culture = "、".join(semantic.culture_elements) if semantic and semantic.culture_elements else f"{country}市场元素待运营确认"
     return f"主体内容：{subject}；色彩氛围：{color}；构图环境：{scene}，结合{culture}。"
+
+
+def _generated_subject_description(country: str, visual, semantic) -> str:
+    subject = semantic.subject or "待确认主体"
+    color = semantic.style or visual.palette_summary
+    scene = semantic.scene or visual.composition_summary
+    culture = "、".join(semantic.culture_elements) if semantic.culture_elements else f"{country}市场元素待运营确认"
+    return f"主体内容：{subject}；色彩氛围：{color}；构图环境：{scene}，结合{culture}。"
+
+
+def image_content_type(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix in {".jpg", ".jpeg"}:
+        return "image/jpeg"
+    if suffix == ".webp":
+        return "image/webp"
+    return "image/png"
 
 
 def _value_row_payload(row: DemandRow) -> dict[str, object]:

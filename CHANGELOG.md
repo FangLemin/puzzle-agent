@@ -2,6 +2,44 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.32 - 生成图二次 VLM 审核门禁
+
+日期：2026-06-15
+
+阶段目标：
+
+- 把 v0.3.31 的“真实 provider 返回本地图即可进入同步”的工程闸门，升级为更符合业务安全要求的二次审核闭环。
+- 保证好图衍生生成图只有在真实视觉 LLM 解析和审核规则复检通过后，才允许作为飞书附件同步。
+
+已完成：
+
+- `generate_trial_derivatives` 增加生成图二次审核：
+  - mock / 未配置 provider 仍只进入待办，不会同步飞书附件。
+  - 真实 provider 返回图片后，会读取本地图片像素特征。
+  - 调用当前配置的视觉 LLM 重新解析生成图主体、风格、场景、文化元素和风险标签。
+  - 将结构化视觉结果送入审核规则复检。
+- 通过审核的生成图：
+  - 写回 VLM 解析后的主体和三段式主体描述。
+  - 标记 `reference_image_syncable=True`，允许飞书附件上传。
+  - 备注记录 provider、seed、二次审核状态和 prompt 信息。
+- 未通过审核的生成图：
+  - 保留在试新表预览，方便运营查看。
+  - 标记 `reference_image_syncable=False`，飞书同步时不会上传附件。
+  - 备注明确失败原因，例如视觉 LLM 未配置、调用失败、版权/IP 风险或审核规则命中。
+- README 更新好图衍生生成说明，明确“真实生成 provider + 真实 VLM 二次审核”两个条件都满足后才同步图片。
+
+当前限制：
+
+- 仍未直接部署 ComfyUI，本轮完成的是 provider 化真实生成后的审核门禁。
+- 审核复检依赖当前视觉 LLM 输出的结构化 `risk_tags` 和本地审核规则；最终上线仍建议保留人工确认入口。
+- 真实 30-50 张拼图 gold dataset 尚未补齐，Harness 指标仍不能替代真实业务效果验证。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_server.py::test_real_generation_derivatives_require_vlm_second_review_before_sync tests/test_server.py::test_real_generation_derivatives_with_vlm_risk_stay_unsyncable -q`：2 passed。
+- `PYTHONPATH=. pytest tests/test_server.py tests/test_harness.py tests/test_renderer.py -q`：56 passed。
+- `PYTHONPATH=. pytest tests -q`：138 passed。
+
 ## v0.3.31 - 真实好图衍生生成 Provider 骨架
 
 日期：2026-06-15

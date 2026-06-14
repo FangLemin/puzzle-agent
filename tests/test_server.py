@@ -3,7 +3,7 @@ from puzzle_ops.server import APP, handle_action, redirect_location, update_stat
 from puzzle_ops.feishu import MockFeishuClient
 from puzzle_ops.image_generation import DerivativeImage, ImageGenerationProvider, MockImageGenerationProvider
 from puzzle_ops.trial_upload import TrialImageUploadService
-from puzzle_ops.vision_llm import MissingVisionLLMConfig, OpenAIVisionLLMClient
+from puzzle_ops.vision_llm import MissingVisionLLMConfig, OpenAIVisionLLMClient, VisionLLMResult
 from PIL import Image
 from datetime import date
 from io import BytesIO
@@ -522,9 +522,54 @@ class PassingRealGenerationProvider(ImageGenerationProvider):
         return tuple(rows)
 
 
-def test_real_generation_derivatives_pass_second_review_and_become_syncable(tmp_path):
+class FakeGeneratedImageVisionClient:
+    provider = "qwen"
+
+    def __init__(self, result: VisionLLMResult):
+        self.result = result
+        self.calls = []
+
+    def config_status(self):
+        return {"provider": "qwen", "mode": "real", "model": "qwen3.7-plus"}
+
+    def analyze(self, images, country, category, local_summary):
+        self.calls.append((images, country, category, local_summary))
+        return self.result
+
+
+def _safe_generated_result() -> VisionLLMResult:
+    return VisionLLMResult(
+        subject="日式塔楼游客",
+        scene="海边步道与日式塔楼，游客群体在前景行走",
+        culture_elements=("日式塔楼", "海边步道"),
+        style="明亮清透的日式旅游插画",
+        risk_tags=(),
+        prompt_keywords=("日式塔楼", "游客", "海边步道"),
+        confidence=0.93,
+        provider="qwen",
+        raw_text="主体清晰、无明显IP或商标风险。",
+    )
+
+
+def _risky_generated_result() -> VisionLLMResult:
+    return VisionLLMResult(
+        subject="红色连衣裙黑发女孩",
+        scene="高度接近知名动漫电影里的街道场景",
+        culture_elements=("日式街道",),
+        style="知名动漫工作室风格",
+        risk_tags=("版权/IP风险",),
+        prompt_keywords=("动漫角色", "红色连衣裙黑发女孩"),
+        confidence=0.91,
+        provider="qwen",
+        raw_text="画面含动漫角色化脸型，疑似知名动漫/IP混淆风险。",
+    )
+
+
+def test_real_generation_derivatives_require_vlm_second_review_before_sync(tmp_path):
     APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="derive")
     APP.agent.image_generator = PassingRealGenerationProvider(tmp_path)
+    fake_vision = FakeGeneratedImageVisionClient(_safe_generated_result())
+    APP.agent.trial_uploads = TrialImageUploadService(tmp_path / "review_uploads", vision_client=fake_vision)
     APP.state.trial_row = APP.agent.simulate_trial_upload("日本", "人物", "derive").edited(
         reference_image_path=str(tmp_path / "good.png"),
         subject="日式塔楼游客",
@@ -536,7 +581,30 @@ def test_real_generation_derivatives_pass_second_review_and_become_syncable(tmp_
     assert len(APP.state.trial_rows) == 2
     assert all(row.reference_image_syncable is True for row in APP.state.trial_rows)
     assert all("二次 VLM 解析与审核通过" in row.remark for row in APP.state.trial_rows)
+    assert all(row.subject_description.startswith("主体内容：日式塔楼游客；色彩氛围：明亮清透的日式旅游插画；构图环境：海边步道") for row in APP.state.trial_rows)
     assert all(row.reference_image_path.endswith(".png") for row in APP.state.trial_rows)
+    assert len(fake_vision.calls) == 2
+
+
+def test_real_generation_derivatives_with_vlm_risk_stay_unsyncable(tmp_path):
+    APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="derive")
+    APP.agent.image_generator = PassingRealGenerationProvider(tmp_path)
+    APP.agent.trial_uploads = TrialImageUploadService(
+        tmp_path / "risk_review_uploads",
+        vision_client=FakeGeneratedImageVisionClient(_risky_generated_result()),
+    )
+    APP.state.trial_row = APP.agent.simulate_trial_upload("日本", "人物", "derive").edited(
+        reference_image_path=str(tmp_path / "good.png"),
+        subject="日式塔楼游客",
+        subject_description="主体内容：日式塔楼游客；色彩氛围：明亮清透；构图环境：海边步道远景。",
+    )
+
+    handle_action("/generate_trial_derivatives", {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["derive"]})
+
+    assert len(APP.state.trial_rows) == 2
+    assert all(row.reference_image_syncable is False for row in APP.state.trial_rows)
+    assert all("二次 VLM 解析未通过" in row.remark for row in APP.state.trial_rows)
+    assert all("版权/IP风险" in row.remark for row in APP.state.trial_rows)
 
 
 def test_sync_trial_to_feishu_records_success_and_resets_trial_row():
