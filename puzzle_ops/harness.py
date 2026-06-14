@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import csv
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -50,6 +51,56 @@ class EvalSample:
     @property
     def is_real(self) -> bool:
         return self.source == "real"
+
+
+@dataclass(frozen=True)
+class EvalSampleImportIssue:
+    sample_id: str
+    row_number: int
+    reason: str
+
+
+def load_eval_samples_csv(path: Path | str, image_root: Path | str | None = None) -> tuple[tuple[EvalSample, ...], tuple[EvalSampleImportIssue, ...]]:
+    csv_path = Path(path)
+    root = Path(image_root) if image_root is not None else csv_path.parent
+    samples: list[EvalSample] = []
+    issues: list[EvalSampleImportIssue] = []
+    with csv_path.open("r", encoding="utf-8-sig", newline="") as handle:
+        for row_number, row in enumerate(csv.DictReader(handle), 2):
+            sample_id = _field(row, "sample_id") or f"row-{row_number}"
+            source = _field(row, "source") or "real"
+            local_image_path = _resolve_image_path(_field(row, "local_image_path"), root)
+            if source == "real" and not local_image_path:
+                issues.append(EvalSampleImportIssue(sample_id, row_number, "缺少真实图片路径"))
+                continue
+            if source == "real" and not Path(local_image_path).exists():
+                issues.append(EvalSampleImportIssue(sample_id, row_number, f"图片路径不存在：{local_image_path}"))
+                continue
+            samples.append(
+                EvalSample(
+                    sample_id=sample_id,
+                    country=_field(row, "country"),
+                    local_image_path=local_image_path,
+                    operation_tag=_field(row, "operation_tag"),
+                    subject=_field(row, "subject"),
+                    js_category=_field(row, "js_category"),
+                    source=source,
+                    position=_int_field(row, "position"),
+                    metrics={
+                        "open_rate": _float_field(row, "open_rate"),
+                        "completion_rate": _float_field(row, "completion_rate"),
+                        "avg_finish_time": _float_field(row, "avg_finish_time"),
+                    },
+                    gold_grade=_field(row, "gold_grade"),
+                    gold_subject=_field(row, "gold_subject"),
+                    gold_color_mood=_field(row, "gold_color_mood"),
+                    gold_composition=_field(row, "gold_composition"),
+                    gold_value_labels=_labels(_field(row, "gold_value_labels")),
+                    gold_risk_labels=_labels(_field(row, "gold_risk_labels")),
+                    human_note=_field(row, "human_note"),
+                )
+            )
+    return tuple(samples), tuple(issues)
 
 
 @dataclass(frozen=True)
@@ -316,6 +367,34 @@ class AgentHarness:
 
 def _has_three_part_description(text: str) -> bool:
     return all(part in text for part in ("主体内容：", "色彩氛围：", "构图环境："))
+
+
+def _field(row: dict[str, str], key: str) -> str:
+    return str(row.get(key, "") or "").strip()
+
+
+def _resolve_image_path(value: str, root: Path) -> str:
+    if not value:
+        return ""
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = root / path
+    return str(path)
+
+
+def _int_field(row: dict[str, str], key: str) -> int:
+    value = _field(row, key)
+    return int(value) if value else 0
+
+
+def _float_field(row: dict[str, str], key: str) -> float:
+    value = _field(row, key)
+    return float(value) if value else 0.0
+
+
+def _labels(value: str) -> tuple[str, ...]:
+    normalized = value.replace("；", ";").replace("、", ";").replace("|", ";")
+    return tuple(part.strip() for part in normalized.split(";") if part.strip())
 
 
 def _text_overlap(actual: str, expected: str) -> float:

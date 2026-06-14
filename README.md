@@ -102,3 +102,5 @@ Excel 图片说明：真实样表中的“图片本身”字段使用 `DISPIMG` 
 LLM 大脑说明：当前版本支持通过 `VISION_LLM_PROVIDER=qwen` 或 `VISION_LLM_PROVIDER=openai` 接入真实视觉语言模型。Qwen 默认模型为 `qwen3.7-plus`，用于试新图片的主体内容、色彩氛围、构图环境解析，以及价值观大师的图片证据判断。未配置真实 key 时，系统只保留本地像素层解析和明确的未配置提示，不会伪造语义主体识别。
 
 好图衍生生成说明：`IMAGE_GENERATION_PROVIDER` 默认为空时，好图衍生只输出衍生方向；`mock` 只用于本地 Harness/UI 链路验证，生成的占位图不会同步为飞书附件；配置为 `cloud` 并提供 `IMAGE_GENERATION_API_KEY` 后，系统会调用云端图像生成 provider 生成参考图。生成图还必须经过真实视觉 LLM 二次解析和审核规则复检，只有通过的图片才允许同步到飞书图片附件字段；未配置 VLM、VLM 调用失败或命中风险时，页面保留记录但同步附件会被关闭。
+
+Agent Harness 真实评测集说明：默认 Harness 会从历史样表和合成 demo 生成样本，适合本地演示；如果要证明真实业务效果，请按 `docs/harness_gold_samples_template.csv` 整理 30-50 条真实拼图样本，并在 `.env` 设置 `PUZZLEOPS_HARNESS_DATASET=/absolute/path/to/gold_samples.csv`。导入时会校验真实图片路径，缺图样本会被标记为导入问题而不会让评测崩溃；缺少 gold label 的指标会显示为 `not_evaluable`。

@@ -2,6 +2,44 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.33 - Harness 真实 Gold Dataset 导入入口
+
+日期：2026-06-15
+
+阶段目标：
+
+- 补上 Agent Harness 从“默认历史/合成样本”走向“真实小样本评测集”的入口。
+- 让后续 30-50 张真实拼图样本可以按 CSV 方式接入，不再只依赖程序内置 demo 数据证明效果。
+
+已完成：
+
+- 新增 `load_eval_samples_csv`：
+  - 支持读取真实 gold dataset CSV。
+  - 校验真实样本图片路径，缺失或不存在时返回导入问题，不让 Harness 崩溃。
+  - 支持 `open_rate`、`completion_rate`、`avg_finish_time` 等业务指标转为评测 metrics。
+  - 支持 `gold_value_labels`、`gold_risk_labels` 用 `;`、`；`、`、` 或 `|` 分隔。
+  - 缺少 gold label 的样本保留进入 Harness，对应指标继续标记为 `not_evaluable`。
+- Agent Harness 接入 `PUZZLEOPS_HARNESS_DATASET`：
+  - 配置后优先读取真实 CSV，并按当前国家过滤样本。
+  - 如果 CSV 全部无效，则回退默认样本，同时在数据集概览展示导入问题数和摘要。
+  - 未配置时保持原有默认历史/合成样本行为。
+- 新增 `docs/harness_gold_samples_template.csv`：
+  - 给出真实样本字段模板。
+  - 明确示例只用于字段格式，不代表真实业务指标。
+- `.env.example` 与 README 增加 Harness gold dataset 配置说明。
+
+当前限制：
+
+- 本轮提供导入和校验入口，但真实 30-50 张拼图样本仍需要人工收集和标注。
+- CSV 当前是轻量本地格式，后续可再扩展为 Excel/飞书导入或 Label Studio/Argilla 标注回流。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_harness.py::test_load_eval_samples_csv_imports_real_gold_dataset_and_skips_invalid_images tests/test_harness.py::test_load_eval_samples_csv_keeps_missing_gold_as_not_evaluable -q`：2 passed。
+- `PYTHONPATH=. pytest tests/test_agents.py::test_agent_harness_prefers_configured_real_gold_dataset tests/test_agents.py::test_agent_harness_summary_reports_invalid_gold_dataset_rows -q`：2 passed。
+- `PYTHONPATH=. pytest tests/test_harness.py tests/test_agents.py tests/test_renderer.py -q`：46 passed。
+- `PYTHONPATH=. pytest tests -q`：142 passed。
+
 ## v0.3.32 - 生成图二次 VLM 审核门禁
 
 日期：2026-06-15

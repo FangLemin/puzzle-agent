@@ -17,7 +17,7 @@ from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.trulens_eval import TruLensRAGEvaluator
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.eval_suite import AgentEvalSuite
-from puzzle_ops.harness import AgentHarness
+from puzzle_ops.harness import AgentHarness, load_eval_samples_csv
 from puzzle_ops.image_generation import DerivativeImage, ImageGenerationProviderFactory
 from puzzle_ops.visual_analysis import LocalImageAnalyzer
 from puzzle_ops.visual_assets import image_bytes
@@ -548,6 +548,9 @@ class PuzzleOpsAgent:
         return AgentEvalSuite(self).run(country)
 
     def harness_samples(self, country: str):
+        samples, _, _ = self._configured_harness_samples(country)
+        if samples:
+            return samples
         return AgentHarness(self, self.image_generator).default_samples(country)
 
     def harness_run(self, country: str, *, save: bool = True):
@@ -561,7 +564,14 @@ class PuzzleOpsAgent:
 
     def harness_summary(self, country: str) -> dict[str, object]:
         harness = AgentHarness(self, self.image_generator)
-        return harness.dataset_summary(self.harness_samples(country))
+        samples, issues, dataset_source = self._configured_harness_samples(country)
+        effective_samples = samples or harness.default_samples(country)
+        summary = harness.dataset_summary(effective_samples)
+        summary["数据集来源"] = dataset_source or "默认历史/合成样本"
+        summary["导入问题数"] = len(issues)
+        if issues:
+            summary["导入问题摘要"] = "；".join(f"{issue.sample_id}:{issue.reason}" for issue in issues[:3])
+        return summary
 
     def harness_version_compare(self, country: str) -> dict[str, str]:
         return self.harness_compare(self.harness_run(country))
@@ -570,6 +580,14 @@ class PuzzleOpsAgent:
         harness = AgentHarness(self, self.image_generator)
         previous = next((run for run in self.repository.harness_runs(limit=3) if run.run_id != current.run_id), None)
         return harness.compare_runs(current, previous=previous)
+
+    def _configured_harness_samples(self, country: str):
+        dataset = _harness_dataset_path()
+        if not dataset:
+            return (), (), ""
+        samples, issues = load_eval_samples_csv(dataset)
+        filtered = tuple(sample for sample in samples if sample.country == country)
+        return filtered, issues, str(dataset)
 
     def _country(self, country: str) -> dict[str, object]:
         try:
@@ -618,6 +636,14 @@ def _replace_tag_date_suffix(operation_tag: str, today: date) -> str:
     if re.search(r"\d{4}$", operation_tag):
         return re.sub(r"\d{4}$", suffix, operation_tag)
     return f"{operation_tag}{suffix}"
+
+
+def _harness_dataset_path() -> Path | None:
+    configured = os.getenv("PUZZLEOPS_HARNESS_DATASET", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    default = Path.cwd() / "harness_gold_samples.csv"
+    return default if default.exists() else None
 
 
 def _business_subject_description(subject: str, country: str, visual, semantic) -> str:

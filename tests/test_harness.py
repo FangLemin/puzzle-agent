@@ -2,7 +2,7 @@ from pathlib import Path
 
 from puzzle_ops.agents import PuzzleOpsAgent
 from puzzle_ops.adapters import ArgillaExporter, DeepEvalAdapter, PhoenixExporter, PromptfooExporter
-from puzzle_ops.harness import EvalSample, AgentHarness
+from puzzle_ops.harness import EvalSample, AgentHarness, load_eval_samples_csv
 from puzzle_ops.image_generation import ImageGenerationProviderFactory, MockImageGenerationProvider, CloudImageGenerationProvider
 from puzzle_ops.storage import PuzzleRepository
 
@@ -88,6 +88,56 @@ def test_harness_run_records_case_results_failures_and_skips_missing_gold(tmp_pa
     assert any(case.task_type == "trial_parse_eval" for case in run.cases)
     assert any("not_evaluable" in case.scores.values() for case in run.cases)
     assert run.failures
+
+
+def test_load_eval_samples_csv_imports_real_gold_dataset_and_skips_invalid_images(tmp_path):
+    real_image = tmp_path / "sushi.png"
+    real_image.write_bytes(b"fake-png")
+    dataset = tmp_path / "gold_samples.csv"
+    dataset.write_text(
+        "\n".join(
+            (
+                "sample_id,country,local_image_path,operation_tag,subject,js_category,source,position,open_rate,completion_rate,avg_finish_time,gold_grade,gold_subject,gold_color_mood,gold_composition,gold_value_labels,gold_risk_labels,human_note",
+                "real-001,日本,sushi.png,试新_日本_寿司0615,寿司,food,real,5,0.31,0.93,42,S,寿司,米白与鲑鱼橙,日式料理桌面近景,本土饮食文化;治愈食物,,真实运营样本",
+                "real-002,日本,missing.png,试新_日本_塔楼游客0615,塔楼游客,travel,real,3,0.22,0.88,51,A,塔楼游客,清透蓝,海边步道远景,旅游场景,版权/IP风险,图片路径缺失样本",
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    samples, issues = load_eval_samples_csv(dataset, image_root=tmp_path)
+
+    assert len(samples) == 1
+    assert samples[0].sample_id == "real-001"
+    assert samples[0].is_real
+    assert samples[0].metrics["open_rate"] == 0.31
+    assert samples[0].gold_value_labels == ("本土饮食文化", "治愈食物")
+    assert len(issues) == 1
+    assert issues[0].sample_id == "real-002"
+    assert "图片路径不存在" in issues[0].reason
+
+
+def test_load_eval_samples_csv_keeps_missing_gold_as_not_evaluable(tmp_path):
+    real_image = tmp_path / "tower.png"
+    real_image.write_bytes(b"fake-png")
+    dataset = tmp_path / "gold_samples.csv"
+    dataset.write_text(
+        "\n".join(
+            (
+                "sample_id,country,local_image_path,operation_tag,subject,js_category,source,position,open_rate,completion_rate,avg_finish_time,gold_grade,gold_subject,gold_color_mood,gold_composition,gold_value_labels,gold_risk_labels,human_note",
+                "real-003,日本,tower.png,试新_日本_塔楼游客0615,塔楼游客,travel,real,3,0.22,0.88,51,,,,,,,待补人工gold label",
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    samples, issues = load_eval_samples_csv(dataset, image_root=tmp_path)
+    run = AgentHarness(PuzzleOpsAgent()).run(samples, dataset_name="real-gold-csv", version="0.3.33")
+
+    assert issues == ()
+    assert len(samples) == 1
+    assert samples[0].gold_subject == ""
+    assert any("not_evaluable" in case.scores.values() for case in run.cases)
 
 
 def test_mock_generation_provider_returns_reproducible_derivative_records(tmp_path):

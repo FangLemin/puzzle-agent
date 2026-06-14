@@ -234,3 +234,53 @@ def test_value_rules_are_detailed_enough_for_business_interview():
     assert len(japan_rules) >= 8
     assert any("版权" in body or "知名动画" in body for _, body in japan_rules)
     assert any("文化混淆" in body for _, body in japan_rules)
+
+
+def test_agent_harness_prefers_configured_real_gold_dataset(monkeypatch, tmp_path):
+    image_path = tmp_path / "real-sushi.png"
+    image_path.write_bytes(b"fake-png")
+    dataset = tmp_path / "gold_samples.csv"
+    dataset.write_text(
+        "\n".join(
+            (
+                "sample_id,country,local_image_path,operation_tag,subject,js_category,source,position,open_rate,completion_rate,avg_finish_time,gold_grade,gold_subject,gold_color_mood,gold_composition,gold_value_labels,gold_risk_labels,human_note",
+                "real-001,日本,real-sushi.png,试新_日本_寿司0615,寿司,food,real,5,0.31,0.93,42,S,寿司,米白与鲑鱼橙,日式料理桌面近景,本土饮食文化,,真实运营样本",
+                "real-002,法国,real-sushi.png,试新_法国_乡村石屋0615,乡村石屋,houses,real,4,0.25,0.88,49,A,乡村石屋,暖米白,法式村庄远景,生活艺术,,其他国家样本",
+            )
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_HARNESS_DATASET", str(dataset))
+    agent = PuzzleOpsAgent()
+
+    samples = agent.harness_samples("日本")
+    summary = agent.harness_summary("日本")
+
+    assert len(samples) == 1
+    assert samples[0].sample_id == "real-001"
+    assert samples[0].is_real
+    assert summary["真实样本数"] == 1
+    assert summary["合成样本数"] == 0
+    assert summary["数据集来源"].endswith("gold_samples.csv")
+
+
+def test_agent_harness_summary_reports_invalid_gold_dataset_rows(monkeypatch, tmp_path):
+    dataset = tmp_path / "gold_samples.csv"
+    dataset.write_text(
+        "\n".join(
+            (
+                "sample_id,country,local_image_path,operation_tag,subject,js_category,source,position,open_rate,completion_rate,avg_finish_time,gold_grade,gold_subject,gold_color_mood,gold_composition,gold_value_labels,gold_risk_labels,human_note",
+                "real-bad,日本,missing.png,试新_日本_寿司0615,寿司,food,real,5,0.31,0.93,42,S,寿司,米白与鲑鱼橙,日式料理桌面近景,本土饮食文化,,图片缺失",
+            )
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_HARNESS_DATASET", str(dataset))
+    agent = PuzzleOpsAgent()
+
+    samples = agent.harness_samples("日本")
+    summary = agent.harness_summary("日本")
+
+    assert samples
+    assert summary["导入问题数"] == 1
+    assert "real-bad" in summary["导入问题摘要"]
