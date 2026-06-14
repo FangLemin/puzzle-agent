@@ -75,6 +75,7 @@ class DemandRow:
     reference_image_url: str = ""
     reference_image_path: str = ""
     reference_image_content_type: str = ""
+    reference_image_syncable: bool = True
 
     def edited(self, **changes: object) -> "DemandRow":
         return replace(self, **changes)

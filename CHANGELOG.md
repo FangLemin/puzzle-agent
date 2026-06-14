@@ -2,6 +2,44 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.29 - 修复占位衍生图误同步为飞书附件
+
+日期：2026-06-14
+
+阶段目标：
+
+- 修复 v0.3.28 后飞书表格里部分图片显示为 `?`、无法打开的问题。
+- 保留真实上传图片自动同步为飞书附件的能力。
+
+根因：
+
+- v0.3.28 新增了 `MockImageGenerationProvider`，用于验证好图衍生 provider 接口。
+- mock provider 只生成本地占位 PNG 记录，不是真实拼图参考图。
+- 但生成的衍生行仍带有 `reference_image_path`，飞书同步逻辑会把它当作真实图片附件上传到 `图片本身` 字段，导致飞书端可能显示 `?` 或不可预览。
+
+已完成：
+
+- `DemandRow` 增加内部标记 `reference_image_syncable`：
+  - 真实上传图片默认可同步。
+  - mock 衍生图明确标记为不可同步附件。
+- `generate_trial_derivatives()` 生成的 mock 衍生参考图行不再被当作真实飞书附件。
+- 飞书 bitable 同步前尊重 `_reference_image_syncable=False`：
+  - 不调用素材上传接口。
+  - 不写入 `图片本身` 附件字段。
+  - 仍保留运营 tag、备注等文本字段，避免整条同步失败。
+- 日期相关测试改为固定测试日期或动态后缀，避免跨天后测试误报。
+
+当前限制：
+
+- mock provider 仍只用于本地链路验证，不能代表真实生成图。
+- 后续接入 ComfyUI / 云端图像生成 provider 后，应将真实生成图显式标记为可同步，并在二次 VLM 解析和审核通过后再写入飞书附件。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_server.py::test_generate_trial_derivatives_creates_two_audited_reference_rows tests/test_external_adapters.py::test_real_feishu_client_does_not_upload_unsyncable_placeholder_image -q`：2 passed。
+- `PYTHONPATH=. pytest tests/test_external_adapters.py::test_real_feishu_client_uploads_local_image_before_bitable_create tests/test_server.py::test_trial_upload_uses_real_semantic_subject_in_operation_tag_and_feishu_payload -q`：2 passed。
+- `PYTHONPATH=. pytest tests -q`：132 passed。
+
 ## v0.3.28 - Agent Harness 主线与好图衍生生成接口
 
 日期：2026-06-09

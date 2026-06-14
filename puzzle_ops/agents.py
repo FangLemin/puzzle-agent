@@ -254,6 +254,7 @@ class PuzzleOpsAgent:
                 reference_image_url=f"/uploads/{path.name}",
                 reference_image_path=str(path),
                 reference_image_content_type="image/png",
+                reference_image_syncable=False,
                 remark=remark,
             )
             rows.append(generated_row)

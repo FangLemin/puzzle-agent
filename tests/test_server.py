@@ -5,9 +5,13 @@ from puzzle_ops.image_generation import MockImageGenerationProvider
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.vision_llm import MissingVisionLLMConfig, OpenAIVisionLLMClient
 from PIL import Image
+from datetime import date
 from io import BytesIO
 import json
 import pytest
+
+
+TODAY_SUFFIX = date.today().strftime("%m%d")
 
 
 @pytest.fixture(autouse=True)
@@ -53,7 +57,7 @@ def test_add_regular_action_uses_submitted_context_and_adds_need_row():
 
     assert APP.state.view == "regular"
     assert len(APP.state.need_rows) == 1
-    assert APP.state.need_rows[0].operation_tag == "常规_日本_传统浴袍美女0609"
+    assert APP.state.need_rows[0].operation_tag == f"常规_日本_传统浴袍美女{TODAY_SUFFIX}"
 
 
 def test_generate_descriptions_action_updates_existing_need_rows():
@@ -322,7 +326,7 @@ def test_upload_trial_images_writes_real_openai_semantics_when_configured(tmp_pa
         )
 
         assert APP.state.trial_row.subject == "柴犬樱花"
-        assert APP.state.trial_row.operation_tag == "试新_日本_柴犬樱花0609"
+        assert APP.state.trial_row.operation_tag == f"试新_日本_柴犬樱花{TODAY_SUFFIX}"
         assert APP.state.trial_row.reference_image_url.startswith("/uploads/")
         assert "主体内容：柴犬樱花" in APP.state.trial_row.subject_description
         assert "色彩氛围：" in APP.state.trial_row.subject_description
@@ -377,7 +381,7 @@ def test_trial_upload_uses_real_semantic_subject_in_operation_tag_and_feishu_pay
         row = APP.state.trial_row
         payload = _demand_row_payload(row)
         assert row.subject == "日式火车店铺少女"
-        assert row.operation_tag == "试新_日本_日式火车店铺少女0609"
+        assert row.operation_tag == f"试新_日本_日式火车店铺少女{TODAY_SUFFIX}"
         assert row.image_name == "train-shop-girl.png"
         assert row.reference_image_url.startswith("/uploads/")
         assert row.reference_image_path
@@ -427,7 +431,7 @@ def test_trial_upload_compacts_long_semantic_subject_for_operation_tag(tmp_path)
             },
         )
 
-        tag_subject = APP.state.trial_row.operation_tag.removeprefix("试新_日本_").removesuffix("0609")
+        tag_subject = APP.state.trial_row.operation_tag.removeprefix("试新_日本_").removesuffix(TODAY_SUFFIX)
         assert tag_subject == "游客塔楼"
         assert len(tag_subject) <= 8
     finally:
@@ -480,6 +484,7 @@ def test_generate_trial_derivatives_creates_two_audited_reference_rows(tmp_path)
     assert len(APP.state.trial_rows) == 2
     assert all("衍生参考图" in row.image_name for row in APP.state.trial_rows)
     assert all(row.reference_image_url.startswith("/uploads/") for row in APP.state.trial_rows)
+    assert all(row.reference_image_syncable is False for row in APP.state.trial_rows)
     assert all("二次 VLM 解析与审核" in row.remark for row in APP.state.trial_rows)
     assert "已生成2张衍生参考图" in APP.state.trial_row.remark
 

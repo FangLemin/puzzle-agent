@@ -1,10 +1,11 @@
 from puzzle_ops.agents import PuzzleOpsAgent
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.vision_llm import MissingVisionLLMConfig, OpenAIVisionLLMClient
+from datetime import date
 
 
 def test_country_data_is_isolated_between_japan_and_france():
-    agent = PuzzleOpsAgent()
+    agent = PuzzleOpsAgent(today=date(2026, 6, 9))
 
     japan = agent.dashboard("日本")
     france = agent.dashboard("法国")
@@ -16,7 +17,7 @@ def test_country_data_is_isolated_between_japan_and_france():
 
 
 def test_regular_demand_row_has_real_business_fields_and_empty_delivery_date():
-    agent = PuzzleOpsAgent()
+    agent = PuzzleOpsAgent(today=date(2026, 6, 9))
 
     row = agent.add_regular_demand("日本", "人物", "常规_日本_传统浴袍美女0604", 0)
 
@@ -32,7 +33,7 @@ def test_regular_demand_row_has_real_business_fields_and_empty_delivery_date():
 
 
 def test_demand_editing_only_changes_requested_editable_fields():
-    agent = PuzzleOpsAgent()
+    agent = PuzzleOpsAgent(today=date(2026, 6, 9))
     row = agent.add_regular_demand("法国", "花卉", "常规_法国_薰衣草0604", 0)
 
     edited = agent.edit_demand_row(

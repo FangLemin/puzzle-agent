@@ -194,6 +194,8 @@ class RealFeishuClient:
         return self._bitable_field_names
 
     def _prepare_bitable_attachments(self, row: dict[str, object], token: str) -> dict[str, object]:
+        if row.get("_reference_image_syncable") is False:
+            return row
         path = row.get("_reference_image_path")
         if path and Path(str(path)).exists() and not _is_bitable_attachment(row.get("图片本身")):
             file_token = self.upload_bitable_attachment(

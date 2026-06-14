@@ -399,6 +399,52 @@ def test_real_feishu_client_uploads_local_image_before_bitable_create(tmp_path):
     ]
 
 
+def test_real_feishu_client_does_not_upload_unsyncable_placeholder_image(tmp_path):
+    image_path = tmp_path / "mock-derivative.png"
+    image_path.write_bytes(b"placeholder-png")
+    calls = []
+
+    def transport(method, url, headers, json_body):
+        calls.append({"kind": "json", "url": url, "json_body": json_body})
+        if url.endswith("/fields?page_size=200"):
+            return {"code": 0, "data": {"items": [{"field_name": "图片本身"}, {"field_name": "运营tag"}, {"field_name": "备注"}]}}
+        return {"code": 0, "msg": "success", "data": {"records": []}}
+
+    def media_transport(method, url, headers, data, files):
+        raise AssertionError("placeholder/mock images must not be uploaded to Feishu attachment field")
+
+    client = RealFeishuClient(
+        app_id="cli_xxx",
+        app_secret="secret",
+        spreadsheet_token="app_token",
+        sheet_range="tbl_table_id",
+        access_token="t-token",
+        transport=transport,
+        media_transport=media_transport,
+        bitable_app_token="app_token",
+    )
+
+    result = client.write_table(
+        "提需表",
+        [
+            {
+                "图片本身": [{"text": "衍生参考图1_mock.png", "link": "/uploads/mock-derivative.png"}],
+                "_reference_image_path": str(image_path),
+                "_reference_image_content_type": "image/png",
+                "_reference_image_syncable": False,
+                "运营tag": "试新_日本_日式塔楼游客0614",
+                "备注": "Mock provider 仅生成占位记录，不能作为真实飞书附件。",
+            }
+        ],
+    )
+
+    assert result.success
+    assert [call["kind"] for call in calls] == ["json", "json"]
+    assert calls[1]["json_body"]["records"] == [
+        {"fields": {"运营tag": "试新_日本_日式塔楼游客0614", "备注": "Mock provider 仅生成占位记录，不能作为真实飞书附件。"}}
+    ]
+
+
 def test_real_feishu_client_bitable_web_url_reuses_cached_canonical_token():
     def transport(method, url, headers, json_body):
         raise AssertionError("web_url should not call Feishu API after sync")
