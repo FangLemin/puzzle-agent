@@ -2,6 +2,7 @@ from puzzle_ops.agents import PuzzleOpsAgent
 from puzzle_ops.renderer import AppState, render_page
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.vision_llm import MissingVisionLLMConfig
+from puzzle_ops.image_generation import CloudImageGenerationProvider
 
 
 def agent_without_vlm(tmp_path):
@@ -97,6 +98,23 @@ def test_trial_page_keeps_core_fields_and_value_match_column(tmp_path):
     assert 'class="image-preview-cell"' in html
     assert 'class="operation-tag-input"' in html
     assert 'class="small-input"' in html
+
+
+def test_trial_page_shows_real_generation_provider_status(tmp_path):
+    agent = agent_without_vlm(tmp_path)
+    agent.image_generator = CloudImageGenerationProvider(
+        tmp_path / "generated",
+        api_key="gen-test",
+        model="wanx2.1-t2i-plus",
+        base_url="https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis",
+        transport=lambda payload, api_key, base_url: {"images": []},
+    )
+    state = AppState(country="日本", view="trial", trial_mode="derive")
+
+    html = render_page(agent, state)
+
+    assert "图像生成 Provider" in html
+    assert "真实生成 provider 已配置：wanx2.1-t2i-plus" in html
 
 
 def test_sync_success_message_renders_feishu_link_without_popup_dependency():

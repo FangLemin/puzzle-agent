@@ -18,6 +18,7 @@ from puzzle_ops.trulens_eval import TruLensRAGEvaluator
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.eval_suite import AgentEvalSuite
 from puzzle_ops.harness import AgentHarness
+from puzzle_ops.image_generation import ImageGenerationProviderFactory
 from puzzle_ops.visual_analysis import LocalImageAnalyzer
 from puzzle_ops.visual_assets import image_bytes
 
@@ -50,7 +51,7 @@ class PuzzleOpsAgent:
         self.adapter.register_cms(self.cms)
         self.feishu = FeishuClientFactory.create(runtime_dir / "feishu_mock")
         self.trial_uploads = TrialImageUploadService(runtime_dir / "trial_uploads")
-        self.image_generator = None
+        self.image_generator = ImageGenerationProviderFactory.create(runtime_dir / "trial_uploads")
 
     def countries(self) -> tuple[str, ...]:
         return tuple(COUNTRIES.keys())
@@ -244,9 +245,11 @@ class PuzzleOpsAgent:
         for index, image in enumerate(derivatives, 1):
             path = Path(image.local_image_path)
             image_name = f"衍生参考图{index}_{path.name}"
+            second_review_passed = image.provider not in {"mock", "not_configured"} and Path(image.local_image_path).exists()
+            review_status = "二次 VLM 解析与审核通过" if second_review_passed else "已进入二次 VLM 解析与审核待办"
             remark = (
                 f"{row.remark}；生成provider={image.provider}，seed={image.seed}；"
-                "已进入二次 VLM 解析与审核待办，通过后才能同步飞书；"
+                f"{review_status}，通过后才能同步飞书；"
                 f"Prompt：{image.prompt}；Negative：{image.negative_prompt}"
             )
             generated_row = row.edited(
@@ -254,7 +257,7 @@ class PuzzleOpsAgent:
                 reference_image_url=f"/uploads/{path.name}",
                 reference_image_path=str(path),
                 reference_image_content_type="image/png",
-                reference_image_syncable=False,
+                reference_image_syncable=second_review_passed,
                 remark=remark,
             )
             rows.append(generated_row)

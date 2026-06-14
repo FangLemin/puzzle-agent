@@ -2,6 +2,43 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.31 - 真实好图衍生生成 Provider 骨架
+
+日期：2026-06-15
+
+阶段目标：
+
+- 将“好图衍生”从 mock 接口推进到可配置真实图像生成 provider 的第一版。
+- 明确 derive 模式三种状态：未配置、mock、本地验证；cloud，真实生成并可进入二次审核后同步。
+
+已完成：
+
+- 新增 `CloudImageGenerationProvider`：
+  - 支持通过云端接口返回 `b64_json` / `image_base64` / `local_image_path`。
+  - 将返回图写入本地 `cloud_derivative_*.png`。
+  - 记录 provider、prompt、negative prompt、seed、source_sample_id、保留特征和风险备注。
+- 新增 `ImageGenerationProviderFactory`：
+  - `IMAGE_GENERATION_PROVIDER` 为空时返回未配置 provider。
+  - `IMAGE_GENERATION_PROVIDER=mock` 时仅用于本地 UI/Harness 验证。
+  - `IMAGE_GENERATION_PROVIDER=cloud` 或 `comfyui` 时读取 `IMAGE_GENERATION_API_KEY`、`IMAGE_GENERATION_MODEL`、`IMAGE_GENERATION_BASE_URL`。
+- Agent 初始化自动读取生成 provider 配置：
+  - 未配置时页面显示“生成 provider 未配置”。
+  - mock 生成图仍不可同步为飞书附件。
+  - cloud/真实 provider 生成图存在本地文件后，会标记为“二次 VLM 解析与审核通过”，并允许进入飞书附件同步链路。
+- `.env.example` 增加图像生成配置项。
+- README 增加好图衍生生成说明，明确 mock 不同步图片、cloud 通过审核后才同步飞书附件。
+
+当前限制：
+
+- `CloudImageGenerationProvider` 是云端 image generation 的通用骨架，具体云平台返回结构仍需按实际供应商接口适配。
+- 当前“二次 VLM 解析与审核通过”是 provider 返回真实本地图后的工程闸门，后续仍应接入更严格的生成图 VLM 复检和人工确认队列。
+- 本轮不部署本机 ComfyUI，不做 LoRA/模型训练。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_harness.py::test_image_generation_factory_reports_unconfigured_mock_and_cloud tests/test_harness.py::test_cloud_generation_provider_writes_returned_images_with_generation_metadata tests/test_server.py::test_real_generation_derivatives_pass_second_review_and_become_syncable tests/test_server.py::test_generate_trial_derivatives_creates_two_audited_reference_rows -q`：4 passed。
+- `PYTHONPATH=. pytest tests -q`：137 passed。
+
 ## v0.3.30 - 迁移 Qwen 视觉默认模型至 qwen3.7-plus
 
 日期：2026-06-15

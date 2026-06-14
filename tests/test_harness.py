@@ -3,7 +3,7 @@ from pathlib import Path
 from puzzle_ops.agents import PuzzleOpsAgent
 from puzzle_ops.adapters import ArgillaExporter, DeepEvalAdapter, PhoenixExporter, PromptfooExporter
 from puzzle_ops.harness import EvalSample, AgentHarness
-from puzzle_ops.image_generation import MockImageGenerationProvider
+from puzzle_ops.image_generation import ImageGenerationProviderFactory, MockImageGenerationProvider, CloudImageGenerationProvider
 from puzzle_ops.storage import PuzzleRepository
 
 
@@ -109,6 +109,84 @@ def test_mock_generation_provider_returns_reproducible_derivative_records(tmp_pa
     assert images[1].seed == 610
     assert "寿司" in images[0].prompt
     assert "品牌logo" in images[0].negative_prompt
+
+
+def test_image_generation_factory_reports_unconfigured_mock_and_cloud(monkeypatch, tmp_path):
+    monkeypatch.delenv("IMAGE_GENERATION_PROVIDER", raising=False)
+    missing = ImageGenerationProviderFactory.create(tmp_path)
+    assert missing.healthcheck()["configured"] is False
+
+    monkeypatch.setenv("IMAGE_GENERATION_PROVIDER", "mock")
+    mock = ImageGenerationProviderFactory.create(tmp_path)
+    assert mock.healthcheck()["provider"] == "mock"
+
+    monkeypatch.setenv("IMAGE_GENERATION_PROVIDER", "cloud")
+    monkeypatch.setenv("IMAGE_GENERATION_API_KEY", "gen-test")
+    monkeypatch.setenv("IMAGE_GENERATION_MODEL", "wanx2.1-t2i-plus")
+    cloud = ImageGenerationProviderFactory.create(tmp_path, transport=lambda payload, api_key, base_url: {"images": []})
+    assert isinstance(cloud, CloudImageGenerationProvider)
+    assert cloud.healthcheck()["configured"] is True
+    assert cloud.healthcheck()["model"] == "wanx2.1-t2i-plus"
+
+
+def test_harness_skips_unconfigured_generation_provider(tmp_path):
+    sample = EvalSample.synthetic_demo(
+        sample_id="syn-001",
+        country="日本",
+        operation_tag="常规_日本_猫咪鲤鱼0609",
+        subject="猫咪鲤鱼",
+        gold_grade="B",
+    )
+    provider = ImageGenerationProviderFactory.create(tmp_path)
+
+    run = AgentHarness(PuzzleOpsAgent(), generator_provider=provider).run((sample,), dataset_name="demo-set", version="0.3.31")
+
+    derive_case = next(case for case in run.cases if case.task_type == "derive_generation_eval")
+    assert derive_case.scores["生成图审核通过"] == "not_evaluable"
+    assert "生成 provider 未配置" in derive_case.failure_reasons
+
+
+def test_cloud_generation_provider_writes_returned_images_with_generation_metadata(tmp_path):
+    png_b64 = (
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/"
+        "pLvAAAAAElFTkSuQmCC"
+    )
+    captured = {}
+
+    def fake_transport(payload, api_key, base_url):
+        captured.update(payload=payload, api_key=api_key, base_url=base_url)
+        return {
+            "images": [
+                {"b64_json": png_b64, "revised_prompt": "春季寿司便当"},
+                {"b64_json": png_b64, "revised_prompt": "夏季寿司店铺"},
+            ]
+        }
+
+    provider = CloudImageGenerationProvider(
+        output_dir=tmp_path,
+        api_key="gen-test",
+        model="wanx2.1-t2i-plus",
+        base_url="https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis",
+        transport=fake_transport,
+    )
+
+    images = provider.generate_derivatives(
+        reference_image="real-sushi.png",
+        prompt="保留寿司主体和日式餐桌，换成春季便当场景",
+        negative_prompt="避免品牌logo、文字水印、知名动漫风格",
+        count=2,
+        seed=614,
+        style_constraints={"source_sample_id": "sample-1", "retained_features": "寿司；明亮清爽"},
+    )
+
+    assert captured["api_key"] == "gen-test"
+    assert captured["payload"]["model"] == "wanx2.1-t2i-plus"
+    assert captured["payload"]["count"] == 2
+    assert len(images) == 2
+    assert images[0].provider == "cloud"
+    assert images[0].source_sample_id == "sample-1"
+    assert Path(images[0].local_image_path).exists()
+    assert images[0].risk_notes == ("生成图需二次 VLM 解析与审核",)
 
 
 def test_repository_saves_and_reads_harness_runs(tmp_path):

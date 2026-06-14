@@ -250,7 +250,8 @@ class AgentHarness:
 
     def _derive_generation_case(self, sample: EvalSample) -> HarnessCaseResult:
         provider = self.generator_provider
-        if provider is None:
+        status = provider.healthcheck() if provider is not None else {"configured": False}
+        if provider is None or not status.get("configured"):
             return HarnessCaseResult(
                 sample.sample_id,
                 "derive_generation_eval",
@@ -346,4 +347,3 @@ def _score_average(cases: tuple[HarnessCaseResult, ...], key: str) -> float:
 
 def _safe_ratio(numerator: float, denominator: int) -> float:
     return round(numerator / denominator, 3) if denominator else 0.0
-

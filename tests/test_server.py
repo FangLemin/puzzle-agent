@@ -1,7 +1,7 @@
 from puzzle_ops.renderer import AppState
 from puzzle_ops.server import APP, handle_action, redirect_location, update_state_from_query
 from puzzle_ops.feishu import MockFeishuClient
-from puzzle_ops.image_generation import MockImageGenerationProvider
+from puzzle_ops.image_generation import DerivativeImage, ImageGenerationProvider, MockImageGenerationProvider
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.vision_llm import MissingVisionLLMConfig, OpenAIVisionLLMClient
 from PIL import Image
@@ -487,6 +487,56 @@ def test_generate_trial_derivatives_creates_two_audited_reference_rows(tmp_path)
     assert all(row.reference_image_syncable is False for row in APP.state.trial_rows)
     assert all("二次 VLM 解析与审核" in row.remark for row in APP.state.trial_rows)
     assert "已生成2张衍生参考图" in APP.state.trial_row.remark
+
+
+class PassingRealGenerationProvider(ImageGenerationProvider):
+    provider_name = "cloud"
+
+    def __init__(self, output_dir):
+        self.output_dir = output_dir
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def healthcheck(self):
+        return {"provider": "cloud", "configured": True, "message": "真实生成 provider 已配置", "model": "wanx-test"}
+
+    def generate_derivatives(self, reference_image, prompt, negative_prompt, count, seed, style_constraints):
+        rows = []
+        for index in range(count):
+            path = self.output_dir / f"real_derivative_{index}.png"
+            Image.new("RGB", (16, 16), (220, 180, 120)).save(path)
+            rows.append(
+                DerivativeImage(
+                    image_id=f"real-{index}",
+                    local_image_path=str(path),
+                    provider="cloud",
+                    prompt=prompt,
+                    negative_prompt=negative_prompt,
+                    seed=seed + index,
+                    source_sample_id=str(style_constraints.get("source_sample_id", "")),
+                    retained_features=("日式塔楼游客",),
+                    changed_features=("季节元素",),
+                    risk_notes=("生成图需二次 VLM 解析与审核",),
+                    generated_at="2026-06-15T00:00:00",
+                )
+            )
+        return tuple(rows)
+
+
+def test_real_generation_derivatives_pass_second_review_and_become_syncable(tmp_path):
+    APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="derive")
+    APP.agent.image_generator = PassingRealGenerationProvider(tmp_path)
+    APP.state.trial_row = APP.agent.simulate_trial_upload("日本", "人物", "derive").edited(
+        reference_image_path=str(tmp_path / "good.png"),
+        subject="日式塔楼游客",
+        subject_description="主体内容：日式塔楼游客；色彩氛围：明亮清透；构图环境：海边步道远景。",
+    )
+
+    handle_action("/generate_trial_derivatives", {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["derive"]})
+
+    assert len(APP.state.trial_rows) == 2
+    assert all(row.reference_image_syncable is True for row in APP.state.trial_rows)
+    assert all("二次 VLM 解析与审核通过" in row.remark for row in APP.state.trial_rows)
+    assert all(row.reference_image_path.endswith(".png") for row in APP.state.trial_rows)
 
 
 def test_sync_trial_to_feishu_records_success_and_resets_trial_row():
