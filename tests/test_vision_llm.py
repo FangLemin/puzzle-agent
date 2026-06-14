@@ -39,7 +39,7 @@ def test_vision_llm_factory_creates_qwen_client_when_configured(monkeypatch):
     client = VisionLLMClientFactory.create(load_env=False)
 
     assert isinstance(client, QwenVisionLLMClient)
-    assert client.config_status()["model"] == "qwen3-vl-flash"
+    assert client.config_status()["model"] == "qwen3.7-plus"
 
 
 def test_openai_vision_client_builds_responses_payload_with_data_url():

@@ -115,7 +115,7 @@ class QwenVisionLLMClient:
     def __init__(
         self,
         api_key: str,
-        model: str = "qwen3-vl-flash",
+        model: str = "qwen3.7-plus",
         base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
         transport: Callable[[dict[str, object], str, str], dict[str, object]] | None = None,
     ):
@@ -198,7 +198,7 @@ class VisionLLMClientFactory:
                 raise MissingVisionLLMConfig(tuple(missing), provider="qwen")
             return QwenVisionLLMClient(
                 api_key=str(os.getenv("QWEN_API_KEY")),
-                model=os.getenv("QWEN_VISION_MODEL", "qwen3-vl-flash"),
+                model=os.getenv("QWEN_VISION_MODEL", "qwen3.7-plus"),
                 base_url=os.getenv("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"),
             )
         if provider == "openai":

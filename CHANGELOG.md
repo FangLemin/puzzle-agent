@@ -2,6 +2,37 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.30 - 迁移 Qwen 视觉默认模型至 qwen3.7-plus
+
+日期：2026-06-15
+
+阶段目标：
+
+- 响应阿里云 2026-07-08 快照模型下线通知，提前避开 `qwen3-vl-flash` 默认模型风险。
+- 保持试新图片真实 VLM 解析、价值观大师和 Harness 评测链路可继续使用。
+
+已完成：
+
+- Qwen 视觉默认模型从 `qwen3-vl-flash` 迁移到 `qwen3.7-plus`：
+  - `QwenVisionLLMClient` 默认参数更新。
+  - `VisionLLMClientFactory` 未显式配置模型时默认使用 `qwen3.7-plus`。
+  - `.env.example` 更新为 `QWEN_VISION_MODEL=qwen3.7-plus`。
+- README 更新当前 LLM 大脑说明：
+  - 明确当前版本支持真实 Qwen/OpenAI 视觉语言模型。
+  - 明确 Qwen 默认模型为 `qwen3.7-plus`。
+  - 未配置 key 时仍不伪造语义识别。
+- 本地 `.env` 已同步更新为 `QWEN_VISION_MODEL=qwen3.7-plus`，但 `.env` 仍被 `.gitignore` 忽略，不提交密钥。
+
+影响范围：
+
+- 影响真实多模态解析调用的模型名。
+- 不影响飞书同步、本地像素解析、页面路由和已有历史数据。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_vision_llm.py -q`：6 passed。
+- `PYTHONPATH=. pytest tests -q`：132 passed。
+
 ## v0.3.29 - 修复占位衍生图误同步为飞书附件
 
 日期：2026-06-14

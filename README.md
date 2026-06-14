@@ -99,4 +99,4 @@ cp .env.example .env
 
 Excel 图片说明：真实样表中的“图片本身”字段使用 `DISPIMG` 公式，项目会解析 `xl/cellimages.xml` 并把图片抽取到本地路径；生产环境有真实 `image_url` 时，可以优先展示 URL。
 
-LLM 大脑说明：当前 v0.3.5 仍是本地规则 + 检索 + Agent workflow 原型，没有接入真实 LLM API，也没有调用真实视觉语言模型。因此不能声称“模型本身擅长多模态”。试新上传现在能真实接收本地图片，但解析是本地适配层，不是视觉 LLM。后续如果接真实大脑，建议接支持图像输入的多模态 LLM，并保留当前 Tool Registry、Skill Library、RAG、HITL Memory 和 Eval Dashboard 作为工程外壳。
+LLM 大脑说明：当前版本支持通过 `VISION_LLM_PROVIDER=qwen` 或 `VISION_LLM_PROVIDER=openai` 接入真实视觉语言模型。Qwen 默认模型为 `qwen3.7-plus`，用于试新图片的主体内容、色彩氛围、构图环境解析，以及价值观大师的图片证据判断。未配置真实 key 时，系统只保留本地像素层解析和明确的未配置提示，不会伪造语义主体识别。
