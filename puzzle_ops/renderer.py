@@ -457,6 +457,8 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
     harness_run = agent.harness_run(state.country)
     version_compare = agent.harness_compare(harness_run)
     sample_by_id = {sample.sample_id: sample for sample in harness_samples}
+    sync_message = render_sync_message(state)
+    context = hidden_context(state, view="eval")
     metric_cards = "".join(f"<article><span>{escape(key)}</span><strong>{escape(value)}</strong></article>" for key, value in metrics.items())
     harness_metric_cards = "".join(
         f"<article><span>{escape(key)}</span><strong>{escape(_pct_text(value))}</strong></article>"
@@ -487,8 +489,9 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
     observations = "".join(f"<li>{escape(item)}</li>" for item in trace.observations)
     return f"""
 <section class="panel">
-  <h2>Harness Dashboard</h2>
+  <div class="section-line"><h2>Harness Dashboard</h2><form method="post" action="/export_harness_overrides">{context}<button>导出人工修正CSV</button></form></div>
   <p>内置轻量 Harness：按真实样本与合成 demo 分开统计，批量运行 trial_parse_eval、value_match_eval、audit_eval、grade_predict_eval、derive_generation_eval 和 feishu_sync_eval。</p>
+  {sync_message}
 </section>
 <section class="grid two">
   <div class="panel"><h2>数据集概览</h2><div class="table-wrap"><table><tbody>{summary_rows}</tbody></table></div></div>

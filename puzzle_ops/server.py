@@ -226,6 +226,11 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             value(form, "human_override", ""),
         )
         state.view = "eval"
+    elif path == "/export_harness_overrides":
+        export_path = agent.export_harness_overrides(state.country, agent._runtime_dir / f"harness_overrides_{state.country}.csv")
+        state.sync_message = f"已导出 Harness 人工修正：{export_path}"
+        state.sync_url = ""
+        state.view = "eval"
     return None
 
 

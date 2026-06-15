@@ -742,6 +742,25 @@ def test_save_harness_override_action_writes_hitl_memory():
     assert any("real-001" in memory["content"] and "本土饮食文化" in memory["content"] for memory in APP.agent.hitl_memories("日本"))
 
 
+def test_export_harness_overrides_action_writes_csv_and_status_message():
+    APP.state = AppState(country="日本", view="eval")
+    APP.agent.record_harness_override("日本", "real-001", "value_match_eval", "人工修正：寿司图应匹配本土饮食文化。")
+
+    handle_action(
+        "/export_harness_overrides",
+        {
+            "country": ["日本"],
+            "view": ["eval"],
+        },
+    )
+
+    assert APP.state.view == "eval"
+    assert "已导出 Harness 人工修正" in APP.state.sync_message
+    export_path = APP.agent._runtime_dir / "harness_overrides_日本.csv"
+    assert export_path.exists()
+    assert "real-001,value_match_eval,人工修正：寿司图应匹配本土饮食文化。,日本" in export_path.read_text(encoding="utf-8")
+
+
 def test_replace_schedule_action_records_slot_replacement():
     APP.state = AppState(country="日本", view="schedule", schedule_day="周一")
     original = APP.agent.schedule("日本", "周一")[0]

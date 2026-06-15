@@ -1,5 +1,6 @@
 from dataclasses import replace
 from datetime import date
+import csv
 import os
 from pathlib import Path
 import re
@@ -466,6 +467,23 @@ class PuzzleOpsAgent:
             return
         self.repository.add_memory(country, "harness_override", f"{sample_id}/{task_type}：{note}")
 
+    def export_harness_overrides(self, country: str, output_path: Path | str) -> Path:
+        path = Path(output_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        rows = []
+        for memory in self.hitl_memories(country):
+            if memory.get("memory_type") != "harness_override":
+                continue
+            parsed = _parse_harness_override_memory(str(memory.get("content", "")))
+            if parsed:
+                rows.append(parsed)
+        with path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=("sample_id", "task_type", "human_override", "country"))
+            writer.writeheader()
+            for row in rows:
+                writer.writerow({**row, "country": country})
+        return path
+
     def audit_review(self, text: str):
         manual = Path("/Users/fanglemin/Desktop/拼图审核手册.docx")
         retriever = AuditPolicyRetriever.from_docx(manual)
@@ -650,6 +668,19 @@ def _harness_dataset_path() -> Path | None:
         return Path(configured).expanduser()
     default = Path.cwd() / "harness_gold_samples.csv"
     return default if default.exists() else None
+
+
+def _parse_harness_override_memory(content: str) -> dict[str, str] | None:
+    if "：" not in content or "/" not in content:
+        return None
+    left, note = content.split("：", 1)
+    sample_id, task_type = left.split("/", 1)
+    sample_id = sample_id.strip()
+    task_type = task_type.strip()
+    note = note.strip()
+    if not sample_id or not task_type or not note:
+        return None
+    return {"sample_id": sample_id, "task_type": task_type, "human_override": note}
 
 
 def _business_subject_description(subject: str, country: str, visual, semantic) -> str:

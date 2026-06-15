@@ -302,6 +302,13 @@ def test_eval_failure_samples_show_image_gold_label_and_hitl_form(monkeypatch, t
     assert "name=\"sample_id\"" in html
 
 
+def test_eval_page_has_harness_override_export_action():
+    html = render_page(PuzzleOpsAgent(), AppState(country="日本", view="eval"))
+
+    assert 'action="/export_harness_overrides"' in html
+    assert "导出人工修正CSV" in html
+
+
 def test_stock_and_value_cards_render_real_image_tags_instead_of_text_cards():
     html = render_page(PuzzleOpsAgent(), AppState(country="日本", view="regular"))
     value_html = render_page(PuzzleOpsAgent(), AppState(country="日本", view="value", value_grade="S"))

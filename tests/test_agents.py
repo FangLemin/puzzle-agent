@@ -284,3 +284,18 @@ def test_agent_harness_summary_reports_invalid_gold_dataset_rows(monkeypatch, tm
     assert samples
     assert summary["导入问题数"] == 1
     assert "real-bad" in summary["导入问题摘要"]
+
+
+def test_agent_exports_harness_overrides_to_csv(tmp_path):
+    agent = PuzzleOpsAgent()
+    agent.record_harness_override("日本", "real-001", "value_match_eval", "人工修正：寿司图应匹配本土饮食文化。")
+    agent.record_harness_override("日本", "real-002", "audit_eval", "人工修正：补充版权/IP风险。")
+    export_path = tmp_path / "harness_overrides.csv"
+
+    written = agent.export_harness_overrides("日本", export_path)
+
+    assert written == export_path
+    content = export_path.read_text(encoding="utf-8")
+    assert "sample_id,task_type,human_override,country" in content
+    assert "real-001,value_match_eval,人工修正：寿司图应匹配本土饮食文化。,日本" in content
+    assert "real-002,audit_eval,人工修正：补充版权/IP风险。,日本" in content

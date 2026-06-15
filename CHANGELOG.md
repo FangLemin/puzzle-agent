@@ -2,6 +2,38 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.35 - Harness HITL 修正导出回流
+
+日期：2026-06-15
+
+阶段目标：
+
+- 将 v0.3.34 的 Harness 人工修正从“只能存在 memory 里”推进到可导出的回流文件。
+- 为后续人工复核后更新 gold dataset、或导入 Label Studio / Argilla 标注平台提供中间数据层。
+
+已完成：
+
+- 新增 `export_harness_overrides`：
+  - 从本地 HITL memory 中筛选 `harness_override` 记录。
+  - 解析 `sample_id`、`task_type` 和人工修正内容。
+  - 导出 CSV 字段：`sample_id,task_type,human_override,country`。
+- Agent 评测页新增“导出人工修正CSV”按钮。
+- 新增 `/export_harness_overrides` 路由：
+  - 默认导出到运行目录 `harness_overrides_<国家>.csv`。
+  - 导出后在页面展示导出路径提示。
+- README 增加 Harness 修正回流说明，明确导出 CSV 是人工复核中间层，不直接覆盖真实 gold dataset。
+
+当前限制：
+
+- 当前导出的是修正建议 CSV，尚未自动 merge 回 `PUZZLEOPS_HARNESS_DATASET`。
+- 后续仍需增加 Label Studio / Argilla exporter 的真实文件落地或 API 对接。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_harness_overrides_to_csv tests/test_renderer.py::test_eval_page_has_harness_override_export_action tests/test_server.py::test_export_harness_overrides_action_writes_csv_and_status_message -q`：3 passed。
+- `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py tests/test_server.py -q`：71 passed。
+- `PYTHONPATH=. pytest tests -q`：147 passed。
+
 ## v0.3.34 - Harness 失败样本复盘与 HITL 修正入口
 
 日期：2026-06-15
