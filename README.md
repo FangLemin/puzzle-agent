@@ -108,3 +108,5 @@ Agent Harness 真实评测集说明：默认 Harness 会从历史样表和合成
 Harness HITL 说明：Agent 评测页的失败样本复盘区会展示样本缩略图、gold label、Agent 输出和失败原因，并提供人工修正入口。当前人工修正先写入本地 HITL memory，作为后续回写 gold dataset 或导出到 Label Studio/Argilla 的数据基础。
 
 Harness 修正回流说明：Agent 评测页支持将 HITL 人工修正导出为 CSV，默认写到运行目录中的 `harness_overrides_<国家>.csv`。该 CSV 可作为人工复核后的中间层，再手动合并回 `PUZZLEOPS_HARNESS_DATASET`，避免直接覆盖真实 gold dataset。
+
+标注平台导出说明：Agent 评测页支持导出 Argilla JSONL 和 Label Studio JSON 文件，默认写到运行目录 `harness_annotation_exports/`。导出内容包含失败 case、人工修正 case、图片路径、gold label、Agent 输出和失败原因；当前只做本地文件落地，不直接调用外部平台 API。

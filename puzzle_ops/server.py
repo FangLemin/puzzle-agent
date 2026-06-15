@@ -231,6 +231,12 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         state.sync_message = f"已导出 Harness 人工修正：{export_path}"
         state.sync_url = ""
         state.view = "eval"
+    elif path == "/export_harness_annotations":
+        output_dir = agent._runtime_dir / "harness_annotation_exports"
+        paths = agent.export_harness_annotation_files(state.country, output_dir)
+        state.sync_message = f"已导出标注平台文件：Argilla={paths['argilla']}；Label Studio={paths['label_studio']}"
+        state.sync_url = ""
+        state.view = "eval"
     return None
 
 

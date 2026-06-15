@@ -307,6 +307,8 @@ def test_eval_page_has_harness_override_export_action():
 
     assert 'action="/export_harness_overrides"' in html
     assert "导出人工修正CSV" in html
+    assert 'action="/export_harness_annotations"' in html
+    assert "导出标注平台文件" in html
 
 
 def test_stock_and_value_cards_render_real_image_tags_instead_of_text_cards():

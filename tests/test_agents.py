@@ -2,6 +2,7 @@ from puzzle_ops.agents import PuzzleOpsAgent
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.vision_llm import MissingVisionLLMConfig, OpenAIVisionLLMClient
 from datetime import date
+import json
 
 
 def test_country_data_is_isolated_between_japan_and_france():
@@ -299,3 +300,34 @@ def test_agent_exports_harness_overrides_to_csv(tmp_path):
     assert "sample_id,task_type,human_override,country" in content
     assert "real-001,value_match_eval,人工修正：寿司图应匹配本土饮食文化。,日本" in content
     assert "real-002,audit_eval,人工修正：补充版权/IP风险。,日本" in content
+
+
+def test_agent_exports_harness_annotation_files_for_label_tools(monkeypatch, tmp_path):
+    image_path = tmp_path / "real-sushi.png"
+    image_path.write_bytes(b"fake-png")
+    dataset = tmp_path / "gold_samples.csv"
+    dataset.write_text(
+        "\n".join(
+            (
+                "sample_id,country,local_image_path,operation_tag,subject,js_category,source,position,open_rate,completion_rate,avg_finish_time,gold_grade,gold_subject,gold_color_mood,gold_composition,gold_value_labels,gold_risk_labels,human_note",
+                "real-001,日本,real-sushi.png,试新_日本_寿司0615,寿司,food,real,5,0.31,0.93,42,S,寿司,米白与鲑鱼橙,日式料理桌面近景,本土饮食文化,,真实运营样本",
+            )
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_HARNESS_DATASET", str(dataset))
+    agent = PuzzleOpsAgent()
+    agent.record_harness_override("日本", "real-001", "value_match_eval", "人工修正：寿司图应匹配本土饮食文化。")
+
+    paths = agent.export_harness_annotation_files("日本", tmp_path / "exports")
+
+    assert paths["argilla"].name == "argilla_harness_日本.jsonl"
+    assert paths["label_studio"].name == "label_studio_harness_日本.json"
+    argilla_line = json.loads(paths["argilla"].read_text(encoding="utf-8").splitlines()[0])
+    assert argilla_line["fields"]["sample_id"] == "real-001"
+    assert argilla_line["fields"]["gold_subject"] == "寿司"
+    assert "本土饮食文化" in argilla_line["metadata"]["human_override"]
+    label_payload = json.loads(paths["label_studio"].read_text(encoding="utf-8"))
+    assert label_payload[0]["data"]["sample_id"] == "real-001"
+    assert label_payload[0]["data"]["image"].endswith("real-sushi.png")
+    assert "Agent 输出" in label_payload[0]["data"]["agent_output_label"]

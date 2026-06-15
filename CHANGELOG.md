@@ -2,6 +2,39 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.36 - Harness 标注平台文件导出
+
+日期：2026-06-15
+
+阶段目标：
+
+- 将 Harness 失败样本和人工修正从内部页面推进到可交给外部标注平台的文件。
+- 为 Label Studio / Argilla 的后续真实接入预留更清晰的数据形态。
+
+已完成：
+
+- 新增 `export_harness_annotation_files`：
+  - 导出 Argilla JSONL：`argilla_harness_<国家>.jsonl`。
+  - 导出 Label Studio JSON：`label_studio_harness_<国家>.json`。
+  - 覆盖失败 case，以及已有人工修正的 case。
+  - 每条记录包含 sample_id、task_type、图片路径、operation_tag、gold label、Agent 输出、失败原因和 human override。
+- Agent 评测页新增“导出标注平台文件”按钮。
+- 新增 `/export_harness_annotations` 路由：
+  - 默认写入运行目录 `harness_annotation_exports/`。
+  - 页面提示 Argilla / Label Studio 两个文件路径。
+- README 增加标注平台导出说明。
+
+当前限制：
+
+- 本轮只做本地文件落地，不直接调用 Label Studio / Argilla API。
+- 导出的 image 字段使用本地图片路径；如果迁移到远程标注平台，需要后续补静态文件托管或对象存储 URL。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_harness_annotation_files_for_label_tools tests/test_renderer.py::test_eval_page_has_harness_override_export_action tests/test_server.py::test_export_harness_annotations_action_writes_label_tool_files -q`：3 passed。
+- `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py tests/test_server.py tests/test_harness.py -q`：83 passed。
+- `PYTHONPATH=. pytest tests -q`：149 passed。
+
 ## v0.3.35 - Harness HITL 修正导出回流
 
 日期：2026-06-15

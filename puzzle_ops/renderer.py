@@ -489,7 +489,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
     observations = "".join(f"<li>{escape(item)}</li>" for item in trace.observations)
     return f"""
 <section class="panel">
-  <div class="section-line"><h2>Harness Dashboard</h2><form method="post" action="/export_harness_overrides">{context}<button>导出人工修正CSV</button></form></div>
+  <div class="section-line"><h2>Harness Dashboard</h2><div class="inline-actions"><form method="post" action="/export_harness_overrides">{context}<button>导出人工修正CSV</button></form><form method="post" action="/export_harness_annotations">{context}<button>导出标注平台文件</button></form></div></div>
   <p>内置轻量 Harness：按真实样本与合成 demo 分开统计，批量运行 trial_parse_eval、value_match_eval、audit_eval、grade_predict_eval、derive_generation_eval 和 feishu_sync_eval。</p>
   {sync_message}
 </section>
@@ -866,6 +866,7 @@ nav { display:grid; gap:8px; margin:18px 0; }
 .choice.stock-normal { background:#fffdf7; }
 .alert { color:#996b00; background:#fff7d8; border-radius:8px; padding:10px; }
 .section-line { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.inline-actions { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
 .table-wrap { overflow-x:auto; }
 .sync-success-card { display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; margin-bottom:14px; padding:12px; border:1px solid #b8d9ce; border-radius:8px; background:#eefaf5; }
 .sync-success-card p { margin:0; }

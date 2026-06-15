@@ -1,6 +1,7 @@
 from dataclasses import replace
 from datetime import date
 import csv
+import json
 import os
 from pathlib import Path
 import re
@@ -484,6 +485,33 @@ class PuzzleOpsAgent:
                 writer.writerow({**row, "country": country})
         return path
 
+    def export_harness_annotation_files(self, country: str, output_dir: Path | str) -> dict[str, Path]:
+        output = Path(output_dir)
+        output.mkdir(parents=True, exist_ok=True)
+        run = self.harness_run(country, save=False)
+        samples = {sample.sample_id: sample for sample in self.harness_samples(country)}
+        overrides = self._harness_override_map(country)
+        selected = _annotation_cases(run.cases, run.failures, overrides)
+        argilla_path = output / f"argilla_harness_{country}.jsonl"
+        label_studio_path = output / f"label_studio_harness_{country}.json"
+        with argilla_path.open("w", encoding="utf-8") as handle:
+            for case in selected:
+                sample = samples.get(case.sample_id)
+                handle.write(json.dumps(_argilla_annotation_record(case, sample, overrides), ensure_ascii=False) + "\n")
+        label_payload = [_label_studio_task(case, samples.get(case.sample_id), overrides) for case in selected]
+        label_studio_path.write_text(json.dumps(label_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {"argilla": argilla_path, "label_studio": label_studio_path}
+
+    def _harness_override_map(self, country: str) -> dict[tuple[str, str], str]:
+        overrides: dict[tuple[str, str], str] = {}
+        for memory in self.hitl_memories(country):
+            if memory.get("memory_type") != "harness_override":
+                continue
+            parsed = _parse_harness_override_memory(str(memory.get("content", "")))
+            if parsed:
+                overrides[(parsed["sample_id"], parsed["task_type"])] = parsed["human_override"]
+        return overrides
+
     def audit_review(self, text: str):
         manual = Path("/Users/fanglemin/Desktop/拼图审核手册.docx")
         retriever = AuditPolicyRetriever.from_docx(manual)
@@ -681,6 +709,66 @@ def _parse_harness_override_memory(content: str) -> dict[str, str] | None:
     if not sample_id or not task_type or not note:
         return None
     return {"sample_id": sample_id, "task_type": task_type, "human_override": note}
+
+
+def _annotation_cases(cases, failures, overrides: dict[tuple[str, str], str]):
+    by_key = {(case.sample_id, case.task_type): case for case in cases}
+    ordered = []
+    seen = set()
+    for key in overrides:
+        case = by_key.get(key)
+        if case:
+            ordered.append(case)
+            seen.add(key)
+    for case in failures:
+        key = (case.sample_id, case.task_type)
+        if key not in seen:
+            ordered.append(case)
+            seen.add(key)
+    return tuple(ordered)
+
+
+def _argilla_annotation_record(case, sample, overrides: dict[tuple[str, str], str]) -> dict[str, object]:
+    return {
+        "id": f"{case.sample_id}-{case.task_type}",
+        "fields": {
+            "sample_id": case.sample_id,
+            "task_type": case.task_type,
+            "image": _sample_image_path(sample),
+            "operation_tag": sample.operation_tag if sample else "",
+            "gold_subject": sample.gold_subject if sample else "",
+            "gold_color_mood": sample.gold_color_mood if sample else "",
+            "gold_composition": sample.gold_composition if sample else "",
+            "agent_output": case.agent_output,
+            "failure_reasons": "；".join(case.failure_reasons),
+        },
+        "metadata": {
+            "human_override": overrides.get((case.sample_id, case.task_type), ""),
+            "scores": case.scores,
+        },
+        "questions": ("主体是否准确", "色彩氛围是否准确", "构图环境是否准确", "风险是否漏召回"),
+    }
+
+
+def _label_studio_task(case, sample, overrides: dict[tuple[str, str], str]) -> dict[str, object]:
+    return {
+        "data": {
+            "sample_id": case.sample_id,
+            "task_type": case.task_type,
+            "image": _sample_image_path(sample),
+            "operation_tag": sample.operation_tag if sample else "",
+            "gold_subject": sample.gold_subject if sample else "",
+            "gold_color_mood": sample.gold_color_mood if sample else "",
+            "gold_composition": sample.gold_composition if sample else "",
+            "agent_output_label": f"Agent 输出：{case.agent_output}",
+            "failure_reasons": "；".join(case.failure_reasons),
+            "human_override": overrides.get((case.sample_id, case.task_type), ""),
+        }
+    }
+
+
+def _sample_image_path(sample) -> str:
+    return sample.local_image_path if sample and sample.local_image_path else ""
 
 
 def _business_subject_description(subject: str, country: str, visual, semantic) -> str:

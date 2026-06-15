@@ -761,6 +761,25 @@ def test_export_harness_overrides_action_writes_csv_and_status_message():
     assert "real-001,value_match_eval,人工修正：寿司图应匹配本土饮食文化。,日本" in export_path.read_text(encoding="utf-8")
 
 
+def test_export_harness_annotations_action_writes_label_tool_files():
+    APP.state = AppState(country="日本", view="eval")
+    APP.agent.record_harness_override("日本", "syn-001", "value_match_eval", "人工修正：补充日本市场价值观证据。")
+
+    handle_action(
+        "/export_harness_annotations",
+        {
+            "country": ["日本"],
+            "view": ["eval"],
+        },
+    )
+
+    assert APP.state.view == "eval"
+    assert "已导出标注平台文件" in APP.state.sync_message
+    export_dir = APP.agent._runtime_dir / "harness_annotation_exports"
+    assert (export_dir / "argilla_harness_日本.jsonl").exists()
+    assert (export_dir / "label_studio_harness_日本.json").exists()
+
+
 def test_replace_schedule_action_records_slot_replacement():
     APP.state = AppState(country="日本", view="schedule", schedule_day="周一")
     original = APP.agent.schedule("日本", "周一")[0]
