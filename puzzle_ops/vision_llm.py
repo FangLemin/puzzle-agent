@@ -343,8 +343,9 @@ def _value_match_prompt(row: dict[str, object], value_rules: tuple[tuple[str, st
     rules = "\n".join(f"- {title}: {body}" for title, body in value_rules)
     return (
         "你是 PuzzleOps 出海拼图内容运营 Agent 的价值观大师。"
-        "请基于当前图片的视觉LLM解析结果和已有价值观规则，判断这张试新图是否符合市场价值观。"
+        "请基于当前图片的视觉LLM解析结果和 RAG 召回的价值观/审核引用依据，判断这张试新图是否符合市场价值观。"
         "不要套用默认模板；必须引用当前主体、色彩氛围、构图环境中的证据。"
+        "如果引用依据不足，请明确要求人工复核，不要编造不存在的规则。"
         "只输出 JSON，字段为 value_match, confidence, evidence, risk_tags。"
         f"\n国家：{row.get('country', '')}"
         f"\nJS分类：{row.get('js_category', '')}"
@@ -352,7 +353,7 @@ def _value_match_prompt(row: dict[str, object], value_rules: tuple[tuple[str, st
         f"\n主体：{row.get('subject', '')}"
         f"\n主体描述：{row.get('subject_description', '')}"
         f"\n解析备注：{row.get('remark', '')}"
-        f"\n已有价值观规则：\n{rules}"
+        f"\nRAG引用依据：\n{rules}"
         "\n输出要求：value_match 用中文一句话说明是否符合、为什么、需要规避什么风险。"
     )
 

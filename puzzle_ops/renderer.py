@@ -433,6 +433,7 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
     approved_rules = agent.approved_value_rules(state.country)
     memories = agent.hitl_memories(state.country)
     memory_overview = agent.memory_overview(state.country)
+    rag_summary = agent.value_audit_rag_summary(state.country)
     good = "".join(render_record_card(record) for record in profile.similar_good_cases)
     bad = "".join(render_record_card(record) for record in profile.similar_bad_cases)
     candidate_rows = "".join(
@@ -445,6 +446,7 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
     )
     memory_items = "".join(f'<li>{escape(str(memory["content"]))}</li>' for memory in memories)
     memory_overview_cards = render_memory_overview(memory_overview)
+    rag_cards = render_rag_summary(rag_summary)
     feature = profile.feature
     return f"""
 <section class="panel">
@@ -481,6 +483,7 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
   <div class="panel"><h2>HITL Memory</h2><ul>{memory_items or '<li>暂无人工反馈记忆。</li>'}</ul></div>
 </section>
 <section class="panel"><h2>四层 Memory 概览</h2><div class="memory-grid">{memory_overview_cards}</div></section>
+<section class="panel"><h2>价值观与审核 RAG</h2>{rag_cards}</section>
 """
 
 
@@ -495,6 +498,23 @@ def render_memory_overview(overview: dict[str, dict[str, object]]) -> str:
             f"<article class='memory-card'><strong>{escape(label)}</strong><span>{escape(str(item.get('count', 0) if isinstance(item, dict) else 0))} 条</span><small>{escape(summary or '暂无记录')}</small></article>"
         )
     return "".join(cards)
+
+
+def render_rag_summary(summary: dict[str, object]) -> str:
+    source_counts = summary.get("source_counts", {})
+    if not isinstance(source_counts, dict):
+        source_counts = {}
+    source_text = "；".join(f"{key}:{value}" for key, value in source_counts.items()) or "暂无知识块"
+    citations = summary.get("citations", ())
+    citation_text = "、".join(str(item) for item in citations) if isinstance(citations, tuple) else str(citations)
+    context = str(summary.get("context", ""))
+    return f"""
+<div class="rag-grid">
+  <article><strong>父子知识块</strong><span>{escape(str(summary.get("chunk_count", 0)))} 个 chunk</span><small>{escape(source_text)}</small></article>
+  <article><strong>多路召回</strong><span>BM25 + 向量近似 + rerank</span><small>按国家、知识类型和审核风险意图精排。</small></article>
+  <article><strong>引用依据</strong><span>{escape(citation_text or "暂无引用")}</span><small>{escape(context[:180] or "暂无召回上下文")}</small></article>
+</div>
+"""
 
 
 def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
@@ -917,6 +937,10 @@ nav { display:grid; gap:8px; margin:18px 0; }
 .memory-card { display:grid; gap:6px; padding:12px; border:1px solid var(--line); border-radius:8px; background:#fffdf7; }
 .memory-card span { color:var(--brand); font-weight:900; }
 .memory-card small { line-height:1.5; overflow-wrap:anywhere; }
+.rag-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+.rag-grid article { display:grid; gap:6px; padding:12px; border:1px solid var(--line); border-radius:8px; background:#f6faf8; }
+.rag-grid span { color:var(--brand); font-weight:900; overflow-wrap:anywhere; }
+.rag-grid small { line-height:1.5; overflow-wrap:anywhere; }
 .mode-grid, .reference-row { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
 .reference-row { grid-template-columns:repeat(3,minmax(0,1fr)); margin-top:12px; }
 .mode-card { display:grid; gap:6px; padding:14px; border:1px solid var(--line); border-radius:10px; background:#fffdf7; }
@@ -1013,5 +1037,5 @@ textarea { min-height:58px; resize:vertical; }
 .grade.D { background:#ef6b5b; color:#fff; }
 .pos { display:inline-block; padding:3px 8px; border-radius:999px; background:#ffe1de; color:var(--red); font-weight:900; }
 .empty { color:var(--muted); background:#f8faf9; padding:12px; border-radius:8px; }
-@media (max-width: 900px) { body { grid-template-columns:1fr; } aside { border-right:0; border-bottom:1px solid var(--line); } .metrics, .grid.two, .grid.three, .detail, .memory-grid { grid-template-columns:1fr; } }
+@media (max-width: 900px) { body { grid-template-columns:1fr; } aside { border-right:0; border-bottom:1px solid var(--line); } .metrics, .grid.two, .grid.three, .detail, .memory-grid, .rag-grid { grid-template-columns:1fr; } }
 """

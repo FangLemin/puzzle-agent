@@ -142,6 +142,37 @@ def test_value_master_uses_current_trial_subject_instead_of_default_template():
     assert "LLM判断" in judged.value_match
 
 
+def test_value_master_passes_rag_citations_to_llm_prompt():
+    captured = {}
+
+    def fake_transport(payload, api_key):
+        captured["payload"] = payload
+        return {
+            "output_text": '{"value_match":"LLM判断：寿司符合日本本土饮食文化。","confidence":0.9,"evidence":["JP_VALUE_001#chunk-1"],"risk_tags":[]}'
+        }
+
+    agent = PuzzleOpsAgent()
+    agent.trial_uploads = TrialImageUploadService(
+        agent._runtime_dir / "value_master_rag",
+        vision_client=OpenAIVisionLLMClient(
+            api_key="sk-test",
+            transport=fake_transport,
+        ),
+    )
+    row = agent.create_trial_demand("日本", "人物", mode="parse").edited(
+        subject="寿司",
+        operation_tag="试新_日本_寿司0616",
+        subject_description="主体内容：寿司；色彩氛围：米白与鲑鱼橙；构图环境：日式料理店铺餐桌近景。",
+    )
+
+    agent.apply_value_master(row)
+
+    prompt = captured["payload"]["input"][0]["content"][0]["text"]
+    assert "#chunk-" in prompt
+    assert "寿司" in prompt
+    assert "引用依据" in prompt or "JP_VALUE" in prompt
+
+
 def test_value_master_requires_real_llm_instead_of_rule_fallback():
     agent = PuzzleOpsAgent()
     agent.trial_uploads = TrialImageUploadService(
@@ -352,6 +383,21 @@ def test_agent_records_four_layer_memory_types():
     assert overview["长期记忆"]["count"] == 1
     assert overview["结构化事实"]["count"] == 1
     assert overview["感知记忆"]["latest"]["payload"]["subject"] == "寿司"
+
+
+def test_agent_builds_value_audit_rag_context_with_citations():
+    agent = PuzzleOpsAgent()
+    agent.record_long_term_memory("日本", "value_rule_approval", {"rule_text": "寿司提需需保留日式餐桌语境和清爽色彩。"})
+    agent.record_extracted_fact("日本", "image_semantic_fact", {"subject": "寿司", "value_labels": ["本土饮食文化"]})
+
+    answer = agent.value_audit_rag_answer("日本", "寿司试新图是否符合日本价值观，并检查文字水印风险")
+
+    assert "引用依据" in answer.prompt
+    assert answer.citations
+    assert any("VALUE" in citation or "MEMORY" in citation for citation in answer.citations)
+    assert any("AUDIT" in citation for citation in answer.citations)
+    assert "寿司" in answer.context
+    assert "文字水印" in answer.context or "水印" in answer.context
 
 
 def test_agent_exports_harness_annotation_files_for_label_tools(monkeypatch, tmp_path):

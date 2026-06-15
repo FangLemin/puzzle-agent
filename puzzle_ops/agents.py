@@ -15,6 +15,7 @@ from puzzle_ops.excel_importer import import_history_workbook
 from puzzle_ops.feishu import FeishuClientFactory, MockFeishuClient
 from puzzle_ops.models import AgentTrace, AnalysisReport, DemandRow, HolidayRecommendation, ImageProfile, ScheduleItem, TagMeta, ValuePredictionCard, ValueRuleCandidate
 from puzzle_ops.multimodal import ImageFeatureExtractor, SimilarImageRetriever, ValueInsightMiner
+from puzzle_ops.rag import HybridRagRetriever, RagChunk, RagDocument, RagPrompt, build_rag_prompt, chunk_document
 from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.trulens_eval import TruLensRAGEvaluator
 from puzzle_ops.trial_upload import TrialImageUploadService
@@ -347,7 +348,7 @@ class PuzzleOpsAgent:
             value_match = _missing_value_llm_message(self.trial_uploads.vision_config_error)
         else:
             try:
-                value_match = client.judge_value_match(_value_row_payload(row), self.value_rules(row.country))
+                value_match = client.judge_value_match(_value_row_payload(row), self._rag_rules_for_value_master(row))
             except Exception as exc:
                 value_match = f"价值观大师：真实视觉 LLM 调用失败，暂不生成匹配结论；请检查模型配置后重试。错误：{exc}"
         return row.edited(value_match=value_match)
@@ -384,6 +385,62 @@ class PuzzleOpsAgent:
             if str(rule["rule_text"]) not in {body for _, body in base_rules}
         ]
         return tuple(base_rules + approved)
+
+    def build_value_audit_rag_index(self, country: str) -> tuple[RagDocument, ...]:
+        documents = self._rag_documents(country)
+        chunks = tuple(chunk for document in documents for chunk in chunk_document(document))
+        self.repository.save_rag_index(country, documents, chunks)
+        return documents
+
+    def value_audit_rag_answer(self, country: str, query: str, top_k: int = 6) -> RagPrompt:
+        self.build_value_audit_rag_index(country)
+        chunks = tuple(_rag_chunk_from_row(row) for row in self.repository.rag_chunks(country))
+        retriever = HybridRagRetriever(chunks)
+        hits = retriever.search(query, country=country, top_k=top_k)
+        if _looks_like_audit_query(query) and not any(hit.chunk.source_type == "audit_policy" for hit in hits):
+            audit_hits = retriever.search(query, country=country, top_k=1, source_types=("audit_policy",))
+            if audit_hits:
+                hits = tuple(list(hits[: max(top_k - 1, 0)]) + [audit_hits[0]])
+        return build_rag_prompt(query, hits)
+
+    def _rag_rules_for_value_master(self, row: DemandRow) -> tuple[tuple[str, str], ...]:
+        query = " ".join(
+            (
+                row.country,
+                row.js_category,
+                row.operation_tag,
+                row.subject,
+                row.subject_description,
+                row.remark,
+                "价值观 审核 风险 文化混淆 版权 IP 文字水印 AI质量",
+            )
+        )
+        answer = self.value_audit_rag_answer(row.country, query, top_k=6)
+        if not answer.citations:
+            return self.value_rules(row.country)
+        rules = []
+        for line in answer.context.splitlines():
+            if not line.startswith("[") or "]" not in line:
+                continue
+            citation, text = line.split("]", 1)
+            rules.append((citation.strip("["), text.strip()))
+        return tuple(rules) or self.value_rules(row.country)
+
+    def value_audit_rag_summary(self, country: str) -> dict[str, object]:
+        query = f"{country}市场试新提需是否符合价值观，并检查版权/IP、文字水印、文化混淆和AI质量风险"
+        answer = self.value_audit_rag_answer(country, query, top_k=5)
+        chunks = self.repository.rag_chunks(country)
+        source_counts: dict[str, int] = {}
+        for chunk in chunks:
+            source_type = str(chunk["source_type"])
+            source_counts[source_type] = source_counts.get(source_type, 0) + 1
+        return {
+            "chunk_count": len(chunks),
+            "source_counts": source_counts,
+            "citations": answer.citations,
+            "context": answer.context,
+            "prompt": answer.prompt,
+        }
 
     def value_predictions(self, country: str, grade: str) -> tuple[ValuePredictionCard, ...]:
         cards: list[ValuePredictionCard] = []
@@ -495,6 +552,92 @@ class PuzzleOpsAgent:
 
     def approved_value_rules(self, country: str):
         return self.repository.approved_value_rules(country)
+
+    def _rag_documents(self, country: str) -> tuple[RagDocument, ...]:
+        documents: list[RagDocument] = []
+        for index, (title, body) in enumerate(self._country(country)["value_rules"], 1):
+            documents.append(
+                RagDocument(
+                    document_id=f"{_country_code(country)}_VALUE_{index:03d}",
+                    country=country,
+                    source_type="value_rule",
+                    title=title,
+                    text=body,
+                    metadata={"source": "static_value_rules"},
+                )
+            )
+        for index, rule in enumerate(self.approved_value_rules(country), 1):
+            documents.append(
+                RagDocument(
+                    document_id=f"{_country_code(country)}_APPROVED_VALUE_{index:03d}",
+                    country=country,
+                    source_type="approved_value_rule",
+                    title="运营审批价值观",
+                    text=str(rule["rule_text"]),
+                    metadata={"source": "hitl_approved_value_rules"},
+                )
+            )
+        for index, memory in enumerate(self.repository.layered_memories(country, layer="long_term"), 1):
+            payload = memory.get("payload", {})
+            text = _payload_text(payload)
+            if text:
+                documents.append(
+                    RagDocument(
+                        document_id=f"{_country_code(country)}_MEMORY_LONG_{index:03d}",
+                        country=country,
+                        source_type="approved_value_rule",
+                        title=str(memory.get("memory_type", "长期记忆")),
+                        text=text,
+                        metadata={"source": "layered_memory", "layer": "long_term"},
+                    )
+                )
+        for index, memory in enumerate(self.repository.layered_memories(country, layer="facts"), 1):
+            payload = memory.get("payload", {})
+            text = _payload_text(payload)
+            if text:
+                documents.append(
+                    RagDocument(
+                        document_id=f"{_country_code(country)}_FACT_{index:03d}",
+                        country=country,
+                        source_type="fact",
+                        title=str(memory.get("memory_type", "结构化事实")),
+                        text=text,
+                        metadata={"source": "layered_memory", "layer": "facts"},
+                    )
+                )
+        for record in self._history_records(country):
+            documents.append(
+                RagDocument(
+                    document_id=f"{_country_code(country)}_SAMPLE_{record.image_id}",
+                    country=country,
+                    source_type="sample_fact",
+                    title=f"历史样本 {record.operation_tag}",
+                    text=(
+                        f"主体={record.subject_tag}；JS分类={record.js_category}；来源={record.source}；"
+                        f"等级={record.grade}；开图率={record.open_rate}；完成率={record.completion_rate}；"
+                        f"构图/备注={record.remark or record.dimension_grade}"
+                    ),
+                    metadata={"source": "historical_records", "image_id": record.image_id},
+                )
+            )
+        for hit in self._audit_policy_hits():
+            documents.append(
+                RagDocument(
+                    document_id=f"AUDIT_{hit.rule_id}",
+                    country="GLOBAL",
+                    source_type="audit_policy",
+                    title=f"审核规则 {hit.risk_level}风险",
+                    text=hit.text,
+                    metadata={"source": "audit_manual", "risk_level": hit.risk_level},
+                )
+            )
+        return tuple(documents)
+
+    def _audit_policy_hits(self):
+        manual = Path("/Users/fanglemin/Desktop/拼图审核手册.docx")
+        if not manual.exists():
+            return ()
+        return AuditPolicyRetriever.from_docx(manual).hits
 
     def hitl_memories(self, country: str):
         return self.repository.memories(country)
@@ -916,6 +1059,43 @@ def _first_non_empty(items) -> str:
         if item:
             return item
     return ""
+
+
+def _country_code(country: str) -> str:
+    return {"日本": "JP", "法国": "FR"}.get(country, re.sub(r"\W+", "", country).upper() or "COUNTRY")
+
+
+def _payload_text(payload: object) -> str:
+    if isinstance(payload, dict):
+        parts = []
+        for key, value in payload.items():
+            if value in ("", None, [], ()):
+                continue
+            if isinstance(value, (list, tuple)):
+                value_text = "、".join(str(item) for item in value)
+            else:
+                value_text = str(value)
+            parts.append(f"{key}={value_text}")
+        return "；".join(parts)
+    return str(payload) if payload else ""
+
+
+def _rag_chunk_from_row(row: dict[str, object]) -> RagChunk:
+    metadata = row.get("metadata", {})
+    return RagChunk(
+        chunk_id=str(row["chunk_id"]),
+        parent_id=str(row["parent_id"]),
+        country=str(row["country"]),
+        source_type=str(row["source_type"]),
+        title=str(row["title"]),
+        text=str(row["text"]),
+        chunk_index=int(row["chunk_index"]),
+        metadata=metadata if isinstance(metadata, dict) else {},
+    )
+
+
+def _looks_like_audit_query(query: str) -> bool:
+    return any(word in query for word in ("风险", "审核", "水印", "IP", "版权", "商标", "文化混淆", "AI质量"))
 
 
 def _records_from_static_country(country: str):

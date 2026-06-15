@@ -3,6 +3,7 @@ from pathlib import Path
 from puzzle_ops.cache import CacheProvider, RedisCache
 from puzzle_ops.excel_importer import import_history_workbook
 from puzzle_ops.feishu import FeishuClientFactory, MockFeishuClient
+from puzzle_ops.rag import RagDocument, chunk_document
 from puzzle_ops.storage import PuzzleRepository
 
 
@@ -54,6 +55,28 @@ def test_repository_stores_layered_memory_payloads(tmp_path):
     assert perception[0]["memory_layer"] == "perception"
     assert perception[0]["payload"]["subject"] == "寿司"
     assert facts[0]["payload"]["value_labels"] == ["本土饮食文化"]
+
+
+def test_repository_stores_parent_child_rag_index(tmp_path):
+    repo = PuzzleRepository(tmp_path / "puzzle_ops.db")
+    document = RagDocument(
+        "JP_VALUE_001",
+        "日本",
+        "value_rule",
+        "文化真实性",
+        "寿司、抹茶、温泉街属于日本本土元素，需要避免文化混淆。",
+        {"source": "static_value_rules"},
+    )
+    chunks = tuple(chunk_document(document, max_chars=40))
+
+    repo.save_rag_index("日本", (document,), chunks)
+    stored_documents = repo.rag_documents("日本")
+    stored_chunks = repo.rag_chunks("日本")
+
+    assert stored_documents[0]["document_id"] == "JP_VALUE_001"
+    assert stored_documents[0]["metadata"]["source"] == "static_value_rules"
+    assert stored_chunks[0]["parent_id"] == "JP_VALUE_001"
+    assert stored_chunks[0]["chunk_id"] == "JP_VALUE_001#chunk-1"
 
 
 def test_cache_provider_uses_in_memory_fallback_when_redis_unavailable():

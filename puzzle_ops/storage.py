@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from puzzle_ops.models import HistoricalRecord
+from puzzle_ops.rag import RagChunk, RagDocument
 
 
 class PuzzleRepository:
@@ -86,6 +87,68 @@ class PuzzleRepository:
                 (country,),
             ).fetchall()
         return tuple(dict(row) for row in rows)
+
+    def save_rag_index(self, country: str, documents: tuple[RagDocument, ...], chunks: tuple[RagChunk, ...]) -> None:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM rag_chunks WHERE country IN (?, 'GLOBAL')", (country,))
+            conn.execute("DELETE FROM rag_documents WHERE country IN (?, 'GLOBAL')", (country,))
+            conn.executemany(
+                """
+                INSERT INTO rag_documents(document_id, country, source_type, title, text, metadata)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        document.document_id,
+                        document.country,
+                        document.source_type,
+                        document.title,
+                        document.text,
+                        json.dumps(document.metadata, ensure_ascii=False),
+                    )
+                    for document in documents
+                ],
+            )
+            conn.executemany(
+                """
+                INSERT INTO rag_chunks(chunk_id, parent_id, country, source_type, title, text, chunk_index, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        chunk.chunk_id,
+                        chunk.parent_id,
+                        chunk.country,
+                        chunk.source_type,
+                        chunk.title,
+                        chunk.text,
+                        chunk.chunk_index,
+                        json.dumps(chunk.metadata, ensure_ascii=False),
+                    )
+                    for chunk in chunks
+                ],
+            )
+
+    def rag_documents(self, country: str) -> tuple[dict[str, object], ...]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT document_id, country, source_type, title, text, metadata FROM rag_documents WHERE country IN (?, 'GLOBAL') ORDER BY document_id",
+                (country,),
+            ).fetchall()
+        return tuple(_decode_metadata(dict(row)) for row in rows)
+
+    def rag_chunks(self, country: str) -> tuple[dict[str, object], ...]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT chunk_id, parent_id, country, source_type, title, text, chunk_index, metadata
+                FROM rag_chunks
+                WHERE country IN (?, 'GLOBAL')
+                ORDER BY parent_id, chunk_index
+                """,
+                (country,),
+            ).fetchall()
+        return tuple(_decode_metadata(dict(row)) for row in rows)
 
     def add_sync_event(self, country: str, action: str, target: str, status: str) -> None:
         with self._connect() as conn:
@@ -246,3 +309,39 @@ class PuzzleRepository:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS rag_documents (
+                    document_id TEXT PRIMARY KEY,
+                    country TEXT NOT NULL,
+                    source_type TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    metadata TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS rag_chunks (
+                    chunk_id TEXT PRIMARY KEY,
+                    parent_id TEXT NOT NULL,
+                    country TEXT NOT NULL,
+                    source_type TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    chunk_index INTEGER NOT NULL,
+                    metadata TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+
+
+def _decode_metadata(item: dict[str, object]) -> dict[str, object]:
+    try:
+        item["metadata"] = json.loads(str(item["metadata"]))
+    except json.JSONDecodeError:
+        item["metadata"] = {}
+    return item

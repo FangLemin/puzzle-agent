@@ -2,6 +2,63 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.45 - 价值观与审核规则 RAG 知识库
+
+日期：2026-06-16
+
+阶段目标：
+
+- 将项目里的 RAG 从“轻量关键词召回/展示概念”，推进为可解释、可溯源、可接入价值观大师的本地 RAG 知识层。
+- 让 RAG 主要服务两个业务目标：
+  - 提需时判断图片是否符合日本/法国沉淀价值观。
+  - 基于价值观与审核依据发散新的拼图内容方向，同时降低 LLM 幻觉。
+
+已完成：
+
+- 新增 `puzzle_ops/rag.py`：
+  - `RagDocument`：父文档，承载审核手册、国家价值观、人工审批价值观、历史样本事实、四层 memory 事实。
+  - `RagChunk`：子知识块，保留 `parent_id`、`chunk_id`、国家、来源类型和 metadata。
+  - `HybridRagRetriever`：本地多路召回与精排。
+  - `build_rag_prompt(...)`：拼接带 citation 的 LLM prompt。
+- Chunk 策略：
+  - 按中文/英文标点进行语义边界切分。
+  - 支持 `overlap_sentences`，避免规则被切断后上下文丢失。
+- SQLite 新增父子 RAG 存储：
+  - `rag_documents`
+  - `rag_chunks`
+  - `save_rag_index(...)`
+  - `rag_documents(...)`
+  - `rag_chunks(...)`
+- 多路召回：
+  - BM25 风格词面召回。
+  - 本地 token 向量近似召回。
+  - rerank 精排：综合国家匹配、知识来源类型、审核风险意图和精确短语命中。
+- Agent 接入：
+  - `build_value_audit_rag_index(country)` 构建国家 RAG 知识库。
+  - `value_audit_rag_answer(country, query)` 返回带引用依据的 prompt/context/citations。
+  - `apply_value_master(...)` 先进行 RAG Top-K 召回，再把引用依据传给真实视觉 LLM 判断价值观匹配。
+- 多模态底座页面新增“价值观与审核 RAG”：
+  - 展示父子知识块数量。
+  - 展示多路召回策略。
+  - 展示本次引用依据和上下文摘要。
+- README 补充 RAG 说明。
+
+当前限制：
+
+- 当前向量召回是纯 Python token/cosine 近似，不是外部 embedding 模型。
+- 当前 rerank 是本地规则精排，还未接专业 reranker。
+- 审核手册仍来自本地 docx 段落；更细的标题层级、父章节编号和版本号可以后续继续增强。
+- RAG 答案生成仍依赖已配置的真实视觉 LLM；未配置时不会伪造价值观判断。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_rag.py tests/test_storage_runtime.py::test_repository_stores_parent_child_rag_index tests/test_agents.py::test_agent_builds_value_audit_rag_context_with_citations tests/test_agents.py::test_value_master_passes_rag_citations_to_llm_prompt tests/test_agents.py::test_value_master_writes_value_match_to_trial_row tests/test_agents.py::test_value_master_uses_current_trial_subject_instead_of_default_template tests/test_vision_llm.py::test_openai_client_judges_value_match_with_current_visual_context tests/test_vision_llm.py::test_qwen_client_judges_value_match_with_chat_completions_payload tests/test_renderer.py::test_multimodal_runtime_page_shows_profile_candidates_and_evidence -q`：11 passed。
+- `PYTHONPATH=. pytest tests/test_storage_runtime.py tests/test_agents.py tests/test_vision_llm.py tests/test_renderer.py -q`：63 passed。
+- `PYTHONPATH=. pytest tests/test_agents.py::test_agent_builds_value_audit_rag_context_with_citations tests/test_rag.py -q`：4 passed。
+- `PYTHONPATH=. pytest tests -q`：173 passed。
+- `find . -maxdepth 3 -type f \\( -name 'package.json' -o -name 'vite.config.*' -o -name '*.js' -o -name '*.ts' -o -name '*.tsx' -o -name '*.jsx' -o -name '*.vue' \\) -not -path './.git/*' -print`：无输出。
+- `find puzzle_ops tests -type f -not -name '*.py' -not -path '*/__pycache__/*' -print`：无输出。
+
 ## v0.3.44 - 四层 Memory 架构雏形
 
 日期：2026-06-15
