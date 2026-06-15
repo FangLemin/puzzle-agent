@@ -333,3 +333,13 @@ def test_trial_need_table_renders_uploaded_image_url_when_available(tmp_path):
 
     assert '<img src="/uploads/train-shop-girl.png"' in html
     assert 'value="试新_日本_日式火车店铺少女0609"' in html
+
+
+def test_trial_page_shows_generation_failure_message():
+    state = AppState(country="日本", view="trial", trial_mode="derive")
+    state.sync_message = "生成衍生参考图失败：DashScope 图像生成失败：quota exceeded"
+
+    html = render_page(PuzzleOpsAgent(), state)
+
+    assert "生成衍生参考图失败" in html
+    assert "quota exceeded" in html

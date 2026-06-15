@@ -2,6 +2,37 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.38 - 好图衍生生成失败页面级反馈
+
+日期：2026-06-15
+
+阶段目标：
+
+- 让真实图像生成 provider 出错时，试新页面能给运营人员明确反馈。
+- 避免生成失败后页面崩溃、提需丢失，或出现误导性的假生成图。
+
+已完成：
+
+- `/generate_trial_derivatives` 增加生成异常兜底：
+  - 保留原始试新提需行。
+  - 清空本次生成 rows 和 preview，避免误同步。
+  - 写入页面级 `sync_message`，展示 provider 返回的失败原因。
+  - 将失败信息补入备注，便于后续复盘。
+- 新增服务端测试覆盖 DashScope 额度不足等异常场景。
+- 新增渲染测试确认试新页面能展示生成失败提示。
+- README 补充 DashScope 失败态说明：失败、超时或额度不足时不伪造生成图。
+
+当前限制：
+
+- 本轮只处理 provider 抛错后的页面反馈和状态保护，不做自动重试。
+- 真实云端 provider 的错误码分类、重试间隔和费用提示仍可在后续版本继续细化。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_renderer.py::test_trial_page_shows_generation_failure_message tests/test_server.py::test_generate_trial_derivatives_failure_keeps_row_and_shows_message -q`：2 passed。
+- `PYTHONPATH=. pytest tests/test_server.py tests/test_renderer.py -q`：55 passed。
+- `PYTHONPATH=. pytest tests -q`：153 passed。
+
 ## v0.3.37 - DashScope 异步图像生成 Provider
 
 日期：2026-06-15

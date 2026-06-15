@@ -190,7 +190,17 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         state.view = "trial"
     elif path == "/generate_trial_derivatives":
         row = state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)
-        updated, rows, previews = agent.generate_trial_derivatives(row)
+        try:
+            updated, rows, previews = agent.generate_trial_derivatives(row)
+        except Exception as exc:
+            message = f"生成衍生参考图失败：{exc}"
+            state.trial_row = row.edited(remark=(row.remark + "；" if row.remark else "") + message)
+            state.trial_rows = []
+            state.trial_uploads = []
+            state.sync_message = message
+            state.sync_url = ""
+            state.view = "trial"
+            return None
         state.trial_row = updated
         state.trial_rows = list(rows)
         state.trial_uploads = list(previews)

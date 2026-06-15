@@ -522,6 +522,36 @@ class PassingRealGenerationProvider(ImageGenerationProvider):
         return tuple(rows)
 
 
+class FailingGenerationProvider(ImageGenerationProvider):
+    provider_name = "dashscope"
+
+    def healthcheck(self):
+        return {"provider": "dashscope", "configured": True, "message": "DashScope 图像生成 provider 已配置"}
+
+    def generate_derivatives(self, reference_image, prompt, negative_prompt, count, seed, style_constraints):
+        raise RuntimeError("DashScope 图像生成失败：quota exceeded")
+
+
+def test_generate_trial_derivatives_failure_keeps_row_and_shows_message(tmp_path):
+    APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="derive")
+    APP.agent.image_generator = FailingGenerationProvider()
+    APP.state.trial_row = APP.agent.simulate_trial_upload("日本", "人物", "derive").edited(
+        reference_image_path=str(tmp_path / "good.png"),
+        subject="日式塔楼游客",
+        subject_description="主体内容：日式塔楼游客；色彩氛围：明亮清透；构图环境：海边步道远景。",
+    )
+
+    redirect = handle_action("/generate_trial_derivatives", {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["derive"]})
+
+    assert redirect is None
+    assert APP.state.view == "trial"
+    assert APP.state.trial_rows == []
+    assert APP.state.trial_uploads == []
+    assert APP.state.sync_message == "生成衍生参考图失败：DashScope 图像生成失败：quota exceeded"
+    assert "生成衍生参考图失败" in APP.state.trial_row.remark
+    assert APP.state.trial_row.subject == "日式塔楼游客"
+
+
 class FakeGeneratedImageVisionClient:
     provider = "qwen"
 
