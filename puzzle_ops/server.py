@@ -202,6 +202,7 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
                 message=str(exc),
                 error_type=error_type,
             )
+            agent.record_generation_event(state.country, state.generation_event)
             state.trial_row = row.edited(remark=(row.remark + "；" if row.remark else "") + message)
             state.trial_rows = []
             state.trial_uploads = []
@@ -218,6 +219,7 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             message=f"已生成{len(rows)}张衍生参考图，等待二次 VLM 审核结果。",
             error_type="none",
         )
+        agent.record_generation_event(state.country, state.generation_event)
         state.view = "trial"
     elif path == "/check_generation_provider":
         status = agent.generation_provider_status()

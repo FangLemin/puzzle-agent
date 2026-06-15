@@ -672,7 +672,14 @@ def render_schedule_slot(state: AppState, item, index: int) -> str:
 
 def render_sync(agent: PuzzleOpsAgent, state: AppState) -> str:
     rows = "".join(f"<tr><td>{escape(time)}</td><td>{escape(country)}</td><td>{escape(action)}</td><td>{escape(target)}</td><td>{escape(status)}</td></tr>" for time, country, action, target, status in agent.sync_rows())
-    return f"<section class='panel'><h2>同步记录</h2><table><thead><tr><th>时间</th><th>国家</th><th>动作</th><th>目标</th><th>状态</th></tr></thead><tbody>{rows}</tbody></table></section>"
+    generation_rows = "".join(
+        f"<tr><td>{escape(event.get('status', 'unknown'))}</td><td>{escape(event.get('provider', 'unknown'))}</td><td>{escape(event.get('model', '未记录'))}</td><td>{escape(event.get('error_type', 'unknown'))}</td><td>{escape(event.get('message', ''))}</td></tr>"
+        for event in reversed(agent.generation_events(state.country)[-8:])
+    )
+    return f"""
+<section class='panel'><h2>同步记录</h2><table><thead><tr><th>时间</th><th>国家</th><th>动作</th><th>目标</th><th>状态</th></tr></thead><tbody>{rows}</tbody></table></section>
+<section class='panel'><h2>生成任务回放</h2><table><thead><tr><th>状态</th><th>Provider</th><th>模型</th><th>错误类型</th><th>说明</th></tr></thead><tbody>{generation_rows or '<tr><td colspan="5">暂无生成任务记录。</td></tr>'}</tbody></table></section>
+"""
 
 
 def render_image_card(image) -> str:

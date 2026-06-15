@@ -302,6 +302,30 @@ def test_agent_exports_harness_overrides_to_csv(tmp_path):
     assert "real-002,audit_eval,人工修正：补充版权/IP风险。,日本" in content
 
 
+def test_agent_persists_generation_events_for_replay():
+    agent = PuzzleOpsAgent()
+
+    agent.record_generation_event(
+        "日本",
+        {
+            "status": "failed",
+            "provider": "dashscope",
+            "model": "wanx-test",
+            "endpoint": "https://example.test/gen",
+            "error_type": "quota_exceeded",
+            "message": "DashScope 图像生成失败：quota exceeded",
+        },
+    )
+
+    events = agent.generation_events("日本")
+
+    assert events[-1]["status"] == "failed"
+    assert events[-1]["provider"] == "dashscope"
+    assert events[-1]["model"] == "wanx-test"
+    assert events[-1]["endpoint"] == "https://example.test/gen"
+    assert events[-1]["error_type"] == "quota_exceeded"
+
+
 def test_agent_exports_harness_annotation_files_for_label_tools(monkeypatch, tmp_path):
     image_path = tmp_path / "real-sushi.png"
     image_path.write_bytes(b"fake-png")

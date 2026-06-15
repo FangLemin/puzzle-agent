@@ -462,6 +462,30 @@ class PuzzleOpsAgent:
     def hitl_memories(self, country: str):
         return self.repository.memories(country)
 
+    def record_generation_event(self, country: str, event: dict[str, str]) -> None:
+        payload = {
+            "status": str(event.get("status", "unknown")),
+            "provider": str(event.get("provider", "unknown")),
+            "model": str(event.get("model", "未记录")),
+            "endpoint": str(event.get("endpoint", "未记录")),
+            "error_type": str(event.get("error_type", "unknown")),
+            "message": str(event.get("message", "")),
+        }
+        self.repository.add_memory(country, "generation_event", json.dumps(payload, ensure_ascii=False))
+
+    def generation_events(self, country: str) -> tuple[dict[str, str], ...]:
+        events: list[dict[str, str]] = []
+        for memory in self.hitl_memories(country):
+            if memory.get("memory_type") != "generation_event":
+                continue
+            try:
+                payload = json.loads(str(memory.get("content", "{}")))
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                events.append({key: str(value) for key, value in payload.items()})
+        return tuple(events)
+
     def record_harness_override(self, country: str, sample_id: str, task_type: str, human_override: str) -> None:
         note = human_override.strip()
         if not note:

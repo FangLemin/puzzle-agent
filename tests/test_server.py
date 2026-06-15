@@ -556,6 +556,7 @@ class FailingGenerationProvider(ImageGenerationProvider):
 def test_generate_trial_derivatives_failure_keeps_row_and_shows_message(tmp_path):
     APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="derive")
     APP.agent.image_generator = FailingGenerationProvider()
+    before = len(APP.agent.generation_events("日本"))
     APP.state.trial_row = APP.agent.simulate_trial_upload("日本", "人物", "derive").edited(
         reference_image_path=str(tmp_path / "good.png"),
         subject="日式塔楼游客",
@@ -575,6 +576,11 @@ def test_generate_trial_derivatives_failure_keeps_row_and_shows_message(tmp_path
     assert APP.state.generation_event["error_type"] == "quota_exceeded"
     assert "生成衍生参考图失败" in APP.state.trial_row.remark
     assert APP.state.trial_row.subject == "日式塔楼游客"
+    events = APP.agent.generation_events("日本")
+    assert len(events) == before + 1
+    assert events[-1]["status"] == "failed"
+    assert events[-1]["error_type"] == "quota_exceeded"
+    assert events[-1]["provider"] == "dashscope"
 
 
 def test_check_generation_provider_action_reports_diagnostic_status(tmp_path):

@@ -159,6 +159,27 @@ def test_sync_success_message_renders_feishu_link_without_popup_dependency():
     assert "已同步，打开飞书表格" in html
 
 
+def test_sync_page_shows_persisted_generation_events():
+    agent = PuzzleOpsAgent()
+    agent.record_generation_event(
+        "日本",
+        {
+            "status": "failed",
+            "provider": "dashscope",
+            "model": "wanx-test",
+            "error_type": "quota_exceeded",
+            "message": "DashScope 图像生成失败：quota exceeded",
+        },
+    )
+
+    html = render_page(agent, AppState(country="日本", view="sync"))
+
+    assert "生成任务回放" in html
+    assert "dashscope" in html
+    assert "quota_exceeded" in html
+    assert "DashScope 图像生成失败" in html
+
+
 def test_schedule_page_mentions_allowed_positions_and_renders_ten_slots():
     html = render_page(PuzzleOpsAgent(), AppState(country="法国", view="schedule", schedule_day="周六"))
 

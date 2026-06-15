@@ -2,6 +2,39 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.41 - 生成任务持久化回放
+
+日期：2026-06-15
+
+阶段目标：
+
+- 将 v0.3.40 的“最近一次生成任务”从页面内存状态推进到可持久化记录。
+- 让好图衍生生成链路更接近 Agent Harness 的 trace / replay 闭环。
+
+已完成：
+
+- `PuzzleOpsAgent` 新增生成任务事件持久化能力：
+  - `record_generation_event(country, event)` 将生成事件写入本地 SQLite memory。
+  - `generation_events(country)` 读取结构化事件，用于页面回放和后续 Harness 接入。
+- `/generate_trial_derivatives` 成功和失败时都会写入生成事件：
+  - 成功记录生成张数和等待二次审核说明。
+  - 失败记录 provider、model、endpoint、error_type 和原始错误说明。
+- 同步记录页新增“生成任务回放”区：
+  - 展示最近生成任务的状态、Provider、模型、错误类型和说明。
+  - 没有生成任务时显示空态。
+- README 补充生成事件写入本地 memory、可在同步记录页回放的说明。
+
+当前限制：
+
+- 当前生成事件使用 agent memory 轻量持久化，还不是单独 generation_runs 表。
+- 后续可以继续把 task_id、原始 provider 响应摘要、二次审核结果和飞书附件同步结果关联成完整 run trace。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_agents.py::test_agent_persists_generation_events_for_replay tests/test_server.py::test_generate_trial_derivatives_failure_keeps_row_and_shows_message tests/test_renderer.py::test_sync_page_shows_persisted_generation_events -q`：3 passed。
+- `PYTHONPATH=. pytest tests/test_agents.py tests/test_server.py tests/test_renderer.py -q`：86 passed。
+- `PYTHONPATH=. pytest tests -q`：164 passed。
+
 ## v0.3.40 - 生成任务状态回放与错误分类
 
 日期：2026-06-15
