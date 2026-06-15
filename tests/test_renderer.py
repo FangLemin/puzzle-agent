@@ -117,6 +117,17 @@ def test_trial_page_shows_real_generation_provider_status(tmp_path):
     assert "真实生成 provider 已配置：wanx2.1-t2i-plus" in html
 
 
+def test_trial_page_has_generation_provider_diagnostic_action(tmp_path):
+    agent = agent_without_vlm(tmp_path)
+    state = AppState(country="日本", view="trial", trial_mode="derive")
+
+    html = render_page(agent, state)
+
+    assert "生成 Provider 诊断" in html
+    assert "检查生成 Provider" in html
+    assert 'action="/check_generation_provider"' in html
+
+
 def test_sync_success_message_renders_feishu_link_without_popup_dependency():
     agent = PuzzleOpsAgent()
     state = AppState(country="日本", view="trial", sync_message="同步成功，当前已完成试新提需1条", sync_url="https://feishu.cn/base/app?table=tbl")

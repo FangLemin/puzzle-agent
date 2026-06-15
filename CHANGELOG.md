@@ -2,6 +2,38 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.39 - 生成 Provider 诊断入口
+
+日期：2026-06-15
+
+阶段目标：
+
+- 继续推进 Agent Harness + 真实好图衍生生成主线，把生成 provider 从“可配置”提升到“可观测、可诊断”。
+- 让运营/开发在点击真实生成前，能确认 provider、模型和 endpoint 配置状态。
+
+已完成：
+
+- 试新页解析状态区新增“生成 Provider 诊断”：
+  - 展示 `provider`、`configured`、`model`、`endpoint`。
+  - 保留原有 provider message，便于识别未配置、mock、cloud、DashScope 等状态。
+  - 增加紧凑样式，降低对试新页面信息密度的影响。
+- 新增“检查生成 Provider”按钮：
+  - 调用 `/check_generation_provider`。
+  - 复用现有 healthcheck，不触发真实图像生成。
+  - 将诊断结果写入页面提示，便于排查配置缺失、模型名、endpoint 等问题。
+- README 补充试新页 provider 诊断说明。
+
+当前限制：
+
+- 当前诊断只做本地配置级 healthcheck，不主动请求云端服务，避免无意消耗额度。
+- 后续可继续增加 DashScope live dry-run、额度/权限错误码分类、最近一次生成任务状态回放。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_renderer.py::test_trial_page_has_generation_provider_diagnostic_action tests/test_server.py::test_check_generation_provider_action_reports_diagnostic_status -q`：2 passed。
+- `PYTHONPATH=. pytest tests/test_renderer.py tests/test_server.py tests/test_harness.py -q`：69 passed。
+- `PYTHONPATH=. pytest tests -q`：155 passed。
+
 ## v0.3.38 - 好图衍生生成失败页面级反馈
 
 日期：2026-06-15

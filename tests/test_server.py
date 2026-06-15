@@ -497,7 +497,13 @@ class PassingRealGenerationProvider(ImageGenerationProvider):
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
     def healthcheck(self):
-        return {"provider": "cloud", "configured": True, "message": "真实生成 provider 已配置", "model": "wanx-test"}
+        return {
+            "provider": "cloud",
+            "configured": True,
+            "message": "真实生成 provider 已配置",
+            "model": "wanx-test",
+            "base_url": "https://example.test/gen",
+        }
 
     def generate_derivatives(self, reference_image, prompt, negative_prompt, count, seed, style_constraints):
         rows = []
@@ -550,6 +556,21 @@ def test_generate_trial_derivatives_failure_keeps_row_and_shows_message(tmp_path
     assert APP.state.sync_message == "生成衍生参考图失败：DashScope 图像生成失败：quota exceeded"
     assert "生成衍生参考图失败" in APP.state.trial_row.remark
     assert APP.state.trial_row.subject == "日式塔楼游客"
+
+
+def test_check_generation_provider_action_reports_diagnostic_status(tmp_path):
+    APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="derive")
+    APP.agent.image_generator = PassingRealGenerationProvider(tmp_path)
+
+    redirect = handle_action("/check_generation_provider", {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["derive"]})
+
+    assert redirect is None
+    assert APP.state.view == "trial"
+    assert "生成 Provider 诊断" in APP.state.sync_message
+    assert "provider=cloud" in APP.state.sync_message
+    assert "configured=True" in APP.state.sync_message
+    assert "wanx-test" in APP.state.sync_message
+    assert "https://example.test/gen" in APP.state.sync_message
 
 
 class FakeGeneratedImageVisionClient:

@@ -250,11 +250,12 @@ def render_trial(agent: PuzzleOpsAgent, state: AppState) -> str:
         if is_derive_mode
         else ""
     )
+    generation_diagnostic = render_generation_provider_diagnostic(generation_status)
     return f"""
 <section class="panel"><h2>试新模式</h2><div class="mode-grid">{mode_links}</div></section>
 <section class="grid two">
   <div class="panel"><h2>上传参考图</h2><div class="mock-upload-zone"><strong>{upload_copy}</strong><span>可上传本地图片进行结构化解析；未接 LLM 时使用本地解析适配层。</span><form method="post" action="/upload_trial_images" enctype="multipart/form-data">{context}<input type="file" name="trial_images" accept="image/*" multiple><button>上传并解析图片</button></form><form method="post" action="/simulate_trial_upload">{context}<button>模拟上传并解析</button></form>{derivative_form}</div><div class="reference-row">{previews}</div></div>
-  <div class="panel"><h2>解析状态</h2><p class="alert">解析结果已写入下方试新提需表，可在表格中继续编辑后同步飞书。</p><dl class="detail"><div><dt>视觉 LLM 语义解析</dt><dd>{vision_mode_copy(vision_status)}</dd></div><div><dt>图像生成 Provider</dt><dd>{escape(str(generation_status.get("message", "生成 provider 未配置")))}</dd></div><div><dt>当前图片</dt><dd>{escape(row.image_name)}</dd></div><div><dt>解析备注</dt><dd>{escape(row.remark or "等待上传图片")}</dd></div></dl></div>
+  <div class="panel"><h2>解析状态</h2><p class="alert">解析结果已写入下方试新提需表，可在表格中继续编辑后同步飞书。</p><dl class="detail"><div><dt>视觉 LLM 语义解析</dt><dd>{vision_mode_copy(vision_status)}</dd></div><div><dt>图像生成 Provider</dt><dd>{escape(str(generation_status.get("message", "生成 provider 未配置")))}</dd></div><div><dt>当前图片</dt><dd>{escape(row.image_name)}</dd></div><div><dt>解析备注</dt><dd>{escape(row.remark or "等待上传图片")}</dd></div></dl>{generation_diagnostic}<form method="post" action="/check_generation_provider">{context}<button>检查生成 Provider</button></form></div>
 </section>
 <section class="panel">
   <div class="section-line"><h2>试新提需表预览</h2><form method="post" action="/apply_value_master">{context}<button>价值观大师</button></form></div>
@@ -262,6 +263,17 @@ def render_trial(agent: PuzzleOpsAgent, state: AppState) -> str:
   <form method="post" action="/save_trial">{context}<div class="demand-card-list trial-demand-list">{row_html}</div><div class="section-line"><button class="primary">保存试新修改</button><button formaction="/sync_trial_feishu" formmethod="post">一键同步到飞书表格</button></div></form>
 </section>
 """
+
+
+def render_generation_provider_diagnostic(status: dict[str, object]) -> str:
+    fields = (
+        ("provider", status.get("provider", "not_configured")),
+        ("configured", status.get("configured", False)),
+        ("model", status.get("model", "未配置")),
+        ("endpoint", status.get("base_url") or status.get("submit_url") or "未配置"),
+    )
+    rows = "".join(f"<div><dt>{escape(key)}</dt><dd>{escape(str(value))}</dd></div>" for key, value in fields)
+    return f"<h3>生成 Provider 诊断</h3><dl class=\"detail compact-detail\">{rows}</dl>"
 
 
 def render_sync_message(state: AppState) -> str:
@@ -840,6 +852,8 @@ nav { display:grid; gap:8px; margin:18px 0; }
 .detail div { padding:10px; background:var(--soft); border-radius:8px; }
 .detail dt { font-weight:900; }
 .detail dd { margin:4px 0 0; color:var(--muted); }
+.compact-detail { margin:8px 0 12px; font-size:13px; }
+.compact-detail div { padding:8px; }
 .cards, .schedule { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; }
 .mode-grid, .reference-row { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
 .reference-row { grid-template-columns:repeat(3,minmax(0,1fr)); margin-top:12px; }

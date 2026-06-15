@@ -205,6 +205,11 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         state.trial_rows = list(rows)
         state.trial_uploads = list(previews)
         state.view = "trial"
+    elif path == "/check_generation_provider":
+        status = agent.generation_provider_status()
+        state.sync_message = format_generation_provider_diagnostic(status)
+        state.sync_url = ""
+        state.view = "trial"
     elif path == "/save_analysis":
         report = agent.analysis_report(state.country)
         state.analysis_edits = {
@@ -256,6 +261,15 @@ def redirect_location(state: AppState) -> str:
 
 def value(form: dict[str, list[str]], key: str, default: str) -> str:
     return form.get(key, [default])[0]
+
+
+def format_generation_provider_diagnostic(status: dict[str, object]) -> str:
+    provider = str(status.get("provider", "not_configured"))
+    configured = str(status.get("configured", False))
+    message = str(status.get("message", "生成 provider 未配置"))
+    model = str(status.get("model", "未配置"))
+    endpoint = str(status.get("base_url") or status.get("submit_url") or "未配置")
+    return f"生成 Provider 诊断：provider={provider}；configured={configured}；model={model}；endpoint={endpoint}；{message}"
 
 
 def parse_post_body(content_type: str, body: bytes) -> tuple[dict[str, list[str]], dict[str, list[dict[str, object]]]]:
