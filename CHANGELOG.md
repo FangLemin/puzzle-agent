@@ -2,6 +2,46 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.40 - 生成任务状态回放与错误分类
+
+日期：2026-06-15
+
+阶段目标：
+
+- 继续补齐真实好图衍生生成的工程可观测性。
+- 让 DashScope / 通义万相等 provider 出错时，不只是展示原始报错，而是能归类和回放最近一次生成任务。
+
+已完成：
+
+- `AppState` 新增最近一次生成任务事件：
+  - 记录 `status`、`provider`、`model`、`endpoint`、`error_type`、`message`。
+  - 生成成功时记录成功状态和生成张数说明。
+  - 生成失败时记录失败状态和错误类型。
+- 试新页解析状态区新增“最近一次生成任务”：
+  - 展示成功/失败状态。
+  - 展示 provider、model、错误类型和说明。
+  - 便于运营/开发在页面内回看最近一次生成链路结果。
+- 新增生成错误分类：
+  - `quota_exceeded`：额度不足、余额不足、quota/balance 类错误。
+  - `model_deprecated`：模型下线、deprecated/retired/model not found 类错误。
+  - `timeout`：任务超时。
+  - `auth_error`：API Key、401/403、鉴权或权限错误。
+  - `config_missing`：provider/key/配置缺失。
+  - `response_schema`：返回结构缺字段，例如 task_id/results/image_base64。
+  - `unknown`：未命中的其他错误。
+- README 补充最近一次生成任务回放说明。
+
+当前限制：
+
+- 错误分类基于本地报错文本规则，不主动请求云端错误码文档。
+- 后续可以继续把 DashScope 原始 task_id、任务状态和 provider 原始响应摘要持久化到 Harness run 或 sync record。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_server.py::test_classify_generation_error_for_common_provider_failures tests/test_server.py::test_generate_trial_derivatives_failure_keeps_row_and_shows_message tests/test_server.py::test_generate_trial_derivatives_creates_two_audited_reference_rows tests/test_renderer.py::test_trial_page_shows_recent_generation_event tests/test_renderer.py::test_trial_page_has_generation_provider_diagnostic_action -q`：10 passed。
+- `PYTHONPATH=. pytest tests/test_server.py tests/test_renderer.py tests/test_harness.py -q`：76 passed。
+- `PYTHONPATH=. pytest tests -q`：162 passed。
+
 ## v0.3.39 - 生成 Provider 诊断入口
 
 日期：2026-06-15

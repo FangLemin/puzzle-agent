@@ -1,5 +1,5 @@
 from puzzle_ops.renderer import AppState
-from puzzle_ops.server import APP, handle_action, redirect_location, update_state_from_query
+from puzzle_ops.server import APP, classify_generation_error, handle_action, redirect_location, update_state_from_query
 from puzzle_ops.feishu import MockFeishuClient
 from puzzle_ops.image_generation import DerivativeImage, ImageGenerationProvider, MockImageGenerationProvider
 from puzzle_ops.trial_upload import TrialImageUploadService
@@ -12,6 +12,21 @@ import pytest
 
 
 TODAY_SUFFIX = date.today().strftime("%m%d")
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    (
+        ("DashScope 图像生成失败：quota exceeded", "quota_exceeded"),
+        ("模型 qwen3-vl-flash 已下线，请迁移", "model_deprecated"),
+        ("DashScope 图像生成超时：task_id=abc", "timeout"),
+        ("HTTP 401 Unauthorized invalid api key", "auth_error"),
+        ("生成 provider 未配置", "config_missing"),
+        ("返回结构缺少 output.task_id", "response_schema"),
+    ),
+)
+def test_classify_generation_error_for_common_provider_failures(message, expected):
+    assert classify_generation_error(message) == expected
 
 
 @pytest.fixture(autouse=True)
@@ -553,7 +568,11 @@ def test_generate_trial_derivatives_failure_keeps_row_and_shows_message(tmp_path
     assert APP.state.view == "trial"
     assert APP.state.trial_rows == []
     assert APP.state.trial_uploads == []
-    assert APP.state.sync_message == "生成衍生参考图失败：DashScope 图像生成失败：quota exceeded"
+    assert "生成衍生参考图失败：DashScope 图像生成失败：quota exceeded" in APP.state.sync_message
+    assert "错误类型=quota_exceeded" in APP.state.sync_message
+    assert APP.state.generation_event["status"] == "failed"
+    assert APP.state.generation_event["provider"] == "dashscope"
+    assert APP.state.generation_event["error_type"] == "quota_exceeded"
     assert "生成衍生参考图失败" in APP.state.trial_row.remark
     assert APP.state.trial_row.subject == "日式塔楼游客"
 

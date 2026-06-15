@@ -128,6 +128,25 @@ def test_trial_page_has_generation_provider_diagnostic_action(tmp_path):
     assert 'action="/check_generation_provider"' in html
 
 
+def test_trial_page_shows_recent_generation_event():
+    state = AppState(country="日本", view="trial", trial_mode="derive")
+    state.generation_event = {
+        "status": "failed",
+        "provider": "dashscope",
+        "model": "qwen3-vl-flash",
+        "error_type": "model_deprecated",
+        "message": "模型 qwen3-vl-flash 已下线，请迁移。",
+    }
+
+    html = render_page(PuzzleOpsAgent(), state)
+
+    assert "最近一次生成任务" in html
+    assert "failed" in html
+    assert "dashscope" in html
+    assert "model_deprecated" in html
+    assert "模型 qwen3-vl-flash 已下线" in html
+
+
 def test_sync_success_message_renders_feishu_link_without_popup_dependency():
     agent = PuzzleOpsAgent()
     state = AppState(country="日本", view="trial", sync_message="同步成功，当前已完成试新提需1条", sync_url="https://feishu.cn/base/app?table=tbl")

@@ -29,6 +29,7 @@ class AppState:
     analysis_edits: dict[str, object] = field(default_factory=dict)
     trial_uploads: list[dict[str, str]] = field(default_factory=list)
     trial_rows: list[DemandRow] = field(default_factory=list)
+    generation_event: dict[str, str] = field(default_factory=dict)
 
 
 def render_page(agent: PuzzleOpsAgent, state: AppState) -> str:
@@ -251,11 +252,12 @@ def render_trial(agent: PuzzleOpsAgent, state: AppState) -> str:
         else ""
     )
     generation_diagnostic = render_generation_provider_diagnostic(generation_status)
+    generation_event = render_generation_event(state.generation_event)
     return f"""
 <section class="panel"><h2>试新模式</h2><div class="mode-grid">{mode_links}</div></section>
 <section class="grid two">
   <div class="panel"><h2>上传参考图</h2><div class="mock-upload-zone"><strong>{upload_copy}</strong><span>可上传本地图片进行结构化解析；未接 LLM 时使用本地解析适配层。</span><form method="post" action="/upload_trial_images" enctype="multipart/form-data">{context}<input type="file" name="trial_images" accept="image/*" multiple><button>上传并解析图片</button></form><form method="post" action="/simulate_trial_upload">{context}<button>模拟上传并解析</button></form>{derivative_form}</div><div class="reference-row">{previews}</div></div>
-  <div class="panel"><h2>解析状态</h2><p class="alert">解析结果已写入下方试新提需表，可在表格中继续编辑后同步飞书。</p><dl class="detail"><div><dt>视觉 LLM 语义解析</dt><dd>{vision_mode_copy(vision_status)}</dd></div><div><dt>图像生成 Provider</dt><dd>{escape(str(generation_status.get("message", "生成 provider 未配置")))}</dd></div><div><dt>当前图片</dt><dd>{escape(row.image_name)}</dd></div><div><dt>解析备注</dt><dd>{escape(row.remark or "等待上传图片")}</dd></div></dl>{generation_diagnostic}<form method="post" action="/check_generation_provider">{context}<button>检查生成 Provider</button></form></div>
+  <div class="panel"><h2>解析状态</h2><p class="alert">解析结果已写入下方试新提需表，可在表格中继续编辑后同步飞书。</p><dl class="detail"><div><dt>视觉 LLM 语义解析</dt><dd>{vision_mode_copy(vision_status)}</dd></div><div><dt>图像生成 Provider</dt><dd>{escape(str(generation_status.get("message", "生成 provider 未配置")))}</dd></div><div><dt>当前图片</dt><dd>{escape(row.image_name)}</dd></div><div><dt>解析备注</dt><dd>{escape(row.remark or "等待上传图片")}</dd></div></dl>{generation_diagnostic}{generation_event}<form method="post" action="/check_generation_provider">{context}<button>检查生成 Provider</button></form></div>
 </section>
 <section class="panel">
   <div class="section-line"><h2>试新提需表预览</h2><form method="post" action="/apply_value_master">{context}<button>价值观大师</button></form></div>
@@ -274,6 +276,20 @@ def render_generation_provider_diagnostic(status: dict[str, object]) -> str:
     )
     rows = "".join(f"<div><dt>{escape(key)}</dt><dd>{escape(str(value))}</dd></div>" for key, value in fields)
     return f"<h3>生成 Provider 诊断</h3><dl class=\"detail compact-detail\">{rows}</dl>"
+
+
+def render_generation_event(event: dict[str, str]) -> str:
+    if not event:
+        return ""
+    fields = (
+        ("状态", event.get("status", "unknown")),
+        ("provider", event.get("provider", "unknown")),
+        ("model", event.get("model", "未记录")),
+        ("错误类型", event.get("error_type", "无")),
+        ("说明", event.get("message", "")),
+    )
+    rows = "".join(f"<div><dt>{escape(key)}</dt><dd>{escape(str(value))}</dd></div>" for key, value in fields)
+    return f"<h3>最近一次生成任务</h3><dl class=\"detail compact-detail generation-event\">{rows}</dl>"
 
 
 def render_sync_message(state: AppState) -> str:

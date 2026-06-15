@@ -193,7 +193,15 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         try:
             updated, rows, previews = agent.generate_trial_derivatives(row)
         except Exception as exc:
-            message = f"生成衍生参考图失败：{exc}"
+            provider_status = agent.generation_provider_status()
+            error_type = classify_generation_error(str(exc))
+            message = f"生成衍生参考图失败：{exc}；错误类型={error_type}"
+            state.generation_event = generation_event(
+                status="failed",
+                provider_status=provider_status,
+                message=str(exc),
+                error_type=error_type,
+            )
             state.trial_row = row.edited(remark=(row.remark + "；" if row.remark else "") + message)
             state.trial_rows = []
             state.trial_uploads = []
@@ -204,6 +212,12 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         state.trial_row = updated
         state.trial_rows = list(rows)
         state.trial_uploads = list(previews)
+        state.generation_event = generation_event(
+            status="succeeded",
+            provider_status=agent.generation_provider_status(),
+            message=f"已生成{len(rows)}张衍生参考图，等待二次 VLM 审核结果。",
+            error_type="none",
+        )
         state.view = "trial"
     elif path == "/check_generation_provider":
         status = agent.generation_provider_status()
@@ -270,6 +284,34 @@ def format_generation_provider_diagnostic(status: dict[str, object]) -> str:
     model = str(status.get("model", "未配置"))
     endpoint = str(status.get("base_url") or status.get("submit_url") or "未配置")
     return f"生成 Provider 诊断：provider={provider}；configured={configured}；model={model}；endpoint={endpoint}；{message}"
+
+
+def generation_event(status: str, provider_status: dict[str, object], message: str, error_type: str) -> dict[str, str]:
+    return {
+        "status": status,
+        "provider": str(provider_status.get("provider", "not_configured")),
+        "model": str(provider_status.get("model", "未记录")),
+        "endpoint": str(provider_status.get("base_url") or provider_status.get("submit_url") or "未记录"),
+        "error_type": error_type,
+        "message": message,
+    }
+
+
+def classify_generation_error(message: str) -> str:
+    text = message.lower()
+    if any(token in text for token in ("quota", "insufficient", "balance", "余额", "额度", "欠费")):
+        return "quota_exceeded"
+    if any(token in text for token in ("下线", "deprecated", "retired", "model not found", "模型不存在", "模型已")):
+        return "model_deprecated"
+    if any(token in text for token in ("timeout", "timed out", "超时")):
+        return "timeout"
+    if any(token in text for token in ("unauthorized", "forbidden", "invalid api key", "api key", "401", "403", "鉴权", "权限")):
+        return "auth_error"
+    if any(token in text for token in ("未配置", "not_configured", "missing")):
+        return "config_missing"
+    if any(token in text for token in ("task_id", "results", "b64_json", "image_base64", "返回结构", "schema")):
+        return "response_schema"
+    return "unknown"
 
 
 def parse_post_body(content_type: str, body: bytes) -> tuple[dict[str, list[str]], dict[str, list[dict[str, object]]]]:
