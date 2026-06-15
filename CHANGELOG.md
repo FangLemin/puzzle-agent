@@ -2,6 +2,40 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.43 - 生成 Trace 接入 Harness 指标
+
+日期：2026-06-15
+
+阶段目标：
+
+- 将 v0.3.42 的生成 trace 从“同步记录页可回放”推进到 Harness Run / Eval Dashboard。
+- 让好图衍生链路可被评测，而不只是可观察。
+
+已完成：
+
+- `AgentHarness` 新增 generation event 指标聚合：
+  - `生成Trace完整率`：生成事件是否具备状态、provider、模型、来源 tag、二次审核、飞书附件状态；成功事件还要求 task_id 和生成图路径，失败事件要求 error_type。
+  - `二次审核通过率`：generation event 中 `second_review_status=passed` 的占比。
+  - `飞书附件Ready率`：generation event 中 `feishu_attachment_status=ready` 的占比。
+  - `生成失败可分类率`：失败事件中具备有效 error_type 的占比。
+- Agent 评测页新增“生成失败类型分布”：
+  - 从本地 generation event memory 读取失败事件。
+  - 按 `error_type` 聚合次数，例如 quota_exceeded、model_deprecated、timeout 等。
+- README 增加 Harness 生成 trace 说明，明确无真实生成事件时指标为 0，不伪造生成效果。
+- 继续审查 Python-only 边界：未发现 JS/TS/Vue/React/package.json。
+
+当前限制：
+
+- 指标来自本地 generation event memory，尚未落为独立 generation_runs 表。
+- 失败类型分布只统计当前国家的本地事件；后续可扩展为按 run_id、版本、provider、模型分组。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_harness.py::test_harness_metrics_include_generation_trace_replay_events tests/test_renderer.py::test_eval_page_shows_clear_agent_evaluation_workflow -q`：2 passed。
+- `PYTHONPATH=. pytest tests/test_harness.py tests/test_renderer.py tests/test_agents.py -q`：58 passed。
+- `find . -maxdepth 3 -type f \\( -name 'package.json' -o -name 'vite.config.*' -o -name '*.js' -o -name '*.ts' -o -name '*.tsx' -o -name '*.jsx' -o -name '*.vue' \\) -not -path './.git/*' -print`：无输出。
+- `PYTHONPATH=. pytest tests -q`：165 passed。
+
 ## v0.3.42 - 生成到审核到飞书附件 Trace 字段
 
 日期：2026-06-15

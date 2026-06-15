@@ -352,7 +352,7 @@ class AgentHarness:
         )
 
     def _aggregate_metrics(self, samples: tuple[EvalSample, ...], cases: tuple[HarnessCaseResult, ...]) -> dict[str, float]:
-        return {
+        metrics = {
             "真实样本占比": _safe_ratio(sum(1 for sample in samples if sample.is_real), len(samples)),
             "三段式描述合规率": _score_average(cases, "三段式描述合规"),
             "价值观一致率": _score_average(cases, "价值观一致"),
@@ -363,10 +363,45 @@ class AgentHarness:
             "生成图审核通过率": _score_average(cases, "生成图审核通过"),
             "飞书同步成功率": _score_average(cases, "字段完整性"),
         }
+        metrics.update(self._generation_trace_metrics(samples))
+        return metrics
+
+    def _generation_trace_metrics(self, samples: tuple[EvalSample, ...]) -> dict[str, float]:
+        countries = sorted({sample.country for sample in samples})
+        events = [event for country in countries for event in self.agent.generation_events(country)]
+        if not events:
+            return {
+                "生成Trace完整率": 0.0,
+                "二次审核通过率": 0.0,
+                "飞书附件Ready率": 0.0,
+                "生成失败可分类率": 0.0,
+            }
+        complete = sum(1 for event in events if _complete_generation_trace(event))
+        second_review_passed = sum(1 for event in events if event.get("second_review_status") == "passed")
+        attachment_ready = sum(1 for event in events if event.get("feishu_attachment_status") == "ready")
+        failed = [event for event in events if event.get("status") == "failed"]
+        classified = sum(1 for event in failed if event.get("error_type") not in {"", "unknown", "none"})
+        return {
+            "生成Trace完整率": _safe_ratio(complete, len(events)),
+            "二次审核通过率": _safe_ratio(second_review_passed, len(events)),
+            "飞书附件Ready率": _safe_ratio(attachment_ready, len(events)),
+            "生成失败可分类率": _safe_ratio(classified, len(failed)),
+        }
 
 
 def _has_three_part_description(text: str) -> bool:
     return all(part in text for part in ("主体内容：", "色彩氛围：", "构图环境："))
+
+
+def _complete_generation_trace(event: dict[str, str]) -> bool:
+    required = ("status", "provider", "model", "source_operation_tag", "second_review_status", "feishu_attachment_status")
+    if not all(str(event.get(key, "")).strip() for key in required):
+        return False
+    if event.get("status") == "succeeded":
+        return bool(event.get("task_id") and event.get("generated_image_paths"))
+    if event.get("status") == "failed":
+        return bool(event.get("error_type"))
+    return True
 
 
 def _field(row: dict[str, str], key: str) -> str:

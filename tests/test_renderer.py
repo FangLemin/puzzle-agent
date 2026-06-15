@@ -313,7 +313,24 @@ def test_multimodal_runtime_page_shows_approved_candidate_after_hitl_action():
 
 
 def test_eval_page_shows_clear_agent_evaluation_workflow():
-    html = render_page(PuzzleOpsAgent(), AppState(country="日本", view="eval"))
+    agent = PuzzleOpsAgent()
+    agent.record_generation_event(
+        "日本",
+        {
+            "status": "failed",
+            "provider": "dashscope",
+            "model": "wanx-test",
+            "task_id": "",
+            "source_operation_tag": "试新_日本_寿司0615",
+            "generated_image_paths": "",
+            "second_review_status": "not_started",
+            "feishu_attachment_status": "blocked",
+            "error_type": "quota_exceeded",
+            "message": "DashScope 图像生成失败：quota exceeded",
+        },
+    )
+
+    html = render_page(agent, AppState(country="日本", view="eval"))
 
     assert "Agent 评测" in html
     assert "Harness Dashboard" in html
@@ -325,6 +342,11 @@ def test_eval_page_shows_clear_agent_evaluation_workflow():
     assert "真实样本数" in html
     assert "合成样本数" in html
     assert "生成图审核通过率" in html
+    assert "生成Trace完整率" in html
+    assert "二次审核通过率" in html
+    assert "飞书附件Ready率" in html
+    assert "生成失败类型分布" in html
+    assert "quota_exceeded" in html
     assert "derive_generation_eval" in html
     assert "任务目标" in html
     assert "输入与上下文" in html

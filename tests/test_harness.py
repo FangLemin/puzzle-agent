@@ -201,6 +201,54 @@ def test_harness_skips_unconfigured_generation_provider(tmp_path):
     assert "生成 provider 未配置" in derive_case.failure_reasons
 
 
+def test_harness_metrics_include_generation_trace_replay_events():
+    agent = PuzzleOpsAgent()
+    agent.record_generation_event(
+        "测试国",
+        {
+            "status": "succeeded",
+            "provider": "cloud",
+            "model": "wanx-test",
+            "task_id": "img-1,img-2",
+            "source_operation_tag": "试新_日本_塔楼游客0615",
+            "generated_image_paths": "/tmp/a.png,/tmp/b.png",
+            "second_review_status": "passed",
+            "feishu_attachment_status": "ready",
+            "error_type": "none",
+            "message": "已生成2张衍生参考图",
+        },
+    )
+    agent.record_generation_event(
+        "测试国",
+        {
+            "status": "failed",
+            "provider": "dashscope",
+            "model": "wanx-test",
+            "task_id": "",
+            "source_operation_tag": "试新_日本_寿司0615",
+            "generated_image_paths": "",
+            "second_review_status": "not_started",
+            "feishu_attachment_status": "blocked",
+            "error_type": "quota_exceeded",
+            "message": "DashScope 图像生成失败：quota exceeded",
+        },
+    )
+    sample = EvalSample.synthetic_demo(
+        sample_id="syn-001",
+        country="测试国",
+        operation_tag="常规_日本_猫咪鲤鱼0609",
+        subject="猫咪鲤鱼",
+        gold_grade="B",
+    )
+
+    run = AgentHarness(agent).run((sample,), dataset_name="generation-trace", version="0.3.43")
+
+    assert run.metrics["生成Trace完整率"] == 1.0
+    assert run.metrics["二次审核通过率"] == 0.5
+    assert run.metrics["飞书附件Ready率"] == 0.5
+    assert run.metrics["生成失败可分类率"] == 1.0
+
+
 def test_cloud_generation_provider_writes_returned_images_with_generation_metadata(tmp_path):
     png_b64 = (
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/"

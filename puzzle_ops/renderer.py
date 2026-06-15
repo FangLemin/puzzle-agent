@@ -505,6 +505,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
         render_harness_failure_row(case, sample_by_id.get(case.sample_id))
         for case in harness_run.failures[:6]
     )
+    generation_failure_rows = render_generation_failure_distribution(agent.generation_events(state.country))
     compare_rows = "".join(
         f"<tr><td>{escape(key)}</td><td>{escape(value)}</td></tr>"
         for key, value in version_compare.items()
@@ -540,6 +541,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
   <div class="panel"><h2>失败样本复盘</h2><div class="table-wrap"><table><thead><tr><th>样本</th><th>Gold Label</th><th>任务</th><th>Agent 输出</th><th>失败原因</th><th>HITL 修正入口</th></tr></thead><tbody>{failure_rows or '<tr><td colspan="6">暂无失败样本。</td></tr>'}</tbody></table></div></div>
   <div class="panel"><h2>版本对比</h2><div class="table-wrap"><table><tbody>{compare_rows}</tbody></table></div></div>
 </section>
+<section class="panel"><h2>生成失败类型分布</h2><div class="table-wrap"><table><thead><tr><th>错误类型</th><th>次数</th></tr></thead><tbody>{generation_failure_rows}</tbody></table></div></section>
 <section class="metrics">{metric_cards}</section>
 <section class="panel">
   <h2>任务目标</h2>
@@ -573,6 +575,18 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
 </section>
 <section class="panel"><h2>Agent Trace</h2><p>Trace 已在上方按输入、工具调用和指标结论拆解。</p></section>
 """
+
+
+def render_generation_failure_distribution(events: tuple[dict[str, str], ...]) -> str:
+    counts: dict[str, int] = {}
+    for event in events:
+        if event.get("status") != "failed":
+            continue
+        error_type = event.get("error_type", "unknown") or "unknown"
+        counts[error_type] = counts.get(error_type, 0) + 1
+    if not counts:
+        return '<tr><td colspan="2">暂无生成失败记录。</td></tr>'
+    return "".join(f"<tr><td>{escape(error_type)}</td><td>{count}</td></tr>" for error_type, count in sorted(counts.items()))
 
 
 def render_summary_value(value: object) -> str:

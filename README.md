@@ -107,6 +107,8 @@ DashScope/通义万相说明：如使用阿里云异步图像生成接口，可�
 
 Agent Harness 真实评测集说明：默认 Harness 会从历史样表和合成 demo 生成样本，适合本地演示；如果要证明真实业务效果，请按 `docs/harness_gold_samples_template.csv` 整理 30-50 条真实拼图样本，并在 `.env` 设置 `PUZZLEOPS_HARNESS_DATASET=/absolute/path/to/gold_samples.csv`。导入时会校验真实图片路径，缺图样本会被标记为导入问题而不会让评测崩溃；缺少 gold label 的指标会显示为 `not_evaluable`。
 
+Harness 生成 trace 说明：Agent 评测页会读取本地 generation event memory，计算 `生成Trace完整率`、`二次审核通过率`、`飞书附件Ready率`、`生成失败可分类率`，并展示生成失败类型分布。该指标用于证明好图衍生链路是否可回放、可诊断、可评测；没有真实生成事件时指标为 0，不伪造生成效果。
+
 Harness HITL 说明：Agent 评测页的失败样本复盘区会展示样本缩略图、gold label、Agent 输出和失败原因，并提供人工修正入口。当前人工修正先写入本地 HITL memory，作为后续回写 gold dataset 或导出到 Label Studio/Argilla 的数据基础。
 
 Harness 修正回流说明：Agent 评测页支持将 HITL 人工修正导出为 CSV，默认写到运行目录中的 `harness_overrides_<国家>.csv`。该 CSV 可作为人工复核后的中间层，再手动合并回 `PUZZLEOPS_HARNESS_DATASET`，避免直接覆盖真实 gold dataset。
