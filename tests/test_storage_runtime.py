@@ -32,6 +32,30 @@ def test_repository_stores_agent_memory_and_value_rules(tmp_path):
     assert repo.approved_value_rules("日本")[0]["rule_text"] == "动物互动类图片需包含明确日式场景"
 
 
+def test_repository_stores_layered_memory_payloads(tmp_path):
+    repo = PuzzleRepository(tmp_path / "puzzle_ops.db")
+
+    repo.add_layered_memory(
+        "日本",
+        "perception",
+        "trial_image_parse",
+        {"subject": "寿司", "color_mood": "米白与鲑鱼橙"},
+    )
+    repo.add_layered_memory(
+        "日本",
+        "facts",
+        "image_semantic_fact",
+        {"subject": "寿司", "value_labels": ["本土饮食文化"]},
+    )
+
+    perception = repo.layered_memories("日本", layer="perception")
+    facts = repo.layered_memories("日本", layer="facts")
+
+    assert perception[0]["memory_layer"] == "perception"
+    assert perception[0]["payload"]["subject"] == "寿司"
+    assert facts[0]["payload"]["value_labels"] == ["本土饮食文化"]
+
+
 def test_cache_provider_uses_in_memory_fallback_when_redis_unavailable():
     cache = RedisCache.from_url("redis://127.0.0.1:1/0")
 

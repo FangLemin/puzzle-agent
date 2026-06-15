@@ -209,7 +209,33 @@ class PuzzleOpsAgent:
 
     def parse_trial_uploads(self, country: str, category: str, mode: str, files: list[dict[str, object]]) -> tuple[DemandRow, tuple[dict[str, str], ...]]:
         row = self.create_trial_demand(country, category, mode)
-        return self.trial_uploads.parse(row, files, mode)
+        parsed, previews = self.trial_uploads.parse(row, files, mode)
+        if previews:
+            self.record_perception_memory(
+                country,
+                "trial_image_parse",
+                {
+                    "mode": mode,
+                    "image_name": parsed.image_name,
+                    "subject": parsed.subject,
+                    "subject_description": parsed.subject_description,
+                    "remark": parsed.remark,
+                    "reference_image_path": parsed.reference_image_path,
+                },
+            )
+            self.record_extracted_fact(
+                country,
+                "image_semantic_fact",
+                {
+                    "subject": parsed.subject,
+                    "country": parsed.country,
+                    "js_category": parsed.js_category,
+                    "operation_tag": parsed.operation_tag,
+                    "image_name": parsed.image_name,
+                    "reference_image_path": parsed.reference_image_path,
+                },
+            )
+        return parsed, previews
 
     def generation_provider_status(self) -> dict[str, object]:
         if self.image_generator:
@@ -454,6 +480,16 @@ class PuzzleOpsAgent:
                 self._approved_candidates[candidate_id] = approved
                 self.repository.add_value_rule(country, approved.rule_text, "approved")
                 self.repository.add_memory(country, "value_rule_approval", f"{human_note}：{approved.rule_text}")
+                self.record_long_term_memory(
+                    country,
+                    "value_rule_approval",
+                    {
+                        "candidate_id": candidate_id,
+                        "rule_text": approved.rule_text,
+                        "human_note": human_note,
+                        "confidence": approved.confidence,
+                    },
+                )
                 return approved
         raise ValueError(f"找不到价值观候选：{candidate_id}")
 
@@ -462,6 +498,35 @@ class PuzzleOpsAgent:
 
     def hitl_memories(self, country: str):
         return self.repository.memories(country)
+
+    def record_perception_memory(self, country: str, memory_type: str, payload: dict[str, object]) -> None:
+        self.repository.add_layered_memory(country, "perception", memory_type, payload)
+
+    def record_working_memory(self, country: str, memory_type: str, payload: dict[str, object]) -> None:
+        self.repository.add_layered_memory(country, "working", memory_type, payload)
+
+    def record_long_term_memory(self, country: str, memory_type: str, payload: dict[str, object]) -> None:
+        self.repository.add_layered_memory(country, "long_term", memory_type, payload)
+
+    def record_extracted_fact(self, country: str, memory_type: str, payload: dict[str, object]) -> None:
+        self.repository.add_layered_memory(country, "facts", memory_type, payload)
+
+    def memory_overview(self, country: str) -> dict[str, dict[str, object]]:
+        labels = {
+            "perception": "感知记忆",
+            "working": "短期记忆",
+            "long_term": "长期记忆",
+            "facts": "结构化事实",
+        }
+        overview: dict[str, dict[str, object]] = {}
+        for layer, label in labels.items():
+            items = self.repository.layered_memories(country, layer=layer)
+            overview[label] = {
+                "layer": layer,
+                "count": len(items),
+                "latest": items[-1] if items else {},
+            }
+        return overview
 
     def record_generation_event(self, country: str, event: dict[str, str]) -> None:
         payload = {
@@ -478,6 +543,7 @@ class PuzzleOpsAgent:
             "message": str(event.get("message", "")),
         }
         self.repository.add_memory(country, "generation_event", json.dumps(payload, ensure_ascii=False))
+        self.record_working_memory(country, "generation_trace", payload)
 
     def generation_events(self, country: str) -> tuple[dict[str, str], ...]:
         events: list[dict[str, str]] = []

@@ -44,6 +44,34 @@ class PuzzleRepository:
             rows = conn.execute("SELECT country, memory_type, content FROM agent_memory WHERE country = ?", (country,)).fetchall()
         return tuple(dict(row) for row in rows)
 
+    def add_layered_memory(self, country: str, memory_layer: str, memory_type: str, payload: dict[str, object]) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO layered_memory(country, memory_layer, memory_type, payload) VALUES (?, ?, ?, ?)",
+                (country, memory_layer, memory_type, json.dumps(payload, ensure_ascii=False)),
+            )
+
+    def layered_memories(self, country: str, layer: str | None = None) -> tuple[dict[str, object], ...]:
+        where = "WHERE country = ?"
+        params: tuple[str, ...] = (country,)
+        if layer:
+            where += " AND memory_layer = ?"
+            params = (country, layer)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"SELECT country, memory_layer, memory_type, payload, created_at FROM layered_memory {where} ORDER BY memory_id",
+                params,
+            ).fetchall()
+        items = []
+        for row in rows:
+            item = dict(row)
+            try:
+                item["payload"] = json.loads(str(item["payload"]))
+            except json.JSONDecodeError:
+                item["payload"] = {}
+            items.append(item)
+        return tuple(items)
+
     def add_value_rule(self, country: str, rule_text: str, status: str) -> None:
         with self._connect() as conn:
             conn.execute(
@@ -177,6 +205,18 @@ class PuzzleRepository:
                     country TEXT NOT NULL,
                     rule_text TEXT NOT NULL,
                     status TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS layered_memory (
+                    memory_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    country TEXT NOT NULL,
+                    memory_layer TEXT NOT NULL,
+                    memory_type TEXT NOT NULL,
+                    payload TEXT NOT NULL,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
                 """

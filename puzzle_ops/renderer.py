@@ -432,6 +432,7 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
     candidates = agent.value_rule_candidates(state.country)
     approved_rules = agent.approved_value_rules(state.country)
     memories = agent.hitl_memories(state.country)
+    memory_overview = agent.memory_overview(state.country)
     good = "".join(render_record_card(record) for record in profile.similar_good_cases)
     bad = "".join(render_record_card(record) for record in profile.similar_bad_cases)
     candidate_rows = "".join(
@@ -443,6 +444,7 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
         for rule in approved_rules
     )
     memory_items = "".join(f'<li>{escape(str(memory["content"]))}</li>' for memory in memories)
+    memory_overview_cards = render_memory_overview(memory_overview)
     feature = profile.feature
     return f"""
 <section class="panel">
@@ -478,7 +480,21 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
   <div class="panel"><h2>已审批价值观规则</h2><div class="table-wrap"><table><thead><tr><th>国家</th><th>规则</th><th>状态</th></tr></thead><tbody>{approved_rows or '<tr><td colspan="3">暂无已审批规则，点击上方候选池“通过”后会写入这里。</td></tr>'}</tbody></table></div></div>
   <div class="panel"><h2>HITL Memory</h2><ul>{memory_items or '<li>暂无人工反馈记忆。</li>'}</ul></div>
 </section>
+<section class="panel"><h2>四层 Memory 概览</h2><div class="memory-grid">{memory_overview_cards}</div></section>
 """
+
+
+def render_memory_overview(overview: dict[str, dict[str, object]]) -> str:
+    cards = []
+    for label in ("感知记忆", "短期记忆", "长期记忆", "结构化事实"):
+        item = overview.get(label, {})
+        latest = item.get("latest", {}) if isinstance(item, dict) else {}
+        payload = latest.get("payload", {}) if isinstance(latest, dict) else {}
+        summary = "；".join(f"{key}={value}" for key, value in list(payload.items())[:3]) if isinstance(payload, dict) else ""
+        cards.append(
+            f"<article class='memory-card'><strong>{escape(label)}</strong><span>{escape(str(item.get('count', 0) if isinstance(item, dict) else 0))} 条</span><small>{escape(summary or '暂无记录')}</small></article>"
+        )
+    return "".join(cards)
 
 
 def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
@@ -897,6 +913,10 @@ nav { display:grid; gap:8px; margin:18px 0; }
 .compact-detail { margin:8px 0 12px; font-size:13px; }
 .compact-detail div { padding:8px; }
 .cards, .schedule { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; }
+.memory-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+.memory-card { display:grid; gap:6px; padding:12px; border:1px solid var(--line); border-radius:8px; background:#fffdf7; }
+.memory-card span { color:var(--brand); font-weight:900; }
+.memory-card small { line-height:1.5; overflow-wrap:anywhere; }
 .mode-grid, .reference-row { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
 .reference-row { grid-template-columns:repeat(3,minmax(0,1fr)); margin-top:12px; }
 .mode-card { display:grid; gap:6px; padding:14px; border:1px solid var(--line); border-radius:10px; background:#fffdf7; }
@@ -993,5 +1013,5 @@ textarea { min-height:58px; resize:vertical; }
 .grade.D { background:#ef6b5b; color:#fff; }
 .pos { display:inline-block; padding:3px 8px; border-radius:999px; background:#ffe1de; color:var(--red); font-weight:900; }
 .empty { color:var(--muted); background:#f8faf9; padding:12px; border-radius:8px; }
-@media (max-width: 900px) { body { grid-template-columns:1fr; } aside { border-right:0; border-bottom:1px solid var(--line); } .metrics, .grid.two, .grid.three, .detail { grid-template-columns:1fr; } }
+@media (max-width: 900px) { body { grid-template-columns:1fr; } aside { border-right:0; border-bottom:1px solid var(--line); } .metrics, .grid.two, .grid.three, .detail, .memory-grid { grid-template-columns:1fr; } }
 """

@@ -299,12 +299,20 @@ def test_multimodal_runtime_page_shows_profile_candidates_and_evidence():
     assert 'action="/approve_value_candidate"' in html
     assert "已审批价值观规则" in html
     assert "HITL Memory" in html
+    assert "四层 Memory 概览" in html
+    assert "感知记忆" in html
+    assert "短期记忆" in html
+    assert "长期记忆" in html
+    assert "结构化事实" in html
 
 
 def test_multimodal_runtime_page_shows_approved_candidate_after_hitl_action():
     agent = PuzzleOpsAgent()
     candidate = agent.value_rule_candidates("日本")[0]
     agent.approve_value_candidate(candidate.candidate_id, "日本", "运营确认用于后续试新")
+    agent.record_perception_memory("日本", "trial_image_parse", {"subject": "寿司"})
+    agent.record_working_memory("日本", "generation_trace", {"status": "failed"})
+    agent.record_extracted_fact("日本", "image_semantic_fact", {"subject": "寿司"})
 
     html = render_page(agent, AppState(country="日本", view="runtime"))
 

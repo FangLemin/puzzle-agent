@@ -403,6 +403,9 @@ def test_trial_upload_uses_real_semantic_subject_in_operation_tag_and_feishu_pay
         assert payload["_reference_image_path"] == row.reference_image_path
         assert payload["_reference_image_content_type"] == "image/png"
         assert payload["图片本身"] == [{"text": "train-shop-girl.png", "link": row.reference_image_url}]
+        overview = APP.agent.memory_overview("日本")
+        assert overview["感知记忆"]["count"] >= 1
+        assert overview["结构化事实"]["count"] >= 1
     finally:
         APP.agent.trial_uploads = previous_uploads
 
@@ -590,6 +593,8 @@ def test_generate_trial_derivatives_failure_keeps_row_and_shows_message(tmp_path
     assert events[-1]["status"] == "failed"
     assert events[-1]["error_type"] == "quota_exceeded"
     assert events[-1]["provider"] == "dashscope"
+    overview = APP.agent.memory_overview("日本")
+    assert overview["短期记忆"]["count"] >= 1
 
 
 def test_check_generation_provider_action_reports_diagnostic_status(tmp_path):
@@ -809,6 +814,8 @@ def test_approve_value_candidate_action_writes_hitl_memory():
     assert APP.state.view == "runtime"
     assert any("运营确认加入固定价值观" in memory["content"] for memory in APP.agent.hitl_memories("日本"))
     assert candidate.rule_text in dict(APP.agent.value_rules("日本")).values()
+    overview = APP.agent.memory_overview("日本")
+    assert overview["长期记忆"]["count"] >= 1
 
 
 def test_save_harness_override_action_writes_hitl_memory():

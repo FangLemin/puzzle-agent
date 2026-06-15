@@ -336,6 +336,24 @@ def test_agent_persists_generation_events_for_replay():
     assert events[-1]["error_type"] == "quota_exceeded"
 
 
+def test_agent_records_four_layer_memory_types():
+    agent = PuzzleOpsAgent()
+    country = "测试国"
+
+    agent.record_perception_memory(country, "trial_image_parse", {"subject": "寿司"})
+    agent.record_working_memory(country, "generation_trace", {"status": "failed"})
+    agent.record_long_term_memory(country, "value_rule_approval", {"rule": "寿司匹配本土饮食文化"})
+    agent.record_extracted_fact(country, "image_semantic_fact", {"subject": "寿司", "risk_labels": []})
+
+    overview = agent.memory_overview(country)
+
+    assert overview["感知记忆"]["count"] == 1
+    assert overview["短期记忆"]["count"] == 1
+    assert overview["长期记忆"]["count"] == 1
+    assert overview["结构化事实"]["count"] == 1
+    assert overview["感知记忆"]["latest"]["payload"]["subject"] == "寿司"
+
+
 def test_agent_exports_harness_annotation_files_for_label_tools(monkeypatch, tmp_path):
     image_path = tmp_path / "real-sushi.png"
     image_path.write_bytes(b"fake-png")

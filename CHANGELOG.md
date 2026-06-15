@@ -2,6 +2,53 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.44 - 四层 Memory 架构雏形
+
+日期：2026-06-15
+
+阶段目标：
+
+- 将项目中的 memory 从单一 `agent_memory` 混合记录，推进为更清晰的四层业务记忆模型。
+- 对齐“感知记忆、短期记忆、长期记忆、结构化抽取事实”的 Agent Harness 叙事。
+
+已完成：
+
+- SQLite 新增 `layered_memory` 表：
+  - `memory_layer`：`perception`、`working`、`long_term`、`facts`。
+  - `memory_type`：具体业务类型，例如 `trial_image_parse`、`generation_trace`、`value_rule_approval`、`image_semantic_fact`。
+  - `payload`：结构化 JSON。
+- `PuzzleRepository` 新增：
+  - `add_layered_memory(...)`
+  - `layered_memories(...)`
+- `PuzzleOpsAgent` 新增四层写入接口：
+  - `record_perception_memory`
+  - `record_working_memory`
+  - `record_long_term_memory`
+  - `record_extracted_fact`
+  - `memory_overview`
+- 业务接入：
+  - 试新图片上传解析写入感知记忆和结构化事实。
+  - 生成任务 trace 写入短期记忆。
+  - 价值观候选通过后写入长期记忆。
+- 多模态底座新增“四层 Memory 概览”：
+  - 展示四层 memory 的数量和最新 payload 摘要。
+  - 让 memory 不再只是底层数据库记录，而是可被运营/面试官看见的 Agent 能力。
+- README 增加四层 Memory 说明。
+
+当前限制：
+
+- 本轮是四层 memory schema 和写入路径雏形，尚未接向量检索。
+- 结构化事实目前覆盖试新图片的主体、国家、运营 tag、图片路径等核心字段，后续可继续扩展 value_labels、risk_labels、confidence、source_run_id。
+- 旧的 `agent_memory` 仍保留用于兼容 HITL、generation event 和历史功能。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_storage_runtime.py::test_repository_stores_layered_memory_payloads tests/test_agents.py::test_agent_records_four_layer_memory_types tests/test_server.py::test_upload_trial_images_writes_real_openai_semantics_when_configured tests/test_server.py::test_generate_trial_derivatives_failure_keeps_row_and_shows_message tests/test_server.py::test_approve_value_candidate_action_writes_hitl_memory tests/test_renderer.py::test_multimodal_runtime_page_shows_profile_candidates_and_evidence tests/test_renderer.py::test_multimodal_runtime_page_shows_approved_candidate_after_hitl_action -q`：7 passed。
+- `PYTHONPATH=. pytest tests/test_storage_runtime.py tests/test_agents.py tests/test_server.py tests/test_renderer.py -q`：92 passed。
+- `PYTHONPATH=. pytest tests -q`：167 passed。
+- `find . -maxdepth 3 -type f \\( -name 'package.json' -o -name 'vite.config.*' -o -name '*.js' -o -name '*.ts' -o -name '*.tsx' -o -name '*.jsx' -o -name '*.vue' \\) -not -path './.git/*' -print`：无输出。
+- `find puzzle_ops tests -type f -not -name '*.py' -not -path '*/__pycache__/*' -print`：无输出。
+
 ## v0.3.43 - 生成 Trace 接入 Harness 指标
 
 日期：2026-06-15
