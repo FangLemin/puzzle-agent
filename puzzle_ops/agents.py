@@ -460,6 +460,12 @@ class PuzzleOpsAgent:
     def hitl_memories(self, country: str):
         return self.repository.memories(country)
 
+    def record_harness_override(self, country: str, sample_id: str, task_type: str, human_override: str) -> None:
+        note = human_override.strip()
+        if not note:
+            return
+        self.repository.add_memory(country, "harness_override", f"{sample_id}/{task_type}：{note}")
+
     def audit_review(self, text: str):
         manual = Path("/Users/fanglemin/Desktop/拼图审核手册.docx")
         retriever = AuditPolicyRetriever.from_docx(manual)

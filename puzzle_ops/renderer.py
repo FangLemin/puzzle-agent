@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from html import escape
+from pathlib import Path
 from urllib.parse import urlencode
+import base64
 
 from puzzle_ops.agents import PuzzleOpsAgent
 from puzzle_ops.models import DemandRow
@@ -451,8 +453,10 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
     trace = agent.run_agent_task(state.country, "value_judge")
     report = agent.eval_report(state.country)
     harness_summary = agent.harness_summary(state.country)
+    harness_samples = agent.harness_samples(state.country)
     harness_run = agent.harness_run(state.country)
     version_compare = agent.harness_compare(harness_run)
+    sample_by_id = {sample.sample_id: sample for sample in harness_samples}
     metric_cards = "".join(f"<article><span>{escape(key)}</span><strong>{escape(value)}</strong></article>" for key, value in metrics.items())
     harness_metric_cards = "".join(
         f"<article><span>{escape(key)}</span><strong>{escape(_pct_text(value))}</strong></article>"
@@ -463,7 +467,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
         for key, value in harness_summary.items()
     )
     failure_rows = "".join(
-        f"<tr><td>{escape(case.sample_id)}</td><td>{escape(case.task_type)}</td><td>{escape(case.agent_output)}</td><td>{escape('；'.join(case.failure_reasons))}</td><td><button>人工修正</button></td></tr>"
+        render_harness_failure_row(case, sample_by_id.get(case.sample_id))
         for case in harness_run.failures[:6]
     )
     compare_rows = "".join(
@@ -497,7 +501,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
 </section>
 <section class="metrics">{harness_metric_cards}</section>
 <section class="grid two">
-  <div class="panel"><h2>失败样本</h2><div class="table-wrap"><table><thead><tr><th>样本</th><th>任务</th><th>Agent 输出</th><th>失败原因</th><th>HITL 修正入口</th></tr></thead><tbody>{failure_rows or '<tr><td colspan="5">暂无失败样本。</td></tr>'}</tbody></table></div></div>
+  <div class="panel"><h2>失败样本复盘</h2><div class="table-wrap"><table><thead><tr><th>样本</th><th>Gold Label</th><th>任务</th><th>Agent 输出</th><th>失败原因</th><th>HITL 修正入口</th></tr></thead><tbody>{failure_rows or '<tr><td colspan="6">暂无失败样本。</td></tr>'}</tbody></table></div></div>
   <div class="panel"><h2>版本对比</h2><div class="table-wrap"><table><tbody>{compare_rows}</tbody></table></div></div>
 </section>
 <section class="metrics">{metric_cards}</section>
@@ -539,6 +543,72 @@ def render_summary_value(value: object) -> str:
     if isinstance(value, dict):
         return escape("；".join(f"{key}:{item}" for key, item in value.items()) or "无")
     return escape(str(value))
+
+
+def render_harness_failure_row(case, sample) -> str:
+    sample_cell = render_harness_sample_cell(case.sample_id, sample)
+    gold = render_harness_gold_label(sample)
+    correction_form = f"""
+<form method="post" action="/save_harness_override">
+  <input type="hidden" name="sample_id" value="{escape(case.sample_id)}">
+  <input type="hidden" name="task_type" value="{escape(case.task_type)}">
+  <textarea name="human_override" placeholder="记录人工修正主体、色彩、构图、风险或价值观标签">{escape(case.human_override)}</textarea>
+  <button>保存修正</button>
+</form>
+"""
+    return (
+        "<tr>"
+        f"<td>{sample_cell}</td>"
+        f"<td>{gold}</td>"
+        f"<td>{escape(case.task_type)}</td>"
+        f"<td>{escape(case.agent_output)}</td>"
+        f"<td>{escape('；'.join(case.failure_reasons))}</td>"
+        f"<td>{correction_form}</td>"
+        "</tr>"
+    )
+
+
+def render_harness_sample_cell(sample_id: str, sample) -> str:
+    if sample is None:
+        return escape(sample_id)
+    image_name = Path(sample.local_image_path).name if sample.local_image_path else sample.subject
+    return (
+        '<div class="harness-sample-cell">'
+        f"{harness_sample_thumb(sample)}"
+        f"<strong>{escape(sample.sample_id)}</strong>"
+        f"<span>{escape(image_name)}</span>"
+        f"<small>{escape(sample.operation_tag)}</small>"
+        "</div>"
+    )
+
+
+def render_harness_gold_label(sample) -> str:
+    if sample is None:
+        return "Gold Label：未找到样本"
+    parts = [
+        f"gold_subject={sample.gold_subject or '待标注'}",
+        f"gold_color_mood={sample.gold_color_mood or '待标注'}",
+        f"gold_composition={sample.gold_composition or '待标注'}",
+    ]
+    if sample.gold_value_labels:
+        parts.append(f"gold_value_labels={','.join(sample.gold_value_labels)}")
+    if sample.gold_risk_labels:
+        parts.append(f"gold_risk_labels={','.join(sample.gold_risk_labels)}")
+    return "Gold Label：" + escape("；".join(parts))
+
+
+def harness_sample_thumb(sample) -> str:
+    path = Path(sample.local_image_path) if sample and sample.local_image_path else None
+    if path and path.exists():
+        src = local_image_data_uri(path)
+        return f'<div class="mini-thumb"><img src="{escape(src)}" class="mini-thumb-img" alt="{escape(path.name)}"></div>'
+    return visual_thumb(sample.subject if sample else "missing", sample.subject if sample else "missing")
+
+
+def local_image_data_uri(path: Path) -> str:
+    content_type = "image/jpeg" if path.suffix.lower() in {".jpg", ".jpeg"} else "image/png"
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{content_type};base64,{encoded}"
 
 
 def _pct_text(value: object) -> str:
@@ -783,6 +853,9 @@ nav { display:grid; gap:8px; margin:18px 0; }
 .upload-thumb span { font-size:12px; color:var(--muted); }
 .mini-thumb { width:92px; min-height:64px; display:grid; place-items:center; padding:8px; border-radius:8px; background:linear-gradient(135deg,#f4efe2,#dff1ea); font-size:12px; font-weight:900; text-align:center; }
 .mini-thumb-img { width:92px; height:64px; border-radius:8px; object-fit:cover; background:#f1f5f3; }
+.harness-sample-cell { display:grid; grid-template-columns:92px minmax(150px,1fr); gap:8px 10px; align-items:center; min-width:260px; }
+.harness-sample-cell .mini-thumb, .harness-sample-cell .visual-thumb { grid-row:1 / 4; width:92px; min-height:64px; }
+.harness-sample-cell strong, .harness-sample-cell span, .harness-sample-cell small { overflow-wrap:anywhere; }
 .image-preview-cell { display:grid; grid-template-columns:92px minmax(140px,1fr); align-items:center; gap:10px; min-width:260px; }
 .choice { display:flex; justify-content:space-between; gap:10px; padding:10px; margin-bottom:8px; border:1px solid var(--line); border-radius:8px; background:#fffdf7; }
 .choice.stock-hot { border-color:#e26357; background:#ffe9e5; color:#9b281f; }

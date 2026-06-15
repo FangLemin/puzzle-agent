@@ -724,6 +724,24 @@ def test_approve_value_candidate_action_writes_hitl_memory():
     assert candidate.rule_text in dict(APP.agent.value_rules("日本")).values()
 
 
+def test_save_harness_override_action_writes_hitl_memory():
+    APP.state = AppState(country="日本", view="eval")
+
+    handle_action(
+        "/save_harness_override",
+        {
+            "country": ["日本"],
+            "view": ["eval"],
+            "sample_id": ["real-001"],
+            "task_type": ["value_match_eval"],
+            "human_override": ["人工修正：寿司图应匹配本土饮食文化，不匹配动物互动。"],
+        },
+    )
+
+    assert APP.state.view == "eval"
+    assert any("real-001" in memory["content"] and "本土饮食文化" in memory["content"] for memory in APP.agent.hitl_memories("日本"))
+
+
 def test_replace_schedule_action_records_slot_replacement():
     APP.state = AppState(country="日本", view="schedule", schedule_day="周一")
     original = APP.agent.schedule("日本", "周一")[0]

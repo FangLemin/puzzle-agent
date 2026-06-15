@@ -2,6 +2,42 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.34 - Harness 失败样本复盘与 HITL 修正入口
+
+日期：2026-06-15
+
+阶段目标：
+
+- 将 Agent 评测页的失败样本区从“简单错误列表”升级为可运营复盘的 Harness 视图。
+- 为后续 gold dataset 人工纠错、失败样本回流和 Label Studio/Argilla 类标注流预留入口。
+
+已完成：
+
+- Harness Dashboard 的失败样本区升级为“失败样本复盘”：
+  - 展示真实样本缩略图或 fallback 视觉缩略图。
+  - 展示样本文件名、sample_id 和 operation_tag。
+  - 展示 gold subject、gold color mood、gold composition、价值观标签和风险标签。
+  - 保留 Agent 输出和失败原因，便于对比模型结果与人工 gold label。
+- 新增 HITL 修正表单：
+  - 每个失败 case 可填写人工修正。
+  - `/save_harness_override` 会把修正写入本地 HITL memory。
+  - 当前不直接改 CSV，避免误写真实 gold dataset。
+- 页面样式微调：
+  - 控制失败样本缩略图和修正表单尺寸。
+  - 减少长文本挤压对复盘区可读性的影响。
+- README 增加 Harness HITL 说明。
+
+当前限制：
+
+- 人工修正暂存于本地 memory，尚未自动回写 `PUZZLEOPS_HARNESS_DATASET` CSV。
+- 尚未接入 Label Studio / Argilla 外部标注平台，本轮仅完成内置轻量 HITL 入口。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_renderer.py::test_eval_failure_samples_show_image_gold_label_and_hitl_form tests/test_server.py::test_save_harness_override_action_writes_hitl_memory -q`：2 passed。
+- `PYTHONPATH=. pytest tests/test_renderer.py tests/test_server.py -q`：50 passed。
+- `PYTHONPATH=. pytest tests -q`：144 passed。
+
 ## v0.3.33 - Harness 真实 Gold Dataset 导入入口
 
 日期：2026-06-15

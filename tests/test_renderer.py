@@ -274,6 +274,34 @@ def test_eval_page_shows_clear_agent_evaluation_workflow():
     assert html.index("工具调用链路") < html.index("指标与结论")
 
 
+def test_eval_failure_samples_show_image_gold_label_and_hitl_form(monkeypatch, tmp_path):
+    image_path = tmp_path / "real-sushi.png"
+    image_path.write_bytes(b"fake-png")
+    dataset = tmp_path / "gold_samples.csv"
+    dataset.write_text(
+        "\n".join(
+            (
+                "sample_id,country,local_image_path,operation_tag,subject,js_category,source,position,open_rate,completion_rate,avg_finish_time,gold_grade,gold_subject,gold_color_mood,gold_composition,gold_value_labels,gold_risk_labels,human_note",
+                "real-001,日本,real-sushi.png,试新_日本_寿司0615,寿司,food,real,5,0.31,0.93,42,S,寿司,米白与鲑鱼橙,日式料理桌面近景,本土饮食文化,,真实运营样本",
+            )
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_HARNESS_DATASET", str(dataset))
+
+    html = render_page(PuzzleOpsAgent(), AppState(country="日本", view="eval"))
+
+    assert "失败样本复盘" in html
+    assert "real-sushi.png" in html
+    assert "Gold Label" in html
+    assert "gold_subject=寿司" in html
+    assert "gold_color_mood=米白与鲑鱼橙" in html
+    assert "Agent 输出" in html
+    assert "失败原因" in html
+    assert 'action="/save_harness_override"' in html
+    assert "name=\"sample_id\"" in html
+
+
 def test_stock_and_value_cards_render_real_image_tags_instead_of_text_cards():
     html = render_page(PuzzleOpsAgent(), AppState(country="日本", view="regular"))
     value_html = render_page(PuzzleOpsAgent(), AppState(country="日本", view="value", value_grade="S"))

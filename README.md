@@ -104,3 +104,5 @@ LLM 大脑说明：当前版本支持通过 `VISION_LLM_PROVIDER=qwen` 或 `VISI
 好图衍生生成说明：`IMAGE_GENERATION_PROVIDER` 默认为空时，好图衍生只输出衍生方向；`mock` 只用于本地 Harness/UI 链路验证，生成的占位图不会同步为飞书附件；配置为 `cloud` 并提供 `IMAGE_GENERATION_API_KEY` 后，系统会调用云端图像生成 provider 生成参考图。生成图还必须经过真实视觉 LLM 二次解析和审核规则复检，只有通过的图片才允许同步到飞书图片附件字段；未配置 VLM、VLM 调用失败或命中风险时，页面保留记录但同步附件会被关闭。
 
 Agent Harness 真实评测集说明：默认 Harness 会从历史样表和合成 demo 生成样本，适合本地演示；如果要证明真实业务效果，请按 `docs/harness_gold_samples_template.csv` 整理 30-50 条真实拼图样本，并在 `.env` 设置 `PUZZLEOPS_HARNESS_DATASET=/absolute/path/to/gold_samples.csv`。导入时会校验真实图片路径，缺图样本会被标记为导入问题而不会让评测崩溃；缺少 gold label 的指标会显示为 `not_evaluable`。
+
+Harness HITL 说明：Agent 评测页的失败样本复盘区会展示样本缩略图、gold label、Agent 输出和失败原因，并提供人工修正入口。当前人工修正先写入本地 HITL memory，作为后续回写 gold dataset 或导出到 Label Studio/Argilla 的数据基础。

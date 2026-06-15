@@ -218,6 +218,14 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             value(form, "human_note", "运营确认加入固定价值观"),
         )
         state.view = "runtime"
+    elif path == "/save_harness_override":
+        agent.record_harness_override(
+            state.country,
+            value(form, "sample_id", ""),
+            value(form, "task_type", ""),
+            value(form, "human_override", ""),
+        )
+        state.view = "eval"
     return None
 
 
