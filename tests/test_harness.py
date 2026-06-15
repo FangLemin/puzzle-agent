@@ -3,7 +3,7 @@ from pathlib import Path
 from puzzle_ops.agents import PuzzleOpsAgent
 from puzzle_ops.adapters import ArgillaExporter, DeepEvalAdapter, PhoenixExporter, PromptfooExporter
 from puzzle_ops.harness import EvalSample, AgentHarness, load_eval_samples_csv
-from puzzle_ops.image_generation import ImageGenerationProviderFactory, MockImageGenerationProvider, CloudImageGenerationProvider
+from puzzle_ops.image_generation import ImageGenerationProviderFactory, MockImageGenerationProvider, CloudImageGenerationProvider, DashScopeImageGenerationProvider
 from puzzle_ops.storage import PuzzleRepository
 
 
@@ -178,6 +178,11 @@ def test_image_generation_factory_reports_unconfigured_mock_and_cloud(monkeypatc
     assert cloud.healthcheck()["configured"] is True
     assert cloud.healthcheck()["model"] == "wanx2.1-t2i-plus"
 
+    monkeypatch.setenv("IMAGE_GENERATION_PROVIDER", "dashscope")
+    dashscope = ImageGenerationProviderFactory.create(tmp_path, transport=lambda method, url, payload, api_key: {"output": {"task_id": "task-1"}})
+    assert isinstance(dashscope, DashScopeImageGenerationProvider)
+    assert dashscope.healthcheck()["provider"] == "dashscope"
+
 
 def test_harness_skips_unconfigured_generation_provider(tmp_path):
     sample = EvalSample.synthetic_demo(
@@ -237,6 +242,89 @@ def test_cloud_generation_provider_writes_returned_images_with_generation_metada
     assert images[0].source_sample_id == "sample-1"
     assert Path(images[0].local_image_path).exists()
     assert images[0].risk_notes == ("生成图需二次 VLM 解析与审核",)
+
+
+def test_dashscope_generation_provider_polls_task_and_downloads_results(tmp_path):
+    png_b64 = (
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/"
+        "pLvAAAAAElFTkSuQmCC"
+    )
+    calls = []
+
+    def fake_transport(method, url, payload, api_key):
+        calls.append((method, url, payload, api_key))
+        if method == "POST":
+            return {"output": {"task_id": "task-123"}, "request_id": "req-1"}
+        return {
+            "output": {
+                "task_status": "SUCCEEDED",
+                "results": [
+                    {"b64_json": png_b64, "prompt": "春季寿司便当"},
+                    {"b64_json": png_b64, "prompt": "夏季寿司店铺"},
+                ],
+            }
+        }
+
+    provider = DashScopeImageGenerationProvider(
+        output_dir=tmp_path,
+        api_key="gen-test",
+        model="wanx2.1-t2i-plus",
+        submit_url="https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis",
+        task_url_template="https://dashscope.aliyuncs.com/api/v1/tasks/{task_id}",
+        transport=fake_transport,
+        poll_interval_seconds=0,
+        max_polls=2,
+    )
+
+    images = provider.generate_derivatives(
+        reference_image="real-sushi.png",
+        prompt="保留寿司主体和日式餐桌，换成春季便当场景",
+        negative_prompt="避免品牌logo、文字水印、知名动漫风格",
+        count=2,
+        seed=615,
+        style_constraints={"source_sample_id": "sample-1", "retained_features": "寿司；明亮清爽"},
+    )
+
+    assert [call[0] for call in calls] == ["POST", "GET"]
+    assert calls[0][2]["input"]["prompt"] == "保留寿司主体和日式餐桌，换成春季便当场景"
+    assert calls[0][2]["parameters"]["n"] == 2
+    assert len(images) == 2
+    assert images[0].provider == "dashscope"
+    assert images[0].source_sample_id == "sample-1"
+    assert Path(images[0].local_image_path).exists()
+
+
+def test_dashscope_generation_provider_raises_clear_error_on_failed_task(tmp_path):
+    def fake_transport(method, url, payload, api_key):
+        if method == "POST":
+            return {"output": {"task_id": "task-fail"}}
+        return {"output": {"task_status": "FAILED", "message": "quota exceeded"}}
+
+    provider = DashScopeImageGenerationProvider(
+        output_dir=tmp_path,
+        api_key="gen-test",
+        model="wanx2.1-t2i-plus",
+        submit_url="submit",
+        task_url_template="task/{task_id}",
+        transport=fake_transport,
+        poll_interval_seconds=0,
+        max_polls=1,
+    )
+
+    try:
+        provider.generate_derivatives(
+            reference_image="real-sushi.png",
+            prompt="寿司",
+            negative_prompt="避免品牌logo",
+            count=1,
+            seed=615,
+            style_constraints={},
+        )
+    except RuntimeError as exc:
+        assert "DashScope 图像生成失败" in str(exc)
+        assert "quota exceeded" in str(exc)
+    else:
+        raise AssertionError("expected failed DashScope task to raise RuntimeError")
 
 
 def test_repository_saves_and_reads_harness_runs(tmp_path):

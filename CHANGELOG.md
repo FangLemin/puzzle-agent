@@ -2,6 +2,40 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.37 - DashScope 异步图像生成 Provider
+
+日期：2026-06-15
+
+阶段目标：
+
+- 将好图衍生生成从通用 cloud provider 骨架推进到更贴近阿里云 DashScope / 通义万相异步任务接口的 provider。
+- 为“好图衍生真的生成新参考图”补齐提交任务、轮询结果、失败提示的工程路径。
+
+已完成：
+
+- 新增 `DashScopeImageGenerationProvider`：
+  - 支持 `IMAGE_GENERATION_PROVIDER=dashscope` 或 `wanx`。
+  - 提交异步生成任务，读取 `output.task_id`。
+  - 轮询 `IMAGE_GENERATION_TASK_URL_TEMPLATE`。
+  - 识别 `SUCCEEDED`、`FAILED`、`CANCELED`、`UNKNOWN` 等任务状态。
+  - 成功后解析 `results` 中的 `b64_json` / `image_base64` / `local_image_path` / data URL。
+  - 将生成图写入本地 `dashscope_derivative_*.png`，并保留 seed、prompt、source_sample_id 和二次审核提示。
+- `ImageGenerationProviderFactory` 支持 `dashscope` / `wanx` provider。
+- `.env.example` 增加 `IMAGE_GENERATION_TASK_URL_TEMPLATE`。
+- README 增加 DashScope/通义万相异步生成说明。
+
+当前限制：
+
+- 本轮仍不实际调用外网 API，只完成 provider 适配和测试替身验证。
+- DashScope 不同模型/接口返回字段可能存在细微差异，真实接入后仍需用实际响应样本再校准。
+- 生成图仍必须经过 v0.3.32 的二次 VLM 解析和审核门禁，不能直接同步飞书。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_harness.py::test_dashscope_generation_provider_polls_task_and_downloads_results tests/test_harness.py::test_dashscope_generation_provider_raises_clear_error_on_failed_task -q`：2 passed。
+- `PYTHONPATH=. pytest tests/test_harness.py::test_image_generation_factory_reports_unconfigured_mock_and_cloud tests/test_harness.py::test_cloud_generation_provider_writes_returned_images_with_generation_metadata tests/test_harness.py::test_dashscope_generation_provider_polls_task_and_downloads_results tests/test_harness.py::test_dashscope_generation_provider_raises_clear_error_on_failed_task -q`：4 passed。
+- `PYTHONPATH=. pytest tests -q`：151 passed。
+
 ## v0.3.36 - Harness 标注平台文件导出
 
 日期：2026-06-15
