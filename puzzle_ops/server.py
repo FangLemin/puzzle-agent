@@ -201,6 +201,9 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
                 provider_status=provider_status,
                 message=str(exc),
                 error_type=error_type,
+                source_operation_tag=row.operation_tag,
+                second_review_status="not_started",
+                feishu_attachment_status="blocked",
             )
             agent.record_generation_event(state.country, state.generation_event)
             state.trial_row = row.edited(remark=(row.remark + "；" if row.remark else "") + message)
@@ -218,6 +221,11 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             provider_status=agent.generation_provider_status(),
             message=f"已生成{len(rows)}张衍生参考图，等待二次 VLM 审核结果。",
             error_type="none",
+            source_operation_tag=row.operation_tag,
+            task_id=",".join(str(item.get("image_id", "")) for item in previews),
+            generated_image_paths=",".join(item.reference_image_path for item in rows if item.reference_image_path),
+            second_review_status=_second_review_status(rows),
+            feishu_attachment_status=_feishu_attachment_status(rows),
         )
         agent.record_generation_event(state.country, state.generation_event)
         state.view = "trial"
@@ -288,15 +296,42 @@ def format_generation_provider_diagnostic(status: dict[str, object]) -> str:
     return f"生成 Provider 诊断：provider={provider}；configured={configured}；model={model}；endpoint={endpoint}；{message}"
 
 
-def generation_event(status: str, provider_status: dict[str, object], message: str, error_type: str) -> dict[str, str]:
+def generation_event(
+    status: str,
+    provider_status: dict[str, object],
+    message: str,
+    error_type: str,
+    source_operation_tag: str = "",
+    task_id: str = "",
+    generated_image_paths: str = "",
+    second_review_status: str = "unknown",
+    feishu_attachment_status: str = "unknown",
+) -> dict[str, str]:
     return {
         "status": status,
         "provider": str(provider_status.get("provider", "not_configured")),
         "model": str(provider_status.get("model", "未记录")),
         "endpoint": str(provider_status.get("base_url") or provider_status.get("submit_url") or "未记录"),
+        "task_id": task_id,
+        "source_operation_tag": source_operation_tag,
+        "generated_image_paths": generated_image_paths,
+        "second_review_status": second_review_status,
+        "feishu_attachment_status": feishu_attachment_status,
         "error_type": error_type,
         "message": message,
     }
+
+
+def _second_review_status(rows) -> str:
+    if not rows:
+        return "not_started"
+    return "passed" if all(row.reference_image_syncable for row in rows) else "blocked"
+
+
+def _feishu_attachment_status(rows) -> str:
+    if not rows:
+        return "blocked"
+    return "ready" if all(row.reference_image_syncable for row in rows) else "blocked"
 
 
 def classify_generation_error(message: str) -> str:

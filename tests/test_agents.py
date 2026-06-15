@@ -312,6 +312,11 @@ def test_agent_persists_generation_events_for_replay():
             "provider": "dashscope",
             "model": "wanx-test",
             "endpoint": "https://example.test/gen",
+            "task_id": "task-123",
+            "source_operation_tag": "试新_日本_寿司0615",
+            "generated_image_paths": "/tmp/out-1.png",
+            "second_review_status": "not_started",
+            "feishu_attachment_status": "blocked",
             "error_type": "quota_exceeded",
             "message": "DashScope 图像生成失败：quota exceeded",
         },
@@ -323,6 +328,11 @@ def test_agent_persists_generation_events_for_replay():
     assert events[-1]["provider"] == "dashscope"
     assert events[-1]["model"] == "wanx-test"
     assert events[-1]["endpoint"] == "https://example.test/gen"
+    assert events[-1]["task_id"] == "task-123"
+    assert events[-1]["source_operation_tag"] == "试新_日本_寿司0615"
+    assert events[-1]["generated_image_paths"] == "/tmp/out-1.png"
+    assert events[-1]["second_review_status"] == "not_started"
+    assert events[-1]["feishu_attachment_status"] == "blocked"
     assert events[-1]["error_type"] == "quota_exceeded"
 
 

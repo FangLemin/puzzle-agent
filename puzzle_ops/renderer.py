@@ -285,6 +285,11 @@ def render_generation_event(event: dict[str, str]) -> str:
         ("状态", event.get("status", "unknown")),
         ("provider", event.get("provider", "unknown")),
         ("model", event.get("model", "未记录")),
+        ("task_id", event.get("task_id", "")),
+        ("来源tag", event.get("source_operation_tag", "")),
+        ("生成图", event.get("generated_image_paths", "")),
+        ("二次审核", event.get("second_review_status", "unknown")),
+        ("飞书附件", event.get("feishu_attachment_status", "unknown")),
         ("错误类型", event.get("error_type", "无")),
         ("说明", event.get("message", "")),
     )
@@ -673,12 +678,12 @@ def render_schedule_slot(state: AppState, item, index: int) -> str:
 def render_sync(agent: PuzzleOpsAgent, state: AppState) -> str:
     rows = "".join(f"<tr><td>{escape(time)}</td><td>{escape(country)}</td><td>{escape(action)}</td><td>{escape(target)}</td><td>{escape(status)}</td></tr>" for time, country, action, target, status in agent.sync_rows())
     generation_rows = "".join(
-        f"<tr><td>{escape(event.get('status', 'unknown'))}</td><td>{escape(event.get('provider', 'unknown'))}</td><td>{escape(event.get('model', '未记录'))}</td><td>{escape(event.get('error_type', 'unknown'))}</td><td>{escape(event.get('message', ''))}</td></tr>"
+        f"<tr><td>{escape(event.get('status', 'unknown'))}</td><td>{escape(event.get('provider', 'unknown'))}</td><td>{escape(event.get('model', '未记录'))}</td><td>{escape(event.get('task_id', ''))}</td><td>{escape(event.get('source_operation_tag', ''))}</td><td>{escape(event.get('second_review_status', 'unknown'))}</td><td>{escape(event.get('feishu_attachment_status', 'unknown'))}</td><td>{escape(event.get('error_type', 'unknown'))}</td><td>{escape(event.get('message', ''))}</td></tr>"
         for event in reversed(agent.generation_events(state.country)[-8:])
     )
     return f"""
 <section class='panel'><h2>同步记录</h2><table><thead><tr><th>时间</th><th>国家</th><th>动作</th><th>目标</th><th>状态</th></tr></thead><tbody>{rows}</tbody></table></section>
-<section class='panel'><h2>生成任务回放</h2><table><thead><tr><th>状态</th><th>Provider</th><th>模型</th><th>错误类型</th><th>说明</th></tr></thead><tbody>{generation_rows or '<tr><td colspan="5">暂无生成任务记录。</td></tr>'}</tbody></table></section>
+<section class='panel'><h2>生成任务回放</h2><table><thead><tr><th>状态</th><th>Provider</th><th>模型</th><th>Task</th><th>来源tag</th><th>二次审核</th><th>飞书附件</th><th>错误类型</th><th>说明</th></tr></thead><tbody>{generation_rows or '<tr><td colspan="9">暂无生成任务记录。</td></tr>'}</tbody></table></section>
 """
 
 

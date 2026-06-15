@@ -134,6 +134,11 @@ def test_trial_page_shows_recent_generation_event():
         "status": "failed",
         "provider": "dashscope",
         "model": "qwen3-vl-flash",
+        "task_id": "task-123",
+        "source_operation_tag": "试新_日本_寿司0615",
+        "generated_image_paths": "/tmp/out-1.png",
+        "second_review_status": "not_started",
+        "feishu_attachment_status": "blocked",
         "error_type": "model_deprecated",
         "message": "模型 qwen3-vl-flash 已下线，请迁移。",
     }
@@ -145,6 +150,11 @@ def test_trial_page_shows_recent_generation_event():
     assert "dashscope" in html
     assert "model_deprecated" in html
     assert "模型 qwen3-vl-flash 已下线" in html
+    assert "task-123" in html
+    assert "试新_日本_寿司0615" in html
+    assert "/tmp/out-1.png" in html
+    assert "not_started" in html
+    assert "blocked" in html
 
 
 def test_sync_success_message_renders_feishu_link_without_popup_dependency():
@@ -167,6 +177,11 @@ def test_sync_page_shows_persisted_generation_events():
             "status": "failed",
             "provider": "dashscope",
             "model": "wanx-test",
+            "task_id": "task-123",
+            "source_operation_tag": "试新_日本_寿司0615",
+            "generated_image_paths": "/tmp/out-1.png",
+            "second_review_status": "not_started",
+            "feishu_attachment_status": "blocked",
             "error_type": "quota_exceeded",
             "message": "DashScope 图像生成失败：quota exceeded",
         },
@@ -178,6 +193,9 @@ def test_sync_page_shows_persisted_generation_events():
     assert "dashscope" in html
     assert "quota_exceeded" in html
     assert "DashScope 图像生成失败" in html
+    assert "task-123" in html
+    assert "试新_日本_寿司0615" in html
+    assert "not_started" in html
 
 
 def test_schedule_page_mentions_allowed_positions_and_renders_ten_slots():

@@ -2,6 +2,52 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.42 - 生成到审核到飞书附件 Trace 字段
+
+日期：2026-06-15
+
+阶段目标：
+
+- 将生成任务回放从基础状态扩展为更完整的好图衍生 trace。
+- 明确记录“生成图是否通过二次 VLM 审核、是否具备飞书附件同步资格”。
+- 审查项目是否继续保持 Python 编码主线。
+
+已完成：
+
+- 生成任务事件新增 trace 字段：
+  - `task_id`：生成 provider 返回的生成图 ID 汇总。
+  - `source_operation_tag`：来源提需运营 tag。
+  - `generated_image_paths`：生成图本地路径汇总。
+  - `second_review_status`：`passed` / `blocked` / `not_started`。
+  - `feishu_attachment_status`：`ready` / `blocked`。
+- `/generate_trial_derivatives` 成功时：
+  - 将生成图 ID、路径、来源 tag、二次审核状态、飞书附件资格写入 `generation_event`。
+  - 真实生成图二次审核全部通过时标记 `ready`。
+  - mock 或审核未通过时标记 `blocked`，避免误同步。
+- `/generate_trial_derivatives` 失败时：
+  - 写入来源 tag。
+  - 将二次审核标记为 `not_started`。
+  - 将飞书附件状态标记为 `blocked`。
+- 页面增强：
+  - 试新页“最近一次生成任务”展示 task、来源 tag、生成图路径、二次审核和飞书附件状态。
+  - 同步记录页“生成任务回放”展示 task、来源 tag、二次审核和飞书附件状态。
+- Python-only 审查：
+  - 未发现 `package.json`、JS/TS/Vue/React 文件。
+  - `puzzle_ops/` 和 `tests/` 下均为 Python 文件。
+
+当前限制：
+
+- `task_id` 当前使用 provider 返回的生成图 `image_id` 汇总；DashScope 原始异步 task_id 尚未单独透出到事件结构。
+- 生成图路径是本地路径，迁移到远程标注平台或飞书附件展示时仍需要对象存储/静态托管 URL。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_server.py::test_generate_trial_derivatives_creates_two_audited_reference_rows tests/test_server.py::test_real_generation_derivatives_require_vlm_second_review_before_sync tests/test_server.py::test_generate_trial_derivatives_failure_keeps_row_and_shows_message tests/test_renderer.py::test_trial_page_shows_recent_generation_event tests/test_renderer.py::test_sync_page_shows_persisted_generation_events -q`：5 passed。
+- `PYTHONPATH=. pytest tests/test_agents.py tests/test_server.py tests/test_renderer.py -q`：86 passed。
+- `find . -maxdepth 3 -type f \\( -name 'package.json' -o -name 'vite.config.*' -o -name '*.js' -o -name '*.ts' -o -name '*.tsx' -o -name '*.jsx' -o -name '*.vue' \\) -not -path './.git/*' -print`：无输出。
+- `find puzzle_ops tests -type f -not -name '*.py' -not -path '*/__pycache__/*' -print`：无输出。
+- `PYTHONPATH=. pytest tests -q`：164 passed。
+
 ## v0.3.41 - 生成任务持久化回放
 
 日期：2026-06-15

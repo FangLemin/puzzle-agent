@@ -502,6 +502,11 @@ def test_generate_trial_derivatives_creates_two_audited_reference_rows(tmp_path)
     assert all(row.reference_image_syncable is False for row in APP.state.trial_rows)
     assert all("二次 VLM 解析与审核" in row.remark for row in APP.state.trial_rows)
     assert "已生成2张衍生参考图" in APP.state.trial_row.remark
+    assert APP.state.generation_event["source_operation_tag"] == APP.state.trial_row.operation_tag
+    assert "mock-" in APP.state.generation_event["task_id"]
+    assert ".png" in APP.state.generation_event["generated_image_paths"]
+    assert APP.state.generation_event["second_review_status"] == "blocked"
+    assert APP.state.generation_event["feishu_attachment_status"] == "blocked"
 
 
 class PassingRealGenerationProvider(ImageGenerationProvider):
@@ -574,6 +579,10 @@ def test_generate_trial_derivatives_failure_keeps_row_and_shows_message(tmp_path
     assert APP.state.generation_event["status"] == "failed"
     assert APP.state.generation_event["provider"] == "dashscope"
     assert APP.state.generation_event["error_type"] == "quota_exceeded"
+    assert APP.state.generation_event["source_operation_tag"] == APP.state.trial_row.operation_tag
+    assert APP.state.generation_event["generated_image_paths"] == ""
+    assert APP.state.generation_event["second_review_status"] == "not_started"
+    assert APP.state.generation_event["feishu_attachment_status"] == "blocked"
     assert "生成衍生参考图失败" in APP.state.trial_row.remark
     assert APP.state.trial_row.subject == "日式塔楼游客"
     events = APP.agent.generation_events("日本")
@@ -660,6 +669,8 @@ def test_real_generation_derivatives_require_vlm_second_review_before_sync(tmp_p
     assert all(row.subject_description.startswith("主体内容：日式塔楼游客；色彩氛围：明亮清透的日式旅游插画；构图环境：海边步道") for row in APP.state.trial_rows)
     assert all(row.reference_image_path.endswith(".png") for row in APP.state.trial_rows)
     assert len(fake_vision.calls) == 2
+    assert APP.state.generation_event["second_review_status"] == "passed"
+    assert APP.state.generation_event["feishu_attachment_status"] == "ready"
 
 
 def test_real_generation_derivatives_with_vlm_risk_stay_unsyncable(tmp_path):

@@ -266,6 +266,7 @@ class PuzzleOpsAgent:
             rows.append(generated_row)
             previews.append(
                 {
+                    "image_id": image.image_id,
                     "filename": image_name,
                     "url": f"/uploads/{path.name}",
                     "path": str(path),
@@ -468,6 +469,11 @@ class PuzzleOpsAgent:
             "provider": str(event.get("provider", "unknown")),
             "model": str(event.get("model", "未记录")),
             "endpoint": str(event.get("endpoint", "未记录")),
+            "task_id": str(event.get("task_id", "")),
+            "source_operation_tag": str(event.get("source_operation_tag", "")),
+            "generated_image_paths": str(event.get("generated_image_paths", "")),
+            "second_review_status": str(event.get("second_review_status", "unknown")),
+            "feishu_attachment_status": str(event.get("feishu_attachment_status", "unknown")),
             "error_type": str(event.get("error_type", "unknown")),
             "message": str(event.get("message", "")),
         }
