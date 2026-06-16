@@ -304,6 +304,7 @@ def test_multimodal_runtime_page_shows_profile_candidates_and_evidence():
     assert "短期记忆" in html
     assert "长期记忆" in html
     assert "结构化事实" in html
+    assert "RAG Ready" in html
     assert "价值观与审核 RAG" in html
     assert "父子知识块" in html
     assert "多路召回" in html

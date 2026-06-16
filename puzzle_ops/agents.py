@@ -596,34 +596,7 @@ class PuzzleOpsAgent:
                     metadata={"source": "hitl_approved_value_rules"},
                 )
             )
-        for index, memory in enumerate(self.repository.layered_memories(country, layer="long_term"), 1):
-            payload = memory.get("payload", {})
-            text = _payload_text(payload)
-            if text:
-                documents.append(
-                    RagDocument(
-                        document_id=f"{_country_code(country)}_MEMORY_LONG_{index:03d}",
-                        country=country,
-                        source_type="approved_value_rule",
-                        title=str(memory.get("memory_type", "长期记忆")),
-                        text=text,
-                        metadata={"source": "layered_memory", "layer": "long_term"},
-                    )
-                )
-        for index, memory in enumerate(self.repository.layered_memories(country, layer="facts"), 1):
-            payload = memory.get("payload", {})
-            text = _payload_text(payload)
-            if text:
-                documents.append(
-                    RagDocument(
-                        document_id=f"{_country_code(country)}_FACT_{index:03d}",
-                        country=country,
-                        source_type="fact",
-                        title=str(memory.get("memory_type", "结构化事实")),
-                        text=text,
-                        metadata={"source": "layered_memory", "layer": "facts"},
-                    )
-                )
+        documents.extend(self._layered_memory_rag_documents(country))
         for record in self._history_records(country):
             documents.append(
                 RagDocument(
@@ -650,6 +623,32 @@ class PuzzleOpsAgent:
                     metadata={"source": "audit_manual", "risk_level": hit.risk_level},
                 )
             )
+        return tuple(documents)
+
+    def _layered_memory_rag_documents(self, country: str) -> tuple[RagDocument, ...]:
+        specs = (
+            ("perception", "memory_perception", "MEMORY_PERCEPTION"),
+            ("working", "memory_working", "MEMORY_WORKING"),
+            ("long_term", "approved_value_rule", "MEMORY_LONG"),
+            ("facts", "fact", "FACT"),
+        )
+        documents: list[RagDocument] = []
+        for layer, source_type, prefix in specs:
+            for index, memory in enumerate(self.repository.layered_memories(country, layer=layer), 1):
+                payload = memory.get("payload", {})
+                text = _payload_text(payload)
+                if not text:
+                    continue
+                documents.append(
+                    RagDocument(
+                        document_id=f"{_country_code(country)}_{prefix}_{index:03d}",
+                        country=country,
+                        source_type=source_type,
+                        title=str(memory.get("memory_type", layer)),
+                        text=text,
+                        metadata={"source": "layered_memory", "layer": layer},
+                    )
+                )
         return tuple(documents)
 
     def _audit_policy_hits(self):
@@ -683,9 +682,11 @@ class PuzzleOpsAgent:
         overview: dict[str, dict[str, object]] = {}
         for layer, label in labels.items():
             items = self.repository.layered_memories(country, layer=layer)
+            rag_ready_count = sum(1 for item in items if _payload_text(item.get("payload", {})))
             overview[label] = {
                 "layer": layer,
                 "count": len(items),
+                "rag_ready_count": rag_ready_count,
                 "latest": items[-1] if items else {},
             }
         return overview

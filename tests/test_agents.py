@@ -400,6 +400,28 @@ def test_agent_builds_value_audit_rag_context_with_citations():
     assert "文字水印" in answer.context or "水印" in answer.context
 
 
+def test_agent_rag_documents_include_all_four_memory_layers():
+    agent = PuzzleOpsAgent()
+    country = "日本"
+    agent.record_perception_memory(country, "trial_image_parse", {"subject": "寿司", "visual": "米白与鲑鱼橙"})
+    agent.record_working_memory(country, "generation_trace", {"status": "failed", "reason": "quota_exceeded"})
+    agent.record_long_term_memory(country, "value_rule_approval", {"rule_text": "寿司提需需保留日式餐桌语境。"})
+    agent.record_extracted_fact(country, "image_semantic_fact", {"subject": "寿司", "value_labels": ["本土饮食文化"]})
+
+    documents = agent.build_value_audit_rag_index(country)
+    source_types = {document.source_type for document in documents}
+    overview = agent.memory_overview(country)
+
+    assert "memory_perception" in source_types
+    assert "memory_working" in source_types
+    assert "approved_value_rule" in source_types
+    assert "fact" in source_types
+    assert overview["感知记忆"]["rag_ready_count"] >= 1
+    assert overview["短期记忆"]["rag_ready_count"] >= 1
+    assert overview["长期记忆"]["rag_ready_count"] >= 1
+    assert overview["结构化事实"]["rag_ready_count"] >= 1
+
+
 def test_agent_rag_summary_exposes_embedding_and_rerank_provider_names(monkeypatch):
     monkeypatch.setenv("RAG_EMBEDDING_PROVIDER", "dashscope")
     monkeypatch.setenv("RAG_EMBEDDING_MODEL", "text-embedding-v3")
@@ -418,13 +440,14 @@ def test_agent_rag_summary_exposes_embedding_and_rerank_provider_names(monkeypat
 def test_agent_rag_summary_marks_remote_ready_only_with_api_key(monkeypatch):
     monkeypatch.setenv("RAG_EMBEDDING_PROVIDER", "dashscope")
     monkeypatch.setenv("RAG_RERANK_PROVIDER", "dashscope")
-    monkeypatch.delenv("RAG_API_KEY", raising=False)
-    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    monkeypatch.setenv("RAG_API_KEY", "")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "")
 
     missing_key = PuzzleOpsAgent().value_audit_rag_summary("日本")
     assert missing_key["provider_configured"] is True
     assert missing_key["provider_remote_ready"] is False
 
+    monkeypatch.setenv("RAG_API_KEY", "dashscope-test")
     monkeypatch.setenv("DASHSCOPE_API_KEY", "dashscope-test")
     ready = PuzzleOpsAgent().value_audit_rag_summary("日本")
     assert ready["provider_remote_ready"] is True

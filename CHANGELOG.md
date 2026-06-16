@@ -2,6 +2,60 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.50 - 真实 RAG 模型启用与四层 Memory 入库
+
+日期：2026-06-16
+
+阶段目标：
+
+- 按用户要求启用真实 RAG 模型调用，而不是只保留本地 fallback。
+- 继续优化四层 memory，让感知记忆、短期记忆、长期记忆和结构化事实都能进入 RAG 检索链路。
+
+已完成：
+
+- `.env` 本地配置已更新为真实 RAG 调用链路：
+  - `RAG_EMBEDDING_PROVIDER=dashscope`
+  - `RAG_EMBEDDING_MODEL=text-embedding-v3`
+  - `RAG_RERANK_PROVIDER=dashscope`
+  - `RAG_RERANK_MODEL=gte-rerank-v2`
+  - `RAG_ENABLE_REMOTE_CALLS=true`
+  - `RAG_API_KEY` 复用本地已有 Qwen/DashScope key。
+- 真实模型 smoke test 已执行：
+  - embedding provider：DashScope `text-embedding-v3`
+  - rerank provider：DashScope `gte-rerank-v2`
+  - `embedding_remote_calls=2`
+  - `rerank_remote_calls=1`
+  - `embedding_fallbacks=0`
+  - `rerank_fallbacks=0`
+- 测试环境保护：
+  - 新增 `tests/conftest.py`，pytest 默认不启用远程 RAG 调用。
+  - 需要测试远程 provider 的用例仍可通过 `monkeypatch` 显式开启。
+- Memory 优化：
+  - `build_value_audit_rag_index(...)` 现在把四层 memory 全部转成 RAG 文档：
+    - 感知记忆 -> `memory_perception`
+    - 短期记忆 -> `memory_working`
+    - 长期记忆 -> `approved_value_rule`
+    - 结构化事实 -> `fact`
+  - `memory_overview(...)` 新增 `rag_ready_count`。
+  - 多模态底座“四层 Memory 概览”展示每层 `RAG Ready` 数量。
+- README 补充真实 RAG 模型和四层 memory 入库说明。
+
+当前限制：
+
+- 真实模型调用已验证，但仍建议在业务演示时控制调用次数，避免不必要成本。
+- RAG embedding 缓存已持久化，rerank 结果暂未持久化。
+- 四层 memory 已进入 RAG，但还未提供单独的 memory 搜索页面。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_agents.py::test_agent_rag_documents_include_all_four_memory_layers tests/test_renderer.py::test_multimodal_runtime_page_shows_profile_candidates_and_evidence -q`：2 passed。
+- 真实模型 smoke test：DashScope `text-embedding-v3` embedding 远程调用 2 次，`gte-rerank-v2` rerank 远程调用 1 次，fallback 0 次。
+- `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py tests/test_rag.py tests/test_harness.py tests/test_storage_runtime.py -q`：84 passed。
+- `PYTHONPATH=. pytest tests -q`：187 passed，用时 305.56s。
+- `find . -maxdepth 3 -type f \\( -name 'package.json' -o -name 'vite.config.*' -o -name '*.js' -o -name '*.ts' -o -name '*.tsx' -o -name '*.jsx' -o -name '*.vue' \\) -not -path './.git/*' -print`：无输出。
+- `find puzzle_ops tests -type f -not -name '*.py' -not -path '*/__pycache__/*' -print`：无输出。
+- `git diff --check`：无输出。
+
 ## v0.3.49 - Harness 接入 RAG Runtime 指标
 
 日期：2026-06-16

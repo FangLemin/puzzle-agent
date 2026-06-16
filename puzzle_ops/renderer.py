@@ -494,8 +494,9 @@ def render_memory_overview(overview: dict[str, dict[str, object]]) -> str:
         latest = item.get("latest", {}) if isinstance(item, dict) else {}
         payload = latest.get("payload", {}) if isinstance(latest, dict) else {}
         summary = "；".join(f"{key}={value}" for key, value in list(payload.items())[:3]) if isinstance(payload, dict) else ""
+        rag_ready = item.get("rag_ready_count", 0) if isinstance(item, dict) else 0
         cards.append(
-            f"<article class='memory-card'><strong>{escape(label)}</strong><span>{escape(str(item.get('count', 0) if isinstance(item, dict) else 0))} 条</span><small>{escape(summary or '暂无记录')}</small></article>"
+            f"<article class='memory-card'><strong>{escape(label)}</strong><span>{escape(str(item.get('count', 0) if isinstance(item, dict) else 0))} 条</span><small>RAG Ready {escape(str(rag_ready))} 条；{escape(summary or '暂无记录')}</small></article>"
         )
     return "".join(cards)
 

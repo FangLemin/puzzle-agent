@@ -121,6 +121,8 @@ RAG 可观测与缓存说明：远程 embedding 会优先读取 SQLite `rag_embe
 
 Harness RAG 指标说明：Agent 评测页会把最近一次 RAG runtime stats 聚合为 `RAG缓存命中率`、`RAG远程调用率`、`RAG降级率`，并随 `HarnessRun` 一起保存。这样 RAG 不再只在多模态底座单次展示，而是能进入版本对比，用来观察不同版本的检索成本、远程依赖和稳定性。
 
+真实 RAG 模型说明：当前本地 `.env` 已配置为 DashScope RAG 真实调用链路，embedding 使用 `text-embedding-v3`，rerank 使用 `gte-rerank-v2`，并通过 `RAG_ENABLE_REMOTE_CALLS=true` 显式开启远程调用。自动化测试默认关闭远程调用，避免 pytest 误产生费用；真实运行页面或脚本时按 `.env` 生效。四层 memory（感知记忆、短期记忆、长期记忆、结构化事实）都会被转成 RAG 文档并参与召回，多模态底座会显示每层 `RAG Ready` 数量。
+
 Harness HITL 说明：Agent 评测页的失败样本复盘区会展示样本缩略图、gold label、Agent 输出和失败原因，并提供人工修正入口。当前人工修正先写入本地 HITL memory，作为后续回写 gold dataset 或导出到 Label Studio/Argilla 的数据基础。
 
 Harness 修正回流说明：Agent 评测页支持将 HITL 人工修正导出为 CSV，默认写到运行目录中的 `harness_overrides_<国家>.csv`。该 CSV 可作为人工复核后的中间层，再手动合并回 `PUZZLEOPS_HARNESS_DATASET`，避免直接覆盖真实 gold dataset。
