@@ -183,6 +183,12 @@ class AgentHarness:
         for sample in samples:
             cases.extend(self._run_sample(sample))
         failures = tuple(case for case in cases if case.failure_reasons)
+        if samples:
+            country = samples[0].country
+            try:
+                self.agent.value_audit_rag_answer(country, f"{country}市场 Harness 评测 RAG 召回、价值观判断与审核风险")
+            except ValueError:
+                pass
         metrics = self._aggregate_metrics(samples, tuple(cases))
         return HarnessRun(
             run_id=f"hr-{uuid4().hex[:10]}",
@@ -364,6 +370,7 @@ class AgentHarness:
             "飞书同步成功率": _score_average(cases, "字段完整性"),
         }
         metrics.update(self._generation_trace_metrics(samples))
+        metrics.update(self._rag_runtime_metrics())
         return metrics
 
     def _generation_trace_metrics(self, samples: tuple[EvalSample, ...]) -> dict[str, float]:
@@ -386,6 +393,20 @@ class AgentHarness:
             "二次审核通过率": _safe_ratio(second_review_passed, len(events)),
             "飞书附件Ready率": _safe_ratio(attachment_ready, len(events)),
             "生成失败可分类率": _safe_ratio(classified, len(failed)),
+        }
+
+    def _rag_runtime_metrics(self) -> dict[str, float]:
+        stats = getattr(self.agent, "_last_rag_stats", None)
+        if stats is None:
+            return {"RAG缓存命中率": 0.0, "RAG远程调用率": 0.0, "RAG降级率": 0.0}
+        embedding_total = stats.embedding_cache_hits + stats.embedding_remote_calls
+        remote_total = stats.embedding_remote_calls + stats.rerank_remote_calls
+        fallback_total = stats.embedding_fallbacks + stats.rerank_fallbacks
+        observable_total = embedding_total + stats.rerank_remote_calls + fallback_total
+        return {
+            "RAG缓存命中率": _safe_ratio(stats.embedding_cache_hits, embedding_total),
+            "RAG远程调用率": _safe_ratio(remote_total, observable_total),
+            "RAG降级率": _safe_ratio(fallback_total, observable_total),
         }
 
 

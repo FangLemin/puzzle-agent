@@ -2,6 +2,49 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.49 - Harness 接入 RAG Runtime 指标
+
+日期：2026-06-16
+
+阶段目标：
+
+- 将 v0.3.48 的 RAG runtime stats 从多模态底座单次展示，推进到 Harness Run 指标体系。
+- 让 RAG 的缓存、远程调用和降级情况能参与版本对比，而不是只作为当前页面状态。
+
+已完成：
+
+- `AgentHarness.run(...)`：
+  - 在生成 run 前触发一次国家级 `value_audit_rag_answer(...)`。
+  - 读取 Agent 最近一次 `_last_rag_stats`。
+  - 对未知测试国家跳过 RAG 构建，避免 synthetic harness case 因缺少国家配置失败。
+- `AgentHarness._aggregate_metrics(...)` 新增 RAG 指标：
+  - `RAG缓存命中率`
+  - `RAG远程调用率`
+  - `RAG降级率`
+- Agent 评测页：
+  - Harness 指标卡自动展示上述 RAG 指标。
+  - 历史 `HarnessRun` 保存后可参与版本对比。
+- 测试增强：
+  - 覆盖 Harness Run 中 RAG metrics 的存在和数值边界。
+  - 覆盖 Eval 页面展示 RAG 指标。
+  - 修正四层 memory 测试国家名，避免与 generation trace 测试共享 `测试国` 造成本地 DB 污染。
+- README 增加 Harness RAG 指标说明。
+
+当前限制：
+
+- 当前 RAG 指标是 run 级聚合，尚未细化到每个 case 的 RAG trace。
+- 当前指标为比例型指标，尚未加入耗时、费用估算、请求 token 数。
+- synthetic/未知国家样本会跳过 RAG 构建并返回 0 值指标，避免伪造国家价值观检索结果。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_harness.py::test_harness_metrics_include_rag_runtime_stats tests/test_renderer.py::test_eval_page_shows_clear_agent_evaluation_workflow -q`：2 passed。
+- `PYTHONPATH=. pytest tests/test_harness.py tests/test_renderer.py tests/test_rag.py tests/test_agents.py -q`：76 passed。
+- `PYTHONPATH=. pytest tests -q`：186 passed。
+- `find . -maxdepth 3 -type f \\( -name 'package.json' -o -name 'vite.config.*' -o -name '*.js' -o -name '*.ts' -o -name '*.tsx' -o -name '*.jsx' -o -name '*.vue' \\) -not -path './.git/*' -print`：无输出。
+- `find puzzle_ops tests -type f -not -name '*.py' -not -path '*/__pycache__/*' -print`：无输出。
+- `git diff --check`：无输出。
+
 ## v0.3.48 - RAG Embedding 缓存与调用可观测
 
 日期：2026-06-16

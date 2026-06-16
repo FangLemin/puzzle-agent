@@ -360,6 +360,9 @@ def test_eval_page_shows_clear_agent_evaluation_workflow():
     assert "合成样本数" in html
     assert "生成图审核通过率" in html
     assert "生成Trace完整率" in html
+    assert "RAG缓存命中率" in html
+    assert "RAG远程调用率" in html
+    assert "RAG降级率" in html
     assert "二次审核通过率" in html
     assert "飞书附件Ready率" in html
     assert "生成失败类型分布" in html

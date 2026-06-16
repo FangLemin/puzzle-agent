@@ -119,6 +119,8 @@ DashScope RAG Provider 说明：如需真实调用通义千问/DashScope embeddi
 
 RAG 可观测与缓存说明：远程 embedding 会优先读取 SQLite `rag_embedding_cache`，命中后不会重复请求 provider；未命中才会在远程调用开关开启时请求 DashScope，并写回缓存。多模态底座会展示本次 RAG 的 cache hit、embedding remote、embedding fallback、rerank remote、rerank fallback 指标，便于判断是否真的发生远程调用、是否发生降级，以及后续接入成本/耗时统计。
 
+Harness RAG 指标说明：Agent 评测页会把最近一次 RAG runtime stats 聚合为 `RAG缓存命中率`、`RAG远程调用率`、`RAG降级率`，并随 `HarnessRun` 一起保存。这样 RAG 不再只在多模态底座单次展示，而是能进入版本对比，用来观察不同版本的检索成本、远程依赖和稳定性。
+
 Harness HITL 说明：Agent 评测页的失败样本复盘区会展示样本缩略图、gold label、Agent 输出和失败原因，并提供人工修正入口。当前人工修正先写入本地 HITL memory，作为后续回写 gold dataset 或导出到 Label Studio/Argilla 的数据基础。
 
 Harness 修正回流说明：Agent 评测页支持将 HITL 人工修正导出为 CSV，默认写到运行目录中的 `harness_overrides_<国家>.csv`。该 CSV 可作为人工复核后的中间层，再手动合并回 `PUZZLEOPS_HARNESS_DATASET`，避免直接覆盖真实 gold dataset。

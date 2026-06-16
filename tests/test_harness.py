@@ -249,6 +249,27 @@ def test_harness_metrics_include_generation_trace_replay_events():
     assert run.metrics["生成失败可分类率"] == 1.0
 
 
+def test_harness_metrics_include_rag_runtime_stats():
+    agent = PuzzleOpsAgent()
+    agent.value_audit_rag_answer("日本", "寿司是否符合日本价值观，并检查文字水印风险")
+    sample = EvalSample.synthetic_demo(
+        sample_id="syn-001",
+        country="日本",
+        operation_tag="试新_日本_寿司0616",
+        subject="寿司",
+        gold_grade="B",
+    )
+
+    run = AgentHarness(agent).run((sample,), dataset_name="demo-set", version="0.3.49")
+
+    assert "RAG缓存命中率" in run.metrics
+    assert "RAG远程调用率" in run.metrics
+    assert "RAG降级率" in run.metrics
+    assert run.metrics["RAG缓存命中率"] >= 0.0
+    assert run.metrics["RAG远程调用率"] >= 0.0
+    assert run.metrics["RAG降级率"] >= 0.0
+
+
 def test_cloud_generation_provider_writes_returned_images_with_generation_metadata(tmp_path):
     png_b64 = (
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/"

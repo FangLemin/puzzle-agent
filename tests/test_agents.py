@@ -369,7 +369,7 @@ def test_agent_persists_generation_events_for_replay():
 
 def test_agent_records_four_layer_memory_types():
     agent = PuzzleOpsAgent()
-    country = "测试国"
+    country = "四层Memory测试国"
 
     agent.record_perception_memory(country, "trial_image_parse", {"subject": "寿司"})
     agent.record_working_memory(country, "generation_trace", {"status": "failed"})
