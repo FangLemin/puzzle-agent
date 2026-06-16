@@ -2,6 +2,60 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.46 - RAG Embedding/Rerank Provider 化
+
+日期：2026-06-16
+
+阶段目标：
+
+- 在 v0.3.45 本地 RAG 知识库基础上，把“向量召回”和“精排”升级为可替换 provider 接口。
+- 保持默认纯 Python、本地可运行，同时为后续接 DashScope/OpenAI/Cohere/自建 embedding 与 reranker 留好工程入口。
+
+已完成：
+
+- `puzzle_ops/rag.py` 新增：
+  - `RagProviderConfig`
+  - `LocalEmbeddingProvider`
+  - `LocalRerankProvider`
+  - `ConfiguredEmbeddingProvider`
+  - `ConfiguredRerankProvider`
+  - `providers_from_config(...)`
+- `HybridRagRetriever` 支持注入：
+  - `embedding_provider`
+  - `rerank_provider`
+- 检索命中 reason 增加 provider 证据：
+  - BM25 分数。
+  - Embedding provider 名称与相似度。
+  - Rerank provider 名称。
+- `.env` 预留配置：
+  - `RAG_EMBEDDING_PROVIDER`
+  - `RAG_EMBEDDING_MODEL`
+  - `RAG_RERANK_PROVIDER`
+  - `RAG_RERANK_MODEL`
+- `PuzzleOpsAgent`：
+  - 初始化时读取 RAG provider 配置。
+  - `value_audit_rag_answer(...)` 使用 provider 化 retriever。
+  - `value_audit_rag_summary(...)` 输出 embedding/rerank provider、model、configured 和 status。
+- 多模态底座页面：
+  - “价值观与审核 RAG”展示 Embedding / Rerank provider 与模型。
+  - 明确当前是本地 fallback 还是外部 provider 已配置。
+- README 补充 RAG Provider 说明。
+
+当前限制：
+
+- 本轮完成 provider 抽象、配置读取、状态展示和注入点；没有直接调用远程 embedding/rerank API。
+- `ConfiguredEmbeddingProvider` / `ConfiguredRerankProvider` 目前仍继承本地 fallback 算法，避免未确认计费、网络、鉴权和数据合规边界时误请求外部服务。
+- 下一步可新增真实 `DashScopeEmbeddingProvider` / `DashScopeRerankProvider`，并加超时、错误分类、缓存和成本记录。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_rag.py tests/test_agents.py::test_agent_rag_summary_exposes_embedding_and_rerank_provider_names tests/test_agents.py::test_agent_builds_value_audit_rag_context_with_citations tests/test_renderer.py::test_multimodal_runtime_page_shows_profile_candidates_and_evidence -q`：8 passed。
+- `PYTHONPATH=. pytest tests/test_rag.py tests/test_agents.py tests/test_renderer.py -q`：54 passed。
+- `PYTHONPATH=. pytest tests -q`：176 passed。
+- `find . -maxdepth 3 -type f \\( -name 'package.json' -o -name 'vite.config.*' -o -name '*.js' -o -name '*.ts' -o -name '*.tsx' -o -name '*.jsx' -o -name '*.vue' \\) -not -path './.git/*' -print`：无输出。
+- `find puzzle_ops tests -type f -not -name '*.py' -not -path '*/__pycache__/*' -print`：无输出。
+- `git diff --check`：无输出。
+
 ## v0.3.45 - 价值观与审核规则 RAG 知识库
 
 日期：2026-06-16

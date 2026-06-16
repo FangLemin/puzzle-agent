@@ -3,7 +3,9 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 import math
+import os
 import re
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -43,6 +45,73 @@ class RagPrompt:
     context: str
     citations: tuple[str, ...]
     prompt: str
+
+
+@dataclass(frozen=True)
+class RagProviderConfig:
+    embedding_provider: str = "local"
+    embedding_model: str = "local-token-cosine"
+    rerank_provider: str = "local"
+    rerank_model: str = "local-rule-rerank"
+    configured: bool = False
+    status_text: str = "本地 fallback：token/cosine embedding + 规则 rerank"
+
+    @classmethod
+    def from_env(cls, load_env: bool = True) -> "RagProviderConfig":
+        if load_env:
+            _load_env_file(Path.cwd() / ".env")
+        embedding_provider = os.getenv("RAG_EMBEDDING_PROVIDER", "local").strip().lower() or "local"
+        rerank_provider = os.getenv("RAG_RERANK_PROVIDER", "local").strip().lower() or "local"
+        embedding_model = os.getenv("RAG_EMBEDDING_MODEL", "local-token-cosine").strip() or "local-token-cosine"
+        rerank_model = os.getenv("RAG_RERANK_MODEL", "local-rule-rerank").strip() or "local-rule-rerank"
+        configured = embedding_provider != "local" or rerank_provider != "local"
+        status = (
+            f"外部 provider 已配置：Embedding={embedding_provider}/{embedding_model}；Rerank={rerank_provider}/{rerank_model}"
+            if configured
+            else "本地 fallback：token/cosine embedding + 规则 rerank"
+        )
+        return cls(embedding_provider, embedding_model, rerank_provider, rerank_model, configured, status)
+
+
+class LocalEmbeddingProvider:
+    provider_name = "local-token-cosine"
+
+    def similarity(self, query: str, text: str) -> float:
+        return _cosine(_tokens(query), _tokens(text))
+
+
+class LocalRerankProvider:
+    provider_name = "local-rule-rerank"
+
+    def rerank(self, query: str, country: str, chunk: RagChunk, bm25_score: float, vector_score: float) -> float:
+        return _rerank_score(query, country, chunk, bm25_score, vector_score)
+
+
+class ConfiguredEmbeddingProvider(LocalEmbeddingProvider):
+    def __init__(self, provider_name: str, model: str):
+        self.provider_name = provider_name
+        self.model = model
+
+
+class ConfiguredRerankProvider(LocalRerankProvider):
+    def __init__(self, provider_name: str, model: str):
+        self.provider_name = provider_name
+        self.model = model
+
+
+def providers_from_config(config: RagProviderConfig | None = None) -> tuple[LocalEmbeddingProvider, LocalRerankProvider]:
+    config = config or RagProviderConfig.from_env()
+    embedding = (
+        LocalEmbeddingProvider()
+        if config.embedding_provider == "local"
+        else ConfiguredEmbeddingProvider(config.embedding_provider, config.embedding_model)
+    )
+    rerank = (
+        LocalRerankProvider()
+        if config.rerank_provider == "local"
+        else ConfiguredRerankProvider(config.rerank_provider, config.rerank_model)
+    )
+    return embedding, rerank
 
 
 def chunk_document(document: RagDocument, max_chars: int = 220, overlap_sentences: int = 1) -> tuple[RagChunk, ...]:
@@ -87,8 +156,16 @@ def build_rag_prompt(query: str, hits: tuple[RagHit, ...]) -> RagPrompt:
 
 
 class HybridRagRetriever:
-    def __init__(self, chunks: tuple[RagChunk, ...]):
+    def __init__(
+        self,
+        chunks: tuple[RagChunk, ...],
+        *,
+        embedding_provider: LocalEmbeddingProvider | None = None,
+        rerank_provider: LocalRerankProvider | None = None,
+    ):
         self.chunks = chunks
+        self.embedding_provider = embedding_provider or LocalEmbeddingProvider()
+        self.rerank_provider = rerank_provider or LocalRerankProvider()
         self._tokenized = {chunk.chunk_id: _tokens(chunk.text + " " + chunk.title) for chunk in chunks}
         self._doc_freq = self._document_frequency()
         self._avg_len = sum(len(tokens) for tokens in self._tokenized.values()) / max(len(self._tokenized), 1)
@@ -112,10 +189,10 @@ class HybridRagRetriever:
             if allowed_sources and chunk.source_type not in allowed_sources:
                 continue
             bm25 = self._bm25(query_tokens, chunk)
-            vector = _cosine(query_tokens, self._tokenized[chunk.chunk_id])
-            rerank = _rerank_score(query, country, chunk, bm25, vector)
+            vector = self.embedding_provider.similarity(query, chunk.text + " " + chunk.title)
+            rerank = self.rerank_provider.rerank(query, country, chunk, bm25, vector)
             if bm25 > 0 or vector > 0 or _has_exact_phrase(query, chunk.text):
-                hits.append(RagHit(chunk, round(bm25, 4), round(vector, 4), round(rerank, 4), _reason(chunk, bm25, vector)))
+                hits.append(RagHit(chunk, round(bm25, 4), round(vector, 4), round(rerank, 4), _reason(chunk, bm25, vector, self.embedding_provider.provider_name, self.rerank_provider.provider_name)))
         ranked = sorted(hits, key=lambda hit: hit.rerank_score, reverse=True)
         return tuple(ranked[:top_k])
 
@@ -211,5 +288,16 @@ def _has_exact_phrase(query: str, text: str) -> bool:
     return any(term in text for term in cjk_terms)
 
 
-def _reason(chunk: RagChunk, bm25: float, vector: float) -> str:
-    return f"{chunk.source_type}命中；BM25={bm25:.2f}；向量近似={vector:.2f}"
+def _reason(chunk: RagChunk, bm25: float, vector: float, embedding_provider: str, rerank_provider: str) -> str:
+    return f"{chunk.source_type}命中；BM25={bm25:.2f}；Embedding={embedding_provider}:{vector:.2f}；Rerank={rerank_provider}"
+
+
+def _load_env_file(path: Path) -> None:
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))

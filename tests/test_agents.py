@@ -400,6 +400,21 @@ def test_agent_builds_value_audit_rag_context_with_citations():
     assert "文字水印" in answer.context or "水印" in answer.context
 
 
+def test_agent_rag_summary_exposes_embedding_and_rerank_provider_names(monkeypatch):
+    monkeypatch.setenv("RAG_EMBEDDING_PROVIDER", "dashscope")
+    monkeypatch.setenv("RAG_EMBEDDING_MODEL", "text-embedding-v3")
+    monkeypatch.setenv("RAG_RERANK_PROVIDER", "dashscope")
+    monkeypatch.setenv("RAG_RERANK_MODEL", "gte-rerank-v2")
+
+    summary = PuzzleOpsAgent().value_audit_rag_summary("日本")
+
+    assert summary["embedding_provider"] == "dashscope"
+    assert summary["embedding_model"] == "text-embedding-v3"
+    assert summary["rerank_provider"] == "dashscope"
+    assert summary["rerank_model"] == "gte-rerank-v2"
+    assert summary["provider_configured"] is True
+
+
 def test_agent_exports_harness_annotation_files_for_label_tools(monkeypatch, tmp_path):
     image_path = tmp_path / "real-sushi.png"
     image_path.write_bytes(b"fake-png")

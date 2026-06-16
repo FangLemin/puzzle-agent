@@ -113,6 +113,8 @@ Harness 生成 trace 说明：Agent 评测页会读取本地 generation event me
 
 价值观与审核 RAG 说明：项目新增本地 RAG 知识层，把日本/法国静态价值观、运营审批价值观、四层 memory 事实、历史样本事实和审核手册规则组织成父子知识块。检索链路采用 Python 本地实现的 chunk 语义切分、父子存储、BM25 风格词面召回、向量近似召回、rerank 精排和带 citation 的 prompt 拼接。价值观大师会优先使用 RAG Top-K 引用依据再调用真实视觉 LLM 判断，页面会展示父子知识块数量、多路召回说明和引用依据，降低幻觉风险。当前版本未接外部 embedding 数据库或真实 rerank 模型，后续可替换为 Milvus/FAISS/Elasticsearch/专业 reranker。
 
+RAG Provider 说明：默认不需要额外配置，系统使用本地 `local-token-cosine` embedding fallback 和 `local-rule-rerank` 精排。若后续要接 DashScope、OpenAI、Cohere 或自建 embedding/rerank 服务，可在 `.env` 配置 `RAG_EMBEDDING_PROVIDER`、`RAG_EMBEDDING_MODEL`、`RAG_RERANK_PROVIDER`、`RAG_RERANK_MODEL`。当前 provider 化只负责配置、状态展示和可替换接口，本地仍不主动发起远程 embedding/rerank 请求，避免误产生费用或泄露业务数据。
+
 Harness HITL 说明：Agent 评测页的失败样本复盘区会展示样本缩略图、gold label、Agent 输出和失败原因，并提供人工修正入口。当前人工修正先写入本地 HITL memory，作为后续回写 gold dataset 或导出到 Label Studio/Argilla 的数据基础。
 
 Harness 修正回流说明：Agent 评测页支持将 HITL 人工修正导出为 CSV，默认写到运行目录中的 `harness_overrides_<国家>.csv`。该 CSV 可作为人工复核后的中间层，再手动合并回 `PUZZLEOPS_HARNESS_DATASET`，避免直接覆盖真实 gold dataset。

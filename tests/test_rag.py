@@ -1,4 +1,12 @@
-from puzzle_ops.rag import HybridRagRetriever, RagDocument, build_rag_prompt, chunk_document
+from puzzle_ops.rag import (
+    HybridRagRetriever,
+    LocalEmbeddingProvider,
+    LocalRerankProvider,
+    RagDocument,
+    RagProviderConfig,
+    build_rag_prompt,
+    chunk_document,
+)
 
 
 def test_chunk_document_keeps_parent_child_and_semantic_overlap():
@@ -48,3 +56,44 @@ def test_build_rag_prompt_keeps_citations_for_grounded_llm_answer():
     assert "引用依据" in prompt.prompt
     assert "只基于引用依据回答" in prompt.prompt
     assert prompt.citations == ("JP_VALUE_001#chunk-1",)
+
+
+def test_rag_provider_config_reports_local_fallback_without_external_keys(monkeypatch):
+    monkeypatch.delenv("RAG_EMBEDDING_PROVIDER", raising=False)
+    monkeypatch.delenv("RAG_RERANK_PROVIDER", raising=False)
+
+    config = RagProviderConfig.from_env(load_env=False)
+
+    assert config.embedding_provider == "local"
+    assert config.rerank_provider == "local"
+    assert config.configured is False
+    assert "本地" in config.status_text
+
+
+def test_hybrid_retriever_accepts_pluggable_embedding_and_rerank_providers():
+    class KeywordEmbeddingProvider(LocalEmbeddingProvider):
+        provider_name = "fake-embedding"
+
+        def similarity(self, query: str, text: str) -> float:
+            return 0.99 if "温泉街" in query and "温泉街" in text else 0.01
+
+    class KeywordRerankProvider(LocalRerankProvider):
+        provider_name = "fake-reranker"
+
+        def rerank(self, query: str, country: str, chunk, bm25_score: float, vector_score: float) -> float:
+            return 9.9 if "温泉街" in chunk.text else 0.1
+
+    documents = (
+        RagDocument("JP_VALUE_001", "日本", "value_rule", "文化真实性", "温泉街和浴衣人物适合日本治愈旅行场景。", {}),
+        RagDocument("JP_VALUE_002", "日本", "value_rule", "主体清晰", "寿司需要主体清晰，餐盘层次明确。", {}),
+    )
+    chunks = tuple(chunk for document in documents for chunk in chunk_document(document, max_chars=80))
+    retriever = HybridRagRetriever(chunks, embedding_provider=KeywordEmbeddingProvider(), rerank_provider=KeywordRerankProvider())
+
+    hits = retriever.search("日本温泉街提需是否符合价值观", country="日本", top_k=2)
+
+    assert hits[0].chunk.chunk_id == "JP_VALUE_001#chunk-1"
+    assert hits[0].vector_score == 0.99
+    assert hits[0].rerank_score == 9.9
+    assert "fake-embedding" in hits[0].reason
+    assert "fake-reranker" in hits[0].reason

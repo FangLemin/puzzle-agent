@@ -308,6 +308,8 @@ def test_multimodal_runtime_page_shows_profile_candidates_and_evidence():
     assert "父子知识块" in html
     assert "多路召回" in html
     assert "引用依据" in html
+    assert "Embedding" in html
+    assert "Rerank" in html
 
 
 def test_multimodal_runtime_page_shows_approved_candidate_after_hitl_action():

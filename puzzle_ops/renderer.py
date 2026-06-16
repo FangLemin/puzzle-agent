@@ -508,10 +508,13 @@ def render_rag_summary(summary: dict[str, object]) -> str:
     citations = summary.get("citations", ())
     citation_text = "、".join(str(item) for item in citations) if isinstance(citations, tuple) else str(citations)
     context = str(summary.get("context", ""))
+    embedding = f"{summary.get('embedding_provider', 'local')} / {summary.get('embedding_model', 'local-token-cosine')}"
+    rerank = f"{summary.get('rerank_provider', 'local')} / {summary.get('rerank_model', 'local-rule-rerank')}"
+    provider_status = str(summary.get("provider_status", "本地 fallback"))
     return f"""
 <div class="rag-grid">
   <article><strong>父子知识块</strong><span>{escape(str(summary.get("chunk_count", 0)))} 个 chunk</span><small>{escape(source_text)}</small></article>
-  <article><strong>多路召回</strong><span>BM25 + 向量近似 + rerank</span><small>按国家、知识类型和审核风险意图精排。</small></article>
+  <article><strong>多路召回</strong><span>BM25 + Embedding + Rerank</span><small>Embedding：{escape(embedding)}；Rerank：{escape(rerank)}。{escape(provider_status)}</small></article>
   <article><strong>引用依据</strong><span>{escape(citation_text or "暂无引用")}</span><small>{escape(context[:180] or "暂无召回上下文")}</small></article>
 </div>
 """

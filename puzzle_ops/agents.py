@@ -15,7 +15,7 @@ from puzzle_ops.excel_importer import import_history_workbook
 from puzzle_ops.feishu import FeishuClientFactory, MockFeishuClient
 from puzzle_ops.models import AgentTrace, AnalysisReport, DemandRow, HolidayRecommendation, ImageProfile, ScheduleItem, TagMeta, ValuePredictionCard, ValueRuleCandidate
 from puzzle_ops.multimodal import ImageFeatureExtractor, SimilarImageRetriever, ValueInsightMiner
-from puzzle_ops.rag import HybridRagRetriever, RagChunk, RagDocument, RagPrompt, build_rag_prompt, chunk_document
+from puzzle_ops.rag import HybridRagRetriever, RagChunk, RagDocument, RagPrompt, RagProviderConfig, build_rag_prompt, chunk_document, providers_from_config
 from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.trulens_eval import TruLensRAGEvaluator
 from puzzle_ops.trial_upload import TrialImageUploadService
@@ -55,6 +55,7 @@ class PuzzleOpsAgent:
         self.feishu = FeishuClientFactory.create(runtime_dir / "feishu_mock")
         self.trial_uploads = TrialImageUploadService(runtime_dir / "trial_uploads")
         self.image_generator = ImageGenerationProviderFactory.create(runtime_dir / "trial_uploads")
+        self.rag_provider_config = RagProviderConfig.from_env()
 
     def countries(self) -> tuple[str, ...]:
         return tuple(COUNTRIES.keys())
@@ -395,7 +396,8 @@ class PuzzleOpsAgent:
     def value_audit_rag_answer(self, country: str, query: str, top_k: int = 6) -> RagPrompt:
         self.build_value_audit_rag_index(country)
         chunks = tuple(_rag_chunk_from_row(row) for row in self.repository.rag_chunks(country))
-        retriever = HybridRagRetriever(chunks)
+        embedding_provider, rerank_provider = providers_from_config(self.rag_provider_config)
+        retriever = HybridRagRetriever(chunks, embedding_provider=embedding_provider, rerank_provider=rerank_provider)
         hits = retriever.search(query, country=country, top_k=top_k)
         if _looks_like_audit_query(query) and not any(hit.chunk.source_type == "audit_policy" for hit in hits):
             audit_hits = retriever.search(query, country=country, top_k=1, source_types=("audit_policy",))
@@ -440,6 +442,12 @@ class PuzzleOpsAgent:
             "citations": answer.citations,
             "context": answer.context,
             "prompt": answer.prompt,
+            "embedding_provider": self.rag_provider_config.embedding_provider,
+            "embedding_model": self.rag_provider_config.embedding_model,
+            "rerank_provider": self.rag_provider_config.rerank_provider,
+            "rerank_model": self.rag_provider_config.rerank_model,
+            "provider_configured": self.rag_provider_config.configured,
+            "provider_status": self.rag_provider_config.status_text,
         }
 
     def value_predictions(self, country: str, grade: str) -> tuple[ValuePredictionCard, ...]:
