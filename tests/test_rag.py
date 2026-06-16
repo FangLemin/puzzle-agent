@@ -1,4 +1,6 @@
 from puzzle_ops.rag import (
+    DashScopeEmbeddingProvider,
+    DashScopeRerankProvider,
     HybridRagRetriever,
     LocalEmbeddingProvider,
     LocalRerankProvider,
@@ -6,6 +8,7 @@ from puzzle_ops.rag import (
     RagProviderConfig,
     build_rag_prompt,
     chunk_document,
+    providers_from_config,
 )
 
 
@@ -97,3 +100,84 @@ def test_hybrid_retriever_accepts_pluggable_embedding_and_rerank_providers():
     assert hits[0].rerank_score == 9.9
     assert "fake-embedding" in hits[0].reason
     assert "fake-reranker" in hits[0].reason
+
+
+def test_dashscope_embedding_provider_uses_transport_and_cosine_similarity():
+    calls = []
+
+    def fake_transport(texts, api_key, endpoint, model):
+        calls.append((texts, api_key, endpoint, model))
+        vectors = {
+            "寿司价值观": [1.0, 0.0, 0.0],
+            "寿司属于日本饮食文化": [0.8, 0.2, 0.0],
+        }
+        return {"data": [{"embedding": vectors[text]} for text in texts]}
+
+    provider = DashScopeEmbeddingProvider(
+        api_key="dashscope-test",
+        model="text-embedding-v3",
+        endpoint="https://dashscope.test/embeddings",
+        transport=fake_transport,
+    )
+
+    score = provider.similarity("寿司价值观", "寿司属于日本饮食文化")
+
+    assert score > 0.9
+    assert calls[0][1] == "dashscope-test"
+    assert calls[0][3] == "text-embedding-v3"
+    assert provider.provider_name == "dashscope:text-embedding-v3"
+
+
+def test_dashscope_rerank_provider_uses_transport_score():
+    calls = []
+
+    def fake_transport(query, documents, api_key, endpoint, model):
+        calls.append((query, documents, api_key, endpoint, model))
+        return {"results": [{"index": 0, "relevance_score": 0.87}]}
+
+    chunk = chunk_document(RagDocument("JP_VALUE_001", "日本", "value_rule", "文化真实性", "寿司属于日本本土饮食文化。", {}))[0]
+    provider = DashScopeRerankProvider(
+        api_key="dashscope-test",
+        model="gte-rerank-v2",
+        endpoint="https://dashscope.test/rerank",
+        transport=fake_transport,
+    )
+
+    score = provider.rerank("寿司是否符合日本价值观", "日本", chunk, bm25_score=0.2, vector_score=0.3)
+
+    assert score == 0.87
+    assert calls[0][0] == "寿司是否符合日本价值观"
+    assert calls[0][1] == ["文化真实性：寿司属于日本本土饮食文化。"]
+    assert provider.provider_name == "dashscope:gte-rerank-v2"
+
+
+def test_providers_from_config_uses_dashscope_when_api_key_present(monkeypatch):
+    monkeypatch.setenv("RAG_EMBEDDING_PROVIDER", "dashscope")
+    monkeypatch.setenv("RAG_EMBEDDING_MODEL", "text-embedding-v3")
+    monkeypatch.setenv("RAG_RERANK_PROVIDER", "dashscope")
+    monkeypatch.setenv("RAG_RERANK_MODEL", "gte-rerank-v2")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "dashscope-test")
+    monkeypatch.setenv("RAG_ENABLE_REMOTE_CALLS", "true")
+
+    config = RagProviderConfig.from_env(load_env=False)
+    embedding, rerank = providers_from_config(config)
+
+    assert config.remote_ready is True
+    assert config.remote_calls_enabled is True
+    assert isinstance(embedding, DashScopeEmbeddingProvider)
+    assert isinstance(rerank, DashScopeRerankProvider)
+
+
+def test_providers_from_config_keeps_local_fallback_until_remote_calls_enabled(monkeypatch):
+    monkeypatch.setenv("RAG_EMBEDDING_PROVIDER", "dashscope")
+    monkeypatch.setenv("RAG_RERANK_PROVIDER", "dashscope")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "dashscope-test")
+    monkeypatch.delenv("RAG_ENABLE_REMOTE_CALLS", raising=False)
+
+    config = RagProviderConfig.from_env(load_env=False)
+    embedding, rerank = providers_from_config(config)
+
+    assert config.remote_ready is True
+    assert config.remote_calls_enabled is False
+    assert isinstance(embedding, LocalEmbeddingProvider)
+    assert isinstance(rerank, LocalRerankProvider)

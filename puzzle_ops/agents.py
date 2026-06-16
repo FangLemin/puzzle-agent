@@ -447,6 +447,8 @@ class PuzzleOpsAgent:
             "rerank_provider": self.rag_provider_config.rerank_provider,
             "rerank_model": self.rag_provider_config.rerank_model,
             "provider_configured": self.rag_provider_config.configured,
+            "provider_remote_ready": self.rag_provider_config.remote_ready,
+            "provider_remote_calls_enabled": self.rag_provider_config.remote_calls_enabled,
             "provider_status": self.rag_provider_config.status_text,
         }
 

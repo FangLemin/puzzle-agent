@@ -415,6 +415,21 @@ def test_agent_rag_summary_exposes_embedding_and_rerank_provider_names(monkeypat
     assert summary["provider_configured"] is True
 
 
+def test_agent_rag_summary_marks_remote_ready_only_with_api_key(monkeypatch):
+    monkeypatch.setenv("RAG_EMBEDDING_PROVIDER", "dashscope")
+    monkeypatch.setenv("RAG_RERANK_PROVIDER", "dashscope")
+    monkeypatch.delenv("RAG_API_KEY", raising=False)
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+
+    missing_key = PuzzleOpsAgent().value_audit_rag_summary("日本")
+    assert missing_key["provider_configured"] is True
+    assert missing_key["provider_remote_ready"] is False
+
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "dashscope-test")
+    ready = PuzzleOpsAgent().value_audit_rag_summary("日本")
+    assert ready["provider_remote_ready"] is True
+
+
 def test_agent_exports_harness_annotation_files_for_label_tools(monkeypatch, tmp_path):
     image_path = tmp_path / "real-sushi.png"
     image_path.write_bytes(b"fake-png")

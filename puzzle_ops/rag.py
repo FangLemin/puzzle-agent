@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+import json
 import math
 import os
 import re
 from pathlib import Path
+from typing import Callable
+from urllib import request
 
 
 @dataclass(frozen=True)
@@ -54,6 +57,11 @@ class RagProviderConfig:
     rerank_provider: str = "local"
     rerank_model: str = "local-rule-rerank"
     configured: bool = False
+    remote_ready: bool = False
+    remote_calls_enabled: bool = False
+    api_key: str = ""
+    embedding_endpoint: str = "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings"
+    rerank_endpoint: str = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
     status_text: str = "本地 fallback：token/cosine embedding + 规则 rerank"
 
     @classmethod
@@ -64,13 +72,38 @@ class RagProviderConfig:
         rerank_provider = os.getenv("RAG_RERANK_PROVIDER", "local").strip().lower() or "local"
         embedding_model = os.getenv("RAG_EMBEDDING_MODEL", "local-token-cosine").strip() or "local-token-cosine"
         rerank_model = os.getenv("RAG_RERANK_MODEL", "local-rule-rerank").strip() or "local-rule-rerank"
+        api_key = os.getenv("RAG_API_KEY", os.getenv("DASHSCOPE_API_KEY", "")).strip()
+        embedding_endpoint = os.getenv("RAG_EMBEDDING_ENDPOINT", "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings").strip()
+        rerank_endpoint = os.getenv("RAG_RERANK_ENDPOINT", "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank").strip()
         configured = embedding_provider != "local" or rerank_provider != "local"
-        status = (
-            f"外部 provider 已配置：Embedding={embedding_provider}/{embedding_model}；Rerank={rerank_provider}/{rerank_model}"
-            if configured
-            else "本地 fallback：token/cosine embedding + 规则 rerank"
+        remote_ready = configured and bool(api_key)
+        remote_calls_enabled = remote_ready and os.getenv("RAG_ENABLE_REMOTE_CALLS", "").strip().lower() in {"1", "true", "yes", "on"}
+        if remote_ready:
+            status = (
+                f"外部 provider 可调用：Embedding={embedding_provider}/{embedding_model}；Rerank={rerank_provider}/{rerank_model}"
+                if remote_calls_enabled
+                else f"外部 provider 已具备 key，但 RAG_ENABLE_REMOTE_CALLS 未开启；当前使用本地 fallback"
+            )
+        elif configured:
+            status = (
+                f"外部 provider 已声明但缺少 RAG_API_KEY 或 DASHSCOPE_API_KEY；"
+                f"Embedding={embedding_provider}/{embedding_model}；Rerank={rerank_provider}/{rerank_model}；当前使用本地 fallback"
+            )
+        else:
+            status = "本地 fallback：token/cosine embedding + 规则 rerank"
+        return cls(
+            embedding_provider,
+            embedding_model,
+            rerank_provider,
+            rerank_model,
+            configured,
+            remote_ready,
+            remote_calls_enabled,
+            api_key,
+            embedding_endpoint,
+            rerank_endpoint,
+            status,
         )
-        return cls(embedding_provider, embedding_model, rerank_provider, rerank_model, configured, status)
 
 
 class LocalEmbeddingProvider:
@@ -99,18 +132,86 @@ class ConfiguredRerankProvider(LocalRerankProvider):
         self.model = model
 
 
+class DashScopeEmbeddingProvider(LocalEmbeddingProvider):
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        endpoint: str,
+        transport: Callable[[list[str], str, str, str], dict[str, object]] | None = None,
+    ):
+        self.api_key = api_key
+        self.model = model
+        self.endpoint = endpoint
+        self.transport = transport or _dashscope_embedding_transport
+        self.provider_name = f"dashscope:{model}"
+        self._cache: dict[str, tuple[float, ...]] = {}
+
+    def similarity(self, query: str, text: str) -> float:
+        try:
+            query_vector = self._embedding(query)
+            text_vector = self._embedding(text)
+        except Exception:
+            return super().similarity(query, text)
+        return _vector_cosine(query_vector, text_vector)
+
+    def _embedding(self, text: str) -> tuple[float, ...]:
+        if text in self._cache:
+            return self._cache[text]
+        response = self.transport([text], self.api_key, self.endpoint, self.model)
+        vectors = _extract_embedding_vectors(response)
+        vector = vectors[0] if vectors else ()
+        self._cache[text] = vector
+        return vector
+
+
+class DashScopeRerankProvider(LocalRerankProvider):
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        endpoint: str,
+        transport: Callable[[str, list[str], str, str, str], dict[str, object]] | None = None,
+    ):
+        self.api_key = api_key
+        self.model = model
+        self.endpoint = endpoint
+        self.transport = transport or _dashscope_rerank_transport
+        self.provider_name = f"dashscope:{model}"
+
+    def rerank(self, query: str, country: str, chunk: RagChunk, bm25_score: float, vector_score: float) -> float:
+        document = f"{chunk.title}：{chunk.text}"
+        try:
+            response = self.transport(query, [document], self.api_key, self.endpoint, self.model)
+            score = _extract_rerank_score(response)
+        except Exception:
+            return super().rerank(query, country, chunk, bm25_score, vector_score)
+        return score if score is not None else super().rerank(query, country, chunk, bm25_score, vector_score)
+
+
 def providers_from_config(config: RagProviderConfig | None = None) -> tuple[LocalEmbeddingProvider, LocalRerankProvider]:
     config = config or RagProviderConfig.from_env()
-    embedding = (
-        LocalEmbeddingProvider()
-        if config.embedding_provider == "local"
-        else ConfiguredEmbeddingProvider(config.embedding_provider, config.embedding_model)
-    )
-    rerank = (
-        LocalRerankProvider()
-        if config.rerank_provider == "local"
-        else ConfiguredRerankProvider(config.rerank_provider, config.rerank_model)
-    )
+    if config.remote_calls_enabled and config.embedding_provider == "dashscope":
+        embedding: LocalEmbeddingProvider = DashScopeEmbeddingProvider(
+            config.api_key,
+            config.embedding_model,
+            config.embedding_endpoint,
+        )
+    elif config.embedding_provider == "local" or not config.remote_calls_enabled:
+        embedding = LocalEmbeddingProvider()
+    else:
+        embedding = ConfiguredEmbeddingProvider(config.embedding_provider, config.embedding_model)
+
+    if config.remote_calls_enabled and config.rerank_provider == "dashscope":
+        rerank: LocalRerankProvider = DashScopeRerankProvider(
+            config.api_key,
+            config.rerank_model,
+            config.rerank_endpoint,
+        )
+    elif config.rerank_provider == "local" or not config.remote_calls_enabled:
+        rerank = LocalRerankProvider()
+    else:
+        rerank = ConfiguredRerankProvider(config.rerank_provider, config.rerank_model)
     return embedding, rerank
 
 
@@ -266,6 +367,17 @@ def _cosine(left: tuple[str, ...], right: tuple[str, ...]) -> float:
     return dot / (left_norm * right_norm)
 
 
+def _vector_cosine(left: tuple[float, ...], right: tuple[float, ...]) -> float:
+    if not left or not right or len(left) != len(right):
+        return 0.0
+    dot = sum(a * b for a, b in zip(left, right))
+    left_norm = math.sqrt(sum(value * value for value in left))
+    right_norm = math.sqrt(sum(value * value for value in right))
+    if left_norm == 0 or right_norm == 0:
+        return 0.0
+    return dot / (left_norm * right_norm)
+
+
 def _rerank_score(query: str, country: str, chunk: RagChunk, bm25: float, vector: float) -> float:
     score = bm25 * 0.56 + vector * 0.34
     if chunk.country == country:
@@ -301,3 +413,64 @@ def _load_env_file(path: Path) -> None:
             continue
         key, value = stripped.split("=", 1)
         os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+def _dashscope_embedding_transport(texts: list[str], api_key: str, endpoint: str, model: str) -> dict[str, object]:
+    payload = {"model": model, "input": texts}
+    return _post_json(endpoint, payload, api_key)
+
+
+def _dashscope_rerank_transport(query: str, documents: list[str], api_key: str, endpoint: str, model: str) -> dict[str, object]:
+    payload = {"model": model, "input": {"query": query, "documents": documents}, "parameters": {"return_documents": False}}
+    return _post_json(endpoint, payload, api_key)
+
+
+def _post_json(endpoint: str, payload: dict[str, object], api_key: str) -> dict[str, object]:
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = request.Request(
+        endpoint,
+        data=data,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with request.urlopen(req, timeout=20) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _extract_embedding_vectors(response: dict[str, object]) -> tuple[tuple[float, ...], ...]:
+    data = response.get("data")
+    if isinstance(data, list):
+        vectors = []
+        for item in data:
+            if isinstance(item, dict) and isinstance(item.get("embedding"), list):
+                vectors.append(tuple(float(value) for value in item["embedding"]))
+        return tuple(vectors)
+    output = response.get("output")
+    if isinstance(output, dict) and isinstance(output.get("embeddings"), list):
+        vectors = []
+        for item in output["embeddings"]:
+            if isinstance(item, dict) and isinstance(item.get("embedding"), list):
+                vectors.append(tuple(float(value) for value in item["embedding"]))
+        return tuple(vectors)
+    return ()
+
+
+def _extract_rerank_score(response: dict[str, object]) -> float | None:
+    results = response.get("results")
+    if isinstance(results, list) and results:
+        first = results[0]
+        if isinstance(first, dict):
+            score = first.get("relevance_score", first.get("score"))
+            if score is not None:
+                return float(score)
+    output = response.get("output")
+    if isinstance(output, dict) and isinstance(output.get("results"), list) and output["results"]:
+        first = output["results"][0]
+        if isinstance(first, dict):
+            score = first.get("relevance_score", first.get("score"))
+            if score is not None:
+                return float(score)
+    return None

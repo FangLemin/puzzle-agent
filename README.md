@@ -115,6 +115,8 @@ Harness 生成 trace 说明：Agent 评测页会读取本地 generation event me
 
 RAG Provider 说明：默认不需要额外配置，系统使用本地 `local-token-cosine` embedding fallback 和 `local-rule-rerank` 精排。若后续要接 DashScope、OpenAI、Cohere 或自建 embedding/rerank 服务，可在 `.env` 配置 `RAG_EMBEDDING_PROVIDER`、`RAG_EMBEDDING_MODEL`、`RAG_RERANK_PROVIDER`、`RAG_RERANK_MODEL`。当前 provider 化只负责配置、状态展示和可替换接口，本地仍不主动发起远程 embedding/rerank 请求，避免误产生费用或泄露业务数据。
 
+DashScope RAG Provider 说明：如需真实调用通义千问/DashScope embedding 与 rerank，可配置 `RAG_EMBEDDING_PROVIDER=dashscope`、`RAG_EMBEDDING_MODEL=text-embedding-v3`、`RAG_RERANK_PROVIDER=dashscope`、`RAG_RERANK_MODEL=gte-rerank-v2`，并提供 `RAG_API_KEY` 或 `DASHSCOPE_API_KEY`。为了保护业务数据和成本，系统即使检测到 key，也只有在 `.env` 显式设置 `RAG_ENABLE_REMOTE_CALLS=true` 后才会真正请求远程服务；否则页面会显示 provider/key 就绪但继续使用本地 fallback。可选配置 `RAG_EMBEDDING_ENDPOINT` 与 `RAG_RERANK_ENDPOINT` 覆盖默认 endpoint。
+
 Harness HITL 说明：Agent 评测页的失败样本复盘区会展示样本缩略图、gold label、Agent 输出和失败原因，并提供人工修正入口。当前人工修正先写入本地 HITL memory，作为后续回写 gold dataset 或导出到 Label Studio/Argilla 的数据基础。
 
 Harness 修正回流说明：Agent 评测页支持将 HITL 人工修正导出为 CSV，默认写到运行目录中的 `harness_overrides_<国家>.csv`。该 CSV 可作为人工复核后的中间层，再手动合并回 `PUZZLEOPS_HARNESS_DATASET`，避免直接覆盖真实 gold dataset。

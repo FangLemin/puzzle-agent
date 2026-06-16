@@ -2,6 +2,64 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.47 - DashScope RAG Provider 远程调用门禁
+
+日期：2026-06-16
+
+阶段目标：
+
+- 将 v0.3.46 的 provider 抽象继续推进到“可真实接 DashScope embedding/rerank”的工程状态。
+- 同时保留业务安全门禁：默认不发外部请求，避免误产生费用或把业务数据发到远程服务。
+
+已完成：
+
+- `puzzle_ops/rag.py` 新增真实 provider：
+  - `DashScopeEmbeddingProvider`
+  - `DashScopeRerankProvider`
+- DashScope embedding provider：
+  - 支持通过 transport 请求 embedding。
+  - 支持解析 OpenAI-compatible `data[].embedding` 返回。
+  - 支持解析 DashScope `output.embeddings[].embedding` 返回。
+  - 内置文本 embedding cache，避免同一文本重复请求。
+  - 调用异常时回退本地 token/cosine 相似度。
+- DashScope rerank provider：
+  - 支持通过 transport 请求 rerank。
+  - 支持解析 `results[].relevance_score` / `results[].score`。
+  - 支持解析 `output.results[]` 返回。
+  - 调用异常时回退本地规则 rerank。
+- 远程调用安全门禁：
+  - `RAG_API_KEY` 或 `DASHSCOPE_API_KEY` 只表示 key 就绪。
+  - 只有 `RAG_ENABLE_REMOTE_CALLS=true` 时，`providers_from_config(...)` 才返回真实 DashScope provider。
+  - 未开启远程调用时，即使配置了 provider/key，也继续使用本地 fallback。
+- `.env` 支持：
+  - `RAG_EMBEDDING_PROVIDER=dashscope`
+  - `RAG_EMBEDDING_MODEL=text-embedding-v3`
+  - `RAG_RERANK_PROVIDER=dashscope`
+  - `RAG_RERANK_MODEL=gte-rerank-v2`
+  - `RAG_API_KEY` 或 `DASHSCOPE_API_KEY`
+  - `RAG_ENABLE_REMOTE_CALLS=true`
+  - `RAG_EMBEDDING_ENDPOINT`
+  - `RAG_RERANK_ENDPOINT`
+- `value_audit_rag_summary(...)` 新增：
+  - `provider_remote_ready`
+  - `provider_remote_calls_enabled`
+- README 补充 DashScope RAG Provider 使用说明。
+
+当前限制：
+
+- 本轮真实 provider 已具备 transport 和解析能力，但默认仍通过远程调用门禁关闭。
+- 尚未把远程调用耗时、费用估算、请求次数写入 Harness 指标。
+- 尚未做 embedding 向量持久化缓存；当前只做 provider 内存 cache。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_rag.py tests/test_agents.py::test_agent_rag_summary_exposes_embedding_and_rerank_provider_names tests/test_agents.py::test_agent_rag_summary_marks_remote_ready_only_with_api_key -q`：11 passed。
+- `PYTHONPATH=. pytest tests/test_rag.py tests/test_agents.py tests/test_renderer.py -q`：59 passed。
+- `PYTHONPATH=. pytest tests -q`：181 passed。
+- `find . -maxdepth 3 -type f \\( -name 'package.json' -o -name 'vite.config.*' -o -name '*.js' -o -name '*.ts' -o -name '*.tsx' -o -name '*.jsx' -o -name '*.vue' \\) -not -path './.git/*' -print`：无输出。
+- `find puzzle_ops tests -type f -not -name '*.py' -not -path '*/__pycache__/*' -print`：无输出。
+- `git diff --check`：无输出。
+
 ## v0.3.46 - RAG Embedding/Rerank Provider 化
 
 日期：2026-06-16
