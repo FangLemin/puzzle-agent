@@ -79,6 +79,15 @@ def test_repository_stores_parent_child_rag_index(tmp_path):
     assert stored_chunks[0]["chunk_id"] == "JP_VALUE_001#chunk-1"
 
 
+def test_repository_persists_rag_embedding_cache(tmp_path):
+    repo = PuzzleRepository(tmp_path / "puzzle_ops.db")
+
+    repo.set_rag_embedding_cache("dashscope", "text-embedding-v3", "寿司属于日本饮食文化", (0.1, 0.2, 0.3))
+
+    assert repo.get_rag_embedding_cache("dashscope", "text-embedding-v3", "寿司属于日本饮食文化") == (0.1, 0.2, 0.3)
+    assert repo.get_rag_embedding_cache("dashscope", "text-embedding-v3", "不存在") is None
+
+
 def test_cache_provider_uses_in_memory_fallback_when_redis_unavailable():
     cache = RedisCache.from_url("redis://127.0.0.1:1/0")
 

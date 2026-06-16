@@ -430,6 +430,16 @@ def test_agent_rag_summary_marks_remote_ready_only_with_api_key(monkeypatch):
     assert ready["provider_remote_ready"] is True
 
 
+def test_agent_rag_summary_includes_runtime_stats():
+    summary = PuzzleOpsAgent().value_audit_rag_summary("日本")
+
+    assert "embedding_cache_hits" in summary
+    assert "embedding_remote_calls" in summary
+    assert "embedding_fallbacks" in summary
+    assert "rerank_remote_calls" in summary
+    assert "rerank_fallbacks" in summary
+
+
 def test_agent_exports_harness_annotation_files_for_label_tools(monkeypatch, tmp_path):
     image_path = tmp_path / "real-sushi.png"
     image_path.write_bytes(b"fake-png")

@@ -511,11 +511,18 @@ def render_rag_summary(summary: dict[str, object]) -> str:
     embedding = f"{summary.get('embedding_provider', 'local')} / {summary.get('embedding_model', 'local-token-cosine')}"
     rerank = f"{summary.get('rerank_provider', 'local')} / {summary.get('rerank_model', 'local-rule-rerank')}"
     provider_status = str(summary.get("provider_status", "本地 fallback"))
+    stats = (
+        f"cache hit {summary.get('embedding_cache_hits', 0)}；"
+        f"embedding remote {summary.get('embedding_remote_calls', 0)}；"
+        f"embedding fallback {summary.get('embedding_fallbacks', 0)}；"
+        f"rerank remote {summary.get('rerank_remote_calls', 0)}；"
+        f"rerank fallback {summary.get('rerank_fallbacks', 0)}"
+    )
     return f"""
 <div class="rag-grid">
   <article><strong>父子知识块</strong><span>{escape(str(summary.get("chunk_count", 0)))} 个 chunk</span><small>{escape(source_text)}</small></article>
   <article><strong>多路召回</strong><span>BM25 + Embedding + Rerank</span><small>Embedding：{escape(embedding)}；Rerank：{escape(rerank)}。{escape(provider_status)}</small></article>
-  <article><strong>引用依据</strong><span>{escape(citation_text or "暂无引用")}</span><small>{escape(context[:180] or "暂无召回上下文")}</small></article>
+  <article><strong>引用依据</strong><span>{escape(citation_text or "暂无引用")}</span><small>{escape(context[:140] or "暂无召回上下文")}；{escape(stats)}</small></article>
 </div>
 """
 

@@ -310,6 +310,9 @@ def test_multimodal_runtime_page_shows_profile_candidates_and_evidence():
     assert "引用依据" in html
     assert "Embedding" in html
     assert "Rerank" in html
+    assert "cache hit" in html
+    assert "embedding remote" in html
+    assert "rerank fallback" in html
 
 
 def test_multimodal_runtime_page_shows_approved_candidate_after_hitl_action():

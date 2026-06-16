@@ -6,6 +6,7 @@ from puzzle_ops.rag import (
     LocalRerankProvider,
     RagDocument,
     RagProviderConfig,
+    RagRuntimeStats,
     build_rag_prompt,
     chunk_document,
     providers_from_config,
@@ -128,6 +129,33 @@ def test_dashscope_embedding_provider_uses_transport_and_cosine_similarity():
     assert provider.provider_name == "dashscope:text-embedding-v3"
 
 
+def test_dashscope_embedding_provider_uses_persistent_cache_before_remote_call():
+    calls = []
+    cache = {"寿司价值观": (1.0, 0.0, 0.0), "寿司属于日本饮食文化": (0.8, 0.2, 0.0)}
+    stats = RagRuntimeStats()
+
+    def fake_transport(texts, api_key, endpoint, model):
+        calls.append(texts)
+        return {"data": [{"embedding": [0.0, 0.0, 1.0]} for _ in texts]}
+
+    provider = DashScopeEmbeddingProvider(
+        api_key="dashscope-test",
+        model="text-embedding-v3",
+        endpoint="https://dashscope.test/embeddings",
+        transport=fake_transport,
+        cache_get=lambda provider_name, model, text: cache.get(text),
+        cache_set=lambda provider_name, model, text, vector: cache.__setitem__(text, vector),
+        stats=stats,
+    )
+
+    score = provider.similarity("寿司价值观", "寿司属于日本饮食文化")
+
+    assert score > 0.9
+    assert calls == []
+    assert stats.embedding_cache_hits == 2
+    assert stats.embedding_remote_calls == 0
+
+
 def test_dashscope_rerank_provider_uses_transport_score():
     calls = []
 
@@ -141,6 +169,7 @@ def test_dashscope_rerank_provider_uses_transport_score():
         model="gte-rerank-v2",
         endpoint="https://dashscope.test/rerank",
         transport=fake_transport,
+        stats=RagRuntimeStats(),
     )
 
     score = provider.rerank("寿司是否符合日本价值观", "日本", chunk, bm25_score=0.2, vector_score=0.3)
@@ -149,6 +178,39 @@ def test_dashscope_rerank_provider_uses_transport_score():
     assert calls[0][0] == "寿司是否符合日本价值观"
     assert calls[0][1] == ["文化真实性：寿司属于日本本土饮食文化。"]
     assert provider.provider_name == "dashscope:gte-rerank-v2"
+
+
+def test_rag_runtime_stats_tracks_remote_and_fallback_paths():
+    stats = RagRuntimeStats()
+
+    def broken_embedding_transport(texts, api_key, endpoint, model):
+        raise RuntimeError("timeout")
+
+    def broken_rerank_transport(query, documents, api_key, endpoint, model):
+        raise RuntimeError("timeout")
+
+    chunk = chunk_document(RagDocument("JP_VALUE_001", "日本", "value_rule", "文化真实性", "寿司属于日本本土饮食文化。", {}))[0]
+    embedding = DashScopeEmbeddingProvider(
+        api_key="dashscope-test",
+        model="text-embedding-v3",
+        endpoint="https://dashscope.test/embeddings",
+        transport=broken_embedding_transport,
+        stats=stats,
+    )
+    rerank = DashScopeRerankProvider(
+        api_key="dashscope-test",
+        model="gte-rerank-v2",
+        endpoint="https://dashscope.test/rerank",
+        transport=broken_rerank_transport,
+        stats=stats,
+    )
+
+    assert embedding.similarity("寿司", "寿司属于日本饮食文化") > 0
+    assert rerank.rerank("寿司", "日本", chunk, 0.2, 0.3) > 0
+    assert stats.embedding_remote_calls == 1
+    assert stats.embedding_fallbacks == 1
+    assert stats.rerank_remote_calls == 1
+    assert stats.rerank_fallbacks == 1
 
 
 def test_providers_from_config_uses_dashscope_when_api_key_present(monkeypatch):

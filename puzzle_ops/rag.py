@@ -50,6 +50,24 @@ class RagPrompt:
     prompt: str
 
 
+@dataclass
+class RagRuntimeStats:
+    embedding_cache_hits: int = 0
+    embedding_remote_calls: int = 0
+    embedding_fallbacks: int = 0
+    rerank_remote_calls: int = 0
+    rerank_fallbacks: int = 0
+
+    def as_dict(self) -> dict[str, int]:
+        return {
+            "embedding_cache_hits": self.embedding_cache_hits,
+            "embedding_remote_calls": self.embedding_remote_calls,
+            "embedding_fallbacks": self.embedding_fallbacks,
+            "rerank_remote_calls": self.rerank_remote_calls,
+            "rerank_fallbacks": self.rerank_fallbacks,
+        }
+
+
 @dataclass(frozen=True)
 class RagProviderConfig:
     embedding_provider: str = "local"
@@ -139,6 +157,9 @@ class DashScopeEmbeddingProvider(LocalEmbeddingProvider):
         model: str,
         endpoint: str,
         transport: Callable[[list[str], str, str, str], dict[str, object]] | None = None,
+        cache_get: Callable[[str, str, str], tuple[float, ...] | None] | None = None,
+        cache_set: Callable[[str, str, str, tuple[float, ...]], None] | None = None,
+        stats: RagRuntimeStats | None = None,
     ):
         self.api_key = api_key
         self.model = model
@@ -146,22 +167,36 @@ class DashScopeEmbeddingProvider(LocalEmbeddingProvider):
         self.transport = transport or _dashscope_embedding_transport
         self.provider_name = f"dashscope:{model}"
         self._cache: dict[str, tuple[float, ...]] = {}
+        self.cache_get = cache_get
+        self.cache_set = cache_set
+        self.stats = stats or RagRuntimeStats()
 
     def similarity(self, query: str, text: str) -> float:
         try:
             query_vector = self._embedding(query)
             text_vector = self._embedding(text)
         except Exception:
+            self.stats.embedding_fallbacks += 1
             return super().similarity(query, text)
         return _vector_cosine(query_vector, text_vector)
 
     def _embedding(self, text: str) -> tuple[float, ...]:
         if text in self._cache:
+            self.stats.embedding_cache_hits += 1
             return self._cache[text]
+        if self.cache_get:
+            cached = self.cache_get("dashscope", self.model, text)
+            if cached is not None:
+                self.stats.embedding_cache_hits += 1
+                self._cache[text] = cached
+                return cached
+        self.stats.embedding_remote_calls += 1
         response = self.transport([text], self.api_key, self.endpoint, self.model)
         vectors = _extract_embedding_vectors(response)
         vector = vectors[0] if vectors else ()
         self._cache[text] = vector
+        if self.cache_set and vector:
+            self.cache_set("dashscope", self.model, text, vector)
         return vector
 
 
@@ -172,30 +207,47 @@ class DashScopeRerankProvider(LocalRerankProvider):
         model: str,
         endpoint: str,
         transport: Callable[[str, list[str], str, str, str], dict[str, object]] | None = None,
+        stats: RagRuntimeStats | None = None,
     ):
         self.api_key = api_key
         self.model = model
         self.endpoint = endpoint
         self.transport = transport or _dashscope_rerank_transport
         self.provider_name = f"dashscope:{model}"
+        self.stats = stats or RagRuntimeStats()
 
     def rerank(self, query: str, country: str, chunk: RagChunk, bm25_score: float, vector_score: float) -> float:
         document = f"{chunk.title}：{chunk.text}"
         try:
+            self.stats.rerank_remote_calls += 1
             response = self.transport(query, [document], self.api_key, self.endpoint, self.model)
             score = _extract_rerank_score(response)
         except Exception:
+            self.stats.rerank_fallbacks += 1
             return super().rerank(query, country, chunk, bm25_score, vector_score)
-        return score if score is not None else super().rerank(query, country, chunk, bm25_score, vector_score)
+        if score is None:
+            self.stats.rerank_fallbacks += 1
+            return super().rerank(query, country, chunk, bm25_score, vector_score)
+        return score
 
 
-def providers_from_config(config: RagProviderConfig | None = None) -> tuple[LocalEmbeddingProvider, LocalRerankProvider]:
+def providers_from_config(
+    config: RagProviderConfig | None = None,
+    *,
+    stats: RagRuntimeStats | None = None,
+    cache_get: Callable[[str, str, str], tuple[float, ...] | None] | None = None,
+    cache_set: Callable[[str, str, str, tuple[float, ...]], None] | None = None,
+) -> tuple[LocalEmbeddingProvider, LocalRerankProvider]:
     config = config or RagProviderConfig.from_env()
+    stats = stats or RagRuntimeStats()
     if config.remote_calls_enabled and config.embedding_provider == "dashscope":
         embedding: LocalEmbeddingProvider = DashScopeEmbeddingProvider(
             config.api_key,
             config.embedding_model,
             config.embedding_endpoint,
+            cache_get=cache_get,
+            cache_set=cache_set,
+            stats=stats,
         )
     elif config.embedding_provider == "local" or not config.remote_calls_enabled:
         embedding = LocalEmbeddingProvider()
@@ -207,6 +259,7 @@ def providers_from_config(config: RagProviderConfig | None = None) -> tuple[Loca
             config.api_key,
             config.rerank_model,
             config.rerank_endpoint,
+            stats=stats,
         )
     elif config.rerank_provider == "local" or not config.remote_calls_enabled:
         rerank = LocalRerankProvider()

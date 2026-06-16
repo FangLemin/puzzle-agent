@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import asdict
+import hashlib
 import json
 from pathlib import Path
 
@@ -149,6 +150,38 @@ class PuzzleRepository:
                 (country,),
             ).fetchall()
         return tuple(_decode_metadata(dict(row)) for row in rows)
+
+    def get_rag_embedding_cache(self, provider: str, model: str, text: str) -> tuple[float, ...] | None:
+        text_hash = _text_hash(text)
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT vector FROM rag_embedding_cache
+                WHERE provider = ? AND model = ? AND text_hash = ?
+                """,
+                (provider, model, text_hash),
+            ).fetchone()
+        if not row:
+            return None
+        try:
+            return tuple(float(value) for value in json.loads(str(row["vector"])))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+
+    def set_rag_embedding_cache(self, provider: str, model: str, text: str, vector: tuple[float, ...]) -> None:
+        text_hash = _text_hash(text)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO rag_embedding_cache(provider, model, text_hash, text, vector)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(provider, model, text_hash) DO UPDATE SET
+                    text=excluded.text,
+                    vector=excluded.vector,
+                    updated_at=CURRENT_TIMESTAMP
+                """,
+                (provider, model, text_hash, text, json.dumps(vector)),
+            )
 
     def add_sync_event(self, country: str, action: str, target: str, status: str) -> None:
         with self._connect() as conn:
@@ -337,6 +370,20 @@ class PuzzleRepository:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS rag_embedding_cache (
+                    provider TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    text_hash TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    vector TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY(provider, model, text_hash)
+                )
+                """
+            )
 
 
 def _decode_metadata(item: dict[str, object]) -> dict[str, object]:
@@ -345,3 +392,7 @@ def _decode_metadata(item: dict[str, object]) -> dict[str, object]:
     except json.JSONDecodeError:
         item["metadata"] = {}
     return item
+
+
+def _text_hash(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()

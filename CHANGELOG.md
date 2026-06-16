@@ -2,6 +2,63 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.48 - RAG Embedding 缓存与调用可观测
+
+日期：2026-06-16
+
+阶段目标：
+
+- 将 v0.3.47 的 DashScope RAG provider 从“可真实调用”推进到“可缓存、可观测、可诊断”。
+- 降低重复 embedding 请求成本，并让页面能说明本次 RAG 是否远程调用、是否缓存命中、是否发生 fallback。
+
+已完成：
+
+- SQLite 新增 `rag_embedding_cache`：
+  - 主键：`provider`、`model`、`text_hash`。
+  - 保存原始 text 与 vector JSON。
+  - 记录 `created_at` / `updated_at`。
+- `PuzzleRepository` 新增：
+  - `get_rag_embedding_cache(provider, model, text)`
+  - `set_rag_embedding_cache(provider, model, text, vector)`
+- `puzzle_ops/rag.py` 新增：
+  - `RagRuntimeStats`
+  - `embedding_cache_hits`
+  - `embedding_remote_calls`
+  - `embedding_fallbacks`
+  - `rerank_remote_calls`
+  - `rerank_fallbacks`
+- `DashScopeEmbeddingProvider`：
+  - 优先查内存 cache。
+  - 再查 SQLite 持久化 cache。
+  - 未命中且远程调用开启时请求 provider。
+  - 成功后写回内存和 SQLite cache。
+  - 异常时记录 fallback 并回退本地 token/cosine。
+- `DashScopeRerankProvider`：
+  - 记录远程调用次数。
+  - 解析失败或请求异常时记录 fallback 并回退本地规则 rerank。
+- `PuzzleOpsAgent`：
+  - 每次 `value_audit_rag_answer(...)` 创建独立 `RagRuntimeStats`。
+  - 将 repository cache 方法传入 provider。
+  - `value_audit_rag_summary(...)` 输出 RAG runtime stats。
+- 多模态底座：
+  - “价值观与审核 RAG”展示 cache hit、embedding remote、embedding fallback、rerank remote、rerank fallback。
+- README 增加 RAG 可观测与缓存说明。
+
+当前限制：
+
+- 当前只持久化 embedding vector，rerank 结果暂未缓存。
+- 当前统计是单次 RAG summary 级别，尚未写入 Harness Run 历史指标。
+- 当前未记录远程调用耗时和 token/费用估算，后续可继续加入成本观测。
+
+验证记录：
+
+- `PYTHONPATH=. pytest tests/test_storage_runtime.py::test_repository_persists_rag_embedding_cache tests/test_rag.py::test_dashscope_embedding_provider_uses_persistent_cache_before_remote_call tests/test_rag.py::test_rag_runtime_stats_tracks_remote_and_fallback_paths tests/test_agents.py::test_agent_rag_summary_includes_runtime_stats -q`：4 passed。
+- `PYTHONPATH=. pytest tests/test_rag.py tests/test_storage_runtime.py tests/test_agents.py tests/test_renderer.py -q`：69 passed。
+- `PYTHONPATH=. pytest tests -q`：185 passed。
+- `find . -maxdepth 3 -type f \\( -name 'package.json' -o -name 'vite.config.*' -o -name '*.js' -o -name '*.ts' -o -name '*.tsx' -o -name '*.jsx' -o -name '*.vue' \\) -not -path './.git/*' -print`：无输出。
+- `find puzzle_ops tests -type f -not -name '*.py' -not -path '*/__pycache__/*' -print`：无输出。
+- `git diff --check`：无输出。
+
 ## v0.3.47 - DashScope RAG Provider 远程调用门禁
 
 日期：2026-06-16
