@@ -428,6 +428,7 @@ def render_value(agent: PuzzleOpsAgent, state: AppState) -> str:
 
 def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
     profile = agent.multimodal_profile(state.country)
+    feature = profile.feature
     vision_status = agent.vision_llm_status()
     candidates = agent.value_rule_candidates(state.country)
     approved_rules = agent.approved_value_rules(state.country)
@@ -447,7 +448,7 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
     memory_items = "".join(f'<li>{escape(str(memory["content"]))}</li>' for memory in memories)
     memory_overview_cards = render_memory_overview(memory_overview)
     rag_cards = render_rag_summary(rag_summary)
-    feature = profile.feature
+    memory_debug_rows = render_memory_debug_rows(agent.memory_debug(state.country, query=feature.main_subject))
     return f"""
 <section class="panel">
   <h2>多模态底座</h2>
@@ -483,6 +484,7 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
   <div class="panel"><h2>HITL Memory</h2><ul>{memory_items or '<li>暂无人工反馈记忆。</li>'}</ul></div>
 </section>
 <section class="panel"><h2>四层 Memory 概览</h2><div class="memory-grid">{memory_overview_cards}</div></section>
+<section class="panel"><h2>Memory Debug</h2><div class="table-wrap"><table><thead><tr><th>层级</th><th>类型</th><th>RAG Source</th><th>命中分</th><th>RAG Ready</th><th>记忆内容</th><th>时间</th></tr></thead><tbody>{memory_debug_rows}</tbody></table></div></section>
 <section class="panel"><h2>价值观与审核 RAG</h2>{rag_cards}</section>
 """
 
@@ -499,6 +501,23 @@ def render_memory_overview(overview: dict[str, dict[str, object]]) -> str:
             f"<article class='memory-card'><strong>{escape(label)}</strong><span>{escape(str(item.get('count', 0) if isinstance(item, dict) else 0))} 条</span><small>RAG Ready {escape(str(rag_ready))} 条；{escape(summary or '暂无记录')}</small></article>"
         )
     return "".join(cards)
+
+
+def render_memory_debug_rows(rows: tuple[dict[str, object], ...]) -> str:
+    if not rows:
+        return '<tr><td colspan="7">暂无四层 memory 记录。</td></tr>'
+    return "".join(
+        "<tr>"
+        f"<td>{escape(str(row.get('layer', '')))}</td>"
+        f"<td>{escape(str(row.get('memory_type', '')))}</td>"
+        f"<td>{escape(str(row.get('rag_source_type', '')))}</td>"
+        f"<td>{escape(str(row.get('match_score', 0)))}</td>"
+        f"<td>{'是' if row.get('rag_ready') else '否'}</td>"
+        f"<td>{escape(str(row.get('summary', '')))}</td>"
+        f"<td>{escape(str(row.get('created_at', '')))}</td>"
+        "</tr>"
+        for row in rows
+    )
 
 
 def render_rag_summary(summary: dict[str, object]) -> str:
@@ -553,6 +572,8 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
         for case in harness_run.failures[:6]
     )
     generation_failure_rows = render_generation_failure_distribution(agent.generation_events(state.country))
+    case_evidence_rows = render_harness_case_evidence_rows(harness_run.cases)
+    failure_category_rows = render_harness_failure_categories(harness_run.failures)
     compare_rows = "".join(
         f"<tr><td>{escape(key)}</td><td>{escape(value)}</td></tr>"
         for key, value in version_compare.items()
@@ -589,6 +610,10 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
   <div class="panel"><h2>版本对比</h2><div class="table-wrap"><table><tbody>{compare_rows}</tbody></table></div></div>
 </section>
 <section class="panel"><h2>生成失败类型分布</h2><div class="table-wrap"><table><thead><tr><th>错误类型</th><th>次数</th></tr></thead><tbody>{generation_failure_rows}</tbody></table></div></section>
+<section class="grid two">
+  <div class="panel"><h2>Case 证据链</h2><div class="table-wrap"><table><thead><tr><th>样本/任务</th><th>RAG 引用</th><th>视觉证据</th><th>Memory 证据</th></tr></thead><tbody>{case_evidence_rows}</tbody></table></div></div>
+  <div class="panel"><h2>失败分类</h2><div class="table-wrap"><table><thead><tr><th>分类</th><th>次数</th></tr></thead><tbody>{failure_category_rows}</tbody></table></div></div>
+</section>
 <section class="metrics">{metric_cards}</section>
 <section class="panel">
   <h2>任务目标</h2>
@@ -634,6 +659,35 @@ def render_generation_failure_distribution(events: tuple[dict[str, str], ...]) -
     if not counts:
         return '<tr><td colspan="2">暂无生成失败记录。</td></tr>'
     return "".join(f"<tr><td>{escape(error_type)}</td><td>{count}</td></tr>" for error_type, count in sorted(counts.items()))
+
+
+def render_harness_case_evidence_rows(cases) -> str:
+    rows = []
+    for case in cases[:12]:
+        evidence = case.evidence_trace if isinstance(case.evidence_trace, dict) else {}
+        citations = evidence.get("rag_citations", ())
+        citation_text = "、".join(str(item) for item in citations) if isinstance(citations, (list, tuple)) else str(citations)
+        memories = evidence.get("memory_evidence", ())
+        memory_text = "；".join(str(item) for item in memories) if isinstance(memories, (list, tuple)) else str(memories)
+        rows.append(
+            "<tr>"
+            f"<td>{escape(case.sample_id)}<br><small>{escape(case.task_type)}</small></td>"
+            f"<td>{escape(citation_text or '无引用')}</td>"
+            f"<td>{escape(str(evidence.get('visual_evidence', '未记录')))}</td>"
+            f"<td>{escape(memory_text or '未使用')}</td>"
+            "</tr>"
+        )
+    return "".join(rows) or '<tr><td colspan="4">暂无 case trace。</td></tr>'
+
+
+def render_harness_failure_categories(failures) -> str:
+    counts: dict[str, int] = {}
+    for case in failures:
+        for category in case.failure_categories or ("uncategorized",):
+            counts[category] = counts.get(category, 0) + 1
+    if not counts:
+        return '<tr><td colspan="2">暂无失败分类。</td></tr>'
+    return "".join(f"<tr><td>{escape(category)}</td><td>{count}</td></tr>" for category, count in sorted(counts.items()))
 
 
 def render_summary_value(value: object) -> str:
@@ -901,7 +955,7 @@ CSS = """
 * { box-sizing: border-box; }
 body { margin:0; display:grid; grid-template-columns:280px 1fr; min-height:100vh; color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:#f7f2e8; }
 aside { padding:22px; background:#fffaf0; border-right:1px solid var(--line); }
-main { padding:22px; }
+main { padding:22px; min-width:0; overflow-x:hidden; }
 header { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; }
 header p { margin:0 0 4px; color:var(--muted); font-weight:800; }
 h1, h2 { margin:0 0 12px; }
@@ -929,6 +983,7 @@ nav { display:grid; gap:8px; margin:18px 0; }
 .delta-good { color:#1f9d68; }
 .delta-bad { color:#d84a3a; }
 .grid { display:grid; gap:14px; margin-bottom:14px; }
+.grid > *, .panel { min-width:0; }
 .grid.two { grid-template-columns:1.1fr .9fr; }
 .grid.three { grid-template-columns:.75fr 1fr 1.4fr; }
 .page-icon { display:inline-grid; place-items:center; width:42px; height:42px; margin-right:10px; border-radius:12px; background:#e7f4ee; vertical-align:middle; }
@@ -1016,7 +1071,7 @@ nav { display:grid; gap:8px; margin:18px 0; }
 .col-remark { width:220px; }
 .col-value { width:760px; }
 table { width:100%; border-collapse:collapse; }
-th, td { padding:10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; font-size:13px; }
+th, td { padding:10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; font-size:13px; overflow-wrap:anywhere; word-break:break-word; }
 th { background:#eef5f2; }
 input, select, textarea { width:100%; border:1px solid var(--line); border-radius:6px; padding:8px; font:inherit; background:#fff; }
 .operation-tag-input { min-width:280px; font-size:13px; }

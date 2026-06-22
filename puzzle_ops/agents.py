@@ -655,7 +655,7 @@ class PuzzleOpsAgent:
         manual = Path("/Users/fanglemin/Desktop/拼图审核手册.docx")
         if not manual.exists():
             return ()
-        return AuditPolicyRetriever.from_docx(manual).hits
+        return AuditPolicyRetriever.safe_from_docx(manual).hits
 
     def hitl_memories(self, country: str):
         return self.repository.memories(country)
@@ -690,6 +690,32 @@ class PuzzleOpsAgent:
                 "latest": items[-1] if items else {},
             }
         return overview
+
+    def memory_debug(self, country: str, query: str = "", limit: int = 12) -> tuple[dict[str, object], ...]:
+        source_types = {
+            "perception": "memory_perception",
+            "working": "memory_working",
+            "long_term": "approved_value_rule",
+            "facts": "fact",
+        }
+        rows: list[dict[str, object]] = []
+        for memory in self.repository.layered_memories(country):
+            layer = str(memory.get("memory_layer", ""))
+            payload = memory.get("payload", {})
+            summary = _payload_text(payload) if isinstance(payload, dict) else ""
+            rows.append(
+                {
+                    "layer": layer,
+                    "memory_type": str(memory.get("memory_type", "")),
+                    "rag_source_type": source_types.get(layer, "memory"),
+                    "summary": summary,
+                    "created_at": str(memory.get("created_at", "")),
+                    "rag_ready": bool(summary),
+                    "match_score": _memory_match_score(summary, query),
+                }
+            )
+        rows.sort(key=lambda row: (float(row["match_score"]), str(row["created_at"])), reverse=True)
+        return tuple(rows[: max(limit, 0)])
 
     def record_generation_event(self, country: str, event: dict[str, str]) -> None:
         payload = {
@@ -773,7 +799,7 @@ class PuzzleOpsAgent:
 
     def audit_review(self, text: str):
         manual = Path("/Users/fanglemin/Desktop/拼图审核手册.docx")
-        retriever = AuditPolicyRetriever.from_docx(manual)
+        retriever = AuditPolicyRetriever.safe_from_docx(manual)
         return AuditRuleEngine(retriever).review_text(text)
 
     def run_agent_task(self, country: str, task_type: str) -> AgentTrace:
@@ -1098,6 +1124,19 @@ def _payload_text(payload: object) -> str:
             parts.append(f"{key}={value_text}")
         return "；".join(parts)
     return str(payload) if payload else ""
+
+
+def _memory_match_score(text: str, query: str) -> float:
+    normalized_text = text.casefold()
+    normalized_query = query.strip().casefold()
+    if not normalized_query:
+        return 0.0
+    if normalized_query in normalized_text:
+        return 1.0
+    terms = tuple(term for term in re.split(r"[\s,，。；;:_/]+", normalized_query) if term)
+    if not terms:
+        return 0.0
+    return round(sum(1 for term in terms if term in normalized_text) / len(terms), 3)
 
 
 def _rag_chunk_from_row(row: dict[str, object]) -> RagChunk:

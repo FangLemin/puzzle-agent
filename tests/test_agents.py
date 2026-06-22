@@ -1,6 +1,8 @@
 from puzzle_ops.agents import PuzzleOpsAgent
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.vision_llm import MissingVisionLLMConfig, OpenAIVisionLLMClient
+from puzzle_ops.storage import PuzzleRepository
+from puzzle_ops.audit import AuditPolicyRetriever
 from datetime import date
 import json
 
@@ -15,6 +17,34 @@ def test_country_data_is_isolated_between_japan_and_france():
     assert france["country_label"] == "🇫🇷 法国"
     assert "常规_日本_传统浴袍美女0604" in japan["tasks"][0]["body"]
     assert "常规_法国_薰衣草0604" in france["tasks"][0]["body"]
+
+
+def test_memory_debug_exposes_layer_source_and_query_match(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent.record_perception_memory("日本", "vision_parse", {"subject": "寿司", "color_mood": "清爽明亮"})
+    agent.record_working_memory("日本", "trial_state", {"operation_tag": "试新_日本_寿司0622", "status": "parsed"})
+    agent.record_long_term_memory("日本", "approved_value_rule", {"rule": "寿司符合日本本土饮食文化"})
+    agent.record_extracted_fact("日本", "image_fact", {"subject": "寿司", "country": "日本"})
+
+    rows = agent.memory_debug("日本", query="寿司")
+
+    assert {row["layer"] for row in rows} == {"perception", "working", "long_term", "facts"}
+    assert all(row["rag_source_type"] for row in rows)
+    assert all(row["rag_ready"] for row in rows)
+    assert rows[0]["match_score"] >= rows[-1]["match_score"]
+
+
+def test_audit_review_falls_back_when_manual_is_not_readable(monkeypatch):
+    def denied(cls, path):
+        raise PermissionError(f"cannot read {path}")
+
+    monkeypatch.setattr(AuditPolicyRetriever, "from_docx", classmethod(denied))
+
+    review = PuzzleOpsAgent().audit_review("画面出现品牌 LOGO")
+
+    assert review.risk_level == "高"
+    assert "商标" in review.reason
+    assert review.evidence == ()
 
 
 def test_regular_demand_row_has_real_business_fields_and_empty_delivery_date():

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from zipfile import ZipFile
+from zipfile import BadZipFile, ZipFile
 from xml.etree import ElementTree as ET
 
 from puzzle_ops.models import AuditPolicyHit, AuditReviewResult
@@ -20,6 +20,13 @@ class AuditPolicyRetriever:
             risk_level = "高" if any(word in text for word in ("红线", "绝对禁止", "极高", "侵权")) else "中"
             hits.append(AuditPolicyHit(f"policy-{index}", text, risk_level))
         return cls(tuple(hits))
+
+    @classmethod
+    def safe_from_docx(cls, path: Path | str) -> "AuditPolicyRetriever":
+        try:
+            return cls.from_docx(path)
+        except (OSError, BadZipFile, KeyError, ET.ParseError):
+            return cls(())
 
     def search(self, query: str, top_k: int = 5) -> tuple[AuditPolicyHit, ...]:
         terms = tuple(term for term in query.replace("，", " ").replace("、", " ").split() if term)

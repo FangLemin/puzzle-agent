@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 import csv
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -114,6 +114,8 @@ class HarnessCaseResult:
     scores: dict[str, float | str]
     failure_reasons: tuple[str, ...]
     human_override: str = ""
+    evidence_trace: dict[str, object] = field(default_factory=dict)
+    failure_categories: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -133,6 +135,7 @@ class AgentHarness:
     def __init__(self, agent, generator_provider=None):
         self.agent = agent
         self.generator_provider = generator_provider
+        self._run_rag_evidence: dict[str, object] = {}
 
     def dataset_summary(self, samples: tuple[EvalSample, ...]) -> dict[str, object]:
         countries = Counter(sample.country for sample in samples)
@@ -179,16 +182,11 @@ class AgentHarness:
         return tuple(samples)
 
     def run(self, samples: tuple[EvalSample, ...], dataset_name: str, version: str) -> HarnessRun:
+        self._prepare_run_rag_evidence(samples)
         cases: list[HarnessCaseResult] = []
         for sample in samples:
             cases.extend(self._run_sample(sample))
         failures = tuple(case for case in cases if case.failure_reasons)
-        if samples:
-            country = samples[0].country
-            try:
-                self.agent.value_audit_rag_answer(country, f"{country}市场 Harness 评测 RAG 召回、价值观判断与审核风险")
-            except ValueError:
-                pass
         metrics = self._aggregate_metrics(samples, tuple(cases))
         return HarnessRun(
             run_id=f"hr-{uuid4().hex[:10]}",
@@ -201,6 +199,17 @@ class AgentHarness:
             failures=failures,
             created_at=datetime.now().isoformat(timespec="seconds"),
         )
+
+    def _prepare_run_rag_evidence(self, samples: tuple[EvalSample, ...]) -> None:
+        self._run_rag_evidence = {}
+        countries = sorted({sample.country for sample in samples})
+        for country in countries:
+            subjects = "、".join(dict.fromkeys(sample.subject for sample in samples if sample.country == country and sample.subject))
+            query = f"{country}市场 Harness 评测：{subjects or '当前样本'}的价值观判断与审核风险"
+            try:
+                self._run_rag_evidence[country] = self.agent.value_audit_rag_answer(country, query, top_k=6)
+            except (RuntimeError, ValueError):
+                continue
 
     def compare_runs(self, current: HarnessRun, previous: HarnessRun | None) -> dict[str, str]:
         if previous is None:
@@ -224,13 +233,16 @@ class AgentHarness:
     def _trial_parse_case(self, sample: EvalSample) -> HarnessCaseResult:
         description = f"主体内容：{sample.subject}；色彩氛围：{sample.gold_color_mood or '待 VLM/人工确认'}；构图环境：{sample.gold_composition or '待 VLM/人工确认'}。"
         failures: list[str] = []
+        failure_categories: list[str] = []
         scores: dict[str, float | str] = {"三段式描述合规": 1.0 if _has_three_part_description(description) else 0.0}
         if not sample.local_image_path:
             scores["图片可读"] = "not_evaluable"
             failures.append("缺少真实图片路径，无法验证 VLM 解析准确性")
+            failure_categories.append("missing_image")
         elif not Path(sample.local_image_path).exists():
             scores["图片可读"] = 0.0
             failures.append("真实图片路径不存在")
+            failure_categories.append("missing_image")
         else:
             scores["图片可读"] = 1.0
         if sample.gold_subject:
@@ -246,17 +258,43 @@ class AgentHarness:
             ("上传图读取", "三段式解析", "人工 gold label 对照"),
             scores,
             tuple(failures),
+            evidence_trace={
+                "visual_evidence": f"图片={sample.local_image_path or '未提供'}；当前主体={sample.subject or '未解析'}",
+                "rag_citations": (),
+                "memory_evidence": (),
+            },
+            failure_categories=tuple(failure_categories),
         )
 
     def _value_match_case(self, sample: EvalSample) -> HarnessCaseResult:
-        evidence = f"基于当前图片证据：主体={sample.subject}，gold价值观={','.join(sample.gold_value_labels) or '待标注'}。"
+        visual_evidence = f"主体={sample.subject or '未解析'}；图片={sample.local_image_path or '未提供真实图片'}"
+        rag_answer = self._run_rag_evidence.get(sample.country)
+        try:
+            if rag_answer is None:
+                raise ValueError("本次 Harness Run 没有可用 RAG 证据")
+            rag_citations = rag_answer.citations
+            rag_context = rag_answer.context
+        except (RuntimeError, ValueError) as exc:
+            rag_citations = ()
+            rag_context = f"RAG 检索失败：{exc}"
+        memory_rows = self.agent.memory_debug(sample.country, query=sample.subject, limit=4)
+        memory_evidence = tuple(
+            f"{row['layer']}/{row['memory_type']}：{row['summary']}"
+            for row in memory_rows
+        )
+        evidence = (
+            f"结论待真实 VLM 与人工复核。图像证据：{visual_evidence}；"
+            f"RAG依据：{','.join(rag_citations) or '无引用'}。"
+        )
         scores: dict[str, float | str] = {"引用视觉证据": 1.0 if sample.subject in evidence else 0.0}
         failures: list[str] = []
+        failure_categories: list[str] = []
         if sample.gold_value_labels:
             scores["价值观一致"] = 1.0
         else:
             scores["价值观一致"] = "not_evaluable"
             failures.append("缺少 gold_value_labels，价值观一致率跳过")
+            failure_categories.append("missing_gold")
         return HarnessCaseResult(
             sample.sample_id,
             "value_match_eval",
@@ -266,6 +304,13 @@ class AgentHarness:
             ("读取价值观规则", "比对当前图像证据"),
             scores,
             tuple(failures),
+            evidence_trace={
+                "visual_evidence": visual_evidence,
+                "rag_citations": rag_citations,
+                "rag_context": rag_context,
+                "memory_evidence": memory_evidence,
+            },
+            failure_categories=tuple(failure_categories),
         )
 
     def _audit_case(self, sample: EvalSample) -> HarnessCaseResult:
@@ -285,6 +330,12 @@ class AgentHarness:
             ("召回审核手册", "规则审核"),
             {"风险召回": score},
             failures,
+            evidence_trace={
+                "visual_evidence": sample.subject,
+                "rag_citations": tuple(review.evidence),
+                "memory_evidence": (),
+            },
+            failure_categories=("risk_missed",) if failures else (),
         )
 
     def _grade_case(self, sample: EvalSample) -> HarnessCaseResult:
@@ -303,6 +354,7 @@ class AgentHarness:
             ("读取开图率/完成率/时长", "输出等级预测"),
             {"SABCD预测": score},
             failures,
+            failure_categories=("grade_mismatch",) if failures else (),
         )
 
     def _derive_generation_case(self, sample: EvalSample) -> HarnessCaseResult:
@@ -318,6 +370,7 @@ class AgentHarness:
                 ("生成前检查", "等待 provider 配置"),
                 {"生成图审核通过": "not_evaluable"},
                 ("生成 provider 未配置",),
+                failure_categories=("provider_not_configured",),
             )
         images = provider.generate_derivatives(
             sample.local_image_path,
@@ -341,6 +394,12 @@ class AgentHarness:
             ("生成 prompt", "provider 生成", "二次解析审核"),
             {"生成图审核通过": 1.0 if len(images) == 2 else 0.0},
             () if len(images) == 2 else ("生成图数量不符合预期",),
+            evidence_trace={
+                "visual_evidence": sample.subject,
+                "rag_citations": (),
+                "memory_evidence": (),
+            },
+            failure_categories=() if len(images) == 2 else ("generation_failed",),
         )
 
     def _feishu_sync_case(self, sample: EvalSample) -> HarnessCaseResult:
@@ -355,6 +414,7 @@ class AgentHarness:
             ("字段白名单", "附件上传检查", "同步前拦截"),
             {"字段完整性": 1.0 if complete else 0.0},
             () if complete else ("提需字段不完整",),
+            failure_categories=() if complete else ("field_incomplete",),
         )
 
     def _aggregate_metrics(self, samples: tuple[EvalSample, ...], cases: tuple[HarnessCaseResult, ...]) -> dict[str, float]:

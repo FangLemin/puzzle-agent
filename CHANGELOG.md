@@ -2,6 +2,55 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.51 - Harness Case Trace 与 Memory Debug
+
+日期：2026-06-22
+
+阶段目标：
+
+- 把 Harness 从 run 级汇总推进到 case 级证据回放。
+- 让四层 memory 不只显示数量，还能检查本次判断可使用的具体内容和 RAG 来源。
+- 对失败样本进行业务分类，为后续版本对比和 HITL 回流提供结构化数据。
+
+已完成：
+
+- `HarnessCaseResult` 新增：
+  - `evidence_trace`：保存视觉输入证据、RAG citation/context 和 memory evidence。
+  - `failure_categories`：保存 `missing_image`、`missing_gold`、`risk_missed`、`grade_mismatch`、`provider_not_configured`、`generation_failed`、`field_incomplete` 等业务分类。
+- Harness 在每次 run 开始时按国家执行一次真实 RAG 检索：
+  - 同一国家的 case 复用 run 级 RAG 引用，避免逐样本重复远程调用造成费用放大。
+  - 价值观 case 不再用 gold label 拼接伪证据，而是记录真实 RAG citation 和当前视觉输入字段。
+- 新增 `memory_debug(country, query, limit)`：
+  - 展示感知、短期、长期、事实四层 memory。
+  - 标记对应 RAG source type、RAG Ready、query 命中分和创建时间。
+  - 按命中分和时间排序，便于定位 Agent 实际可用记忆。
+- 页面增强：
+  - Agent 评测页新增“Case 证据链”和“失败分类”。
+  - 多模态底座新增“Memory Debug”明细表。
+- 真实运行容错：
+  - 审核手册不存在、无读取权限、DOCX 损坏或 XML 异常时，降级为空文档检索器。
+  - 版权/IP/商标等内置红线规则仍正常执行，不再因外部 DOCX 不可读导致页面空响应。
+- 页面布局修复：
+  - 为 `main`、Grid 子项和 panel 增加 `min-width:0` 约束。
+  - citation、memory 文本和表格单元格支持强制换行，避免 1440px 页面被撑出横向滚动。
+- README 修正过期 RAG 描述，并补充真实 provider、case trace、Memory Debug 和远程调用成本控制说明。
+
+当前限制：
+
+- 当前 case citation 是同国家 run 级检索结果，不是每个 case 单独远程 rerank；这是为控制 DashScope 调用成本做的明确取舍。
+- Memory Debug 目前是只读视图，尚未支持废弃、合并、晋升或人工编辑 memory。
+- Harness 的 `trial_parse_eval` 仍主要评估数据集字段；下一版需要保存真实 VLM 原始输出、模型名、耗时和 token/cost。
+- 真实好图衍生仍依赖 `IMAGE_GENERATION_PROVIDER` 和对应 API key；未配置时继续明确显示未配置，不伪造生成结果。
+
+验证记录：
+
+- 新增测试先失败后通过：case evidence trace、失败分类、Memory Debug 查询与两个页面展示，共 5 项。
+- `PYTHONPATH=. pytest tests/test_harness.py tests/test_agents.py tests/test_renderer.py tests/test_storage_runtime.py tests/test_rag.py -q`：89 passed。
+- 审核手册无权限降级测试与页面防横向溢出 CSS 测试通过。
+- `PYTHONPATH=. pytest tests -q`：194 passed，用时 14.04s。
+- 真实 HTTP 页面验证：`/?view=eval` 与 `/?view=runtime` 均返回 200。
+- Chrome 1440x1000 截图验证：评测页和多模态底座无页面级横向溢出；截图分别保存于 `/private/tmp/puzzleops-eval-v0351-layout.png`、`/private/tmp/puzzleops-runtime-v0351.png`。
+
 ## v0.3.50 - 真实 RAG 模型启用与四层 Memory 入库
 
 日期：2026-06-16

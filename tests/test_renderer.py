@@ -414,6 +414,31 @@ def test_eval_failure_samples_show_image_gold_label_and_hitl_form(monkeypatch, t
     assert "name=\"sample_id\"" in html
 
 
+def test_eval_page_shows_case_evidence_trace_and_failure_categories():
+    html = render_page(PuzzleOpsAgent(), AppState(country="日本", view="eval"))
+
+    assert "Case 证据链" in html
+    assert "RAG 引用" in html
+    assert "Memory 证据" in html
+    assert "失败分类" in html
+
+
+def test_runtime_page_shows_memory_debug_table():
+    html = render_page(PuzzleOpsAgent(), AppState(country="日本", view="runtime"))
+
+    assert "Memory Debug" in html
+    assert "RAG Source" in html
+    assert "命中分" in html
+
+
+def test_page_css_prevents_grid_content_from_widening_viewport():
+    html = render_page(PuzzleOpsAgent(), AppState(country="日本", view="eval"))
+
+    assert "main { padding:22px; min-width:0; overflow-x:hidden; }" in html
+    assert ".grid > *, .panel { min-width:0; }" in html
+    assert "overflow-wrap:anywhere" in html
+
+
 def test_eval_page_has_harness_override_export_action():
     html = render_page(PuzzleOpsAgent(), AppState(country="日本", view="eval"))
 

@@ -90,6 +90,56 @@ def test_harness_run_records_case_results_failures_and_skips_missing_gold(tmp_pa
     assert run.failures
 
 
+def test_harness_value_case_records_rag_and_memory_evidence(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent.record_long_term_memory(
+        "日本",
+        "approved_value_rule",
+        {"rule": "本土饮食文化应保留真实食材与日常用餐语境"},
+    )
+    sample = EvalSample(
+        sample_id="real-sushi",
+        country="日本",
+        local_image_path="",
+        operation_tag="试新_日本_寿司0622",
+        subject="寿司",
+        js_category="食物",
+        source="synthetic_demo",
+        position=5,
+        metrics={},
+        gold_grade="",
+        gold_subject="寿司",
+        gold_color_mood="清爽明亮",
+        gold_composition="料理桌面近景",
+        gold_value_labels=("本土饮食文化",),
+        gold_risk_labels=(),
+        human_note="",
+    )
+
+    run = AgentHarness(agent).run((sample,), dataset_name="trace-set", version="0.3.51")
+    case = next(item for item in run.cases if item.task_type == "value_match_eval")
+
+    assert case.evidence_trace["rag_citations"]
+    assert "寿司" in case.evidence_trace["visual_evidence"]
+    assert case.evidence_trace["memory_evidence"]
+    assert case.failure_categories == ()
+
+
+def test_harness_failures_have_business_categories():
+    sample = EvalSample.synthetic_demo(
+        sample_id="missing-gold",
+        country="日本",
+        operation_tag="试新_日本_猫咪0622",
+        subject="猫咪",
+        gold_grade="",
+    )
+
+    run = AgentHarness(PuzzleOpsAgent()).run((sample,), dataset_name="demo", version="0.3.51")
+
+    assert any("missing_gold" in case.failure_categories for case in run.failures)
+    assert any("missing_image" in case.failure_categories for case in run.failures)
+
+
 def test_load_eval_samples_csv_imports_real_gold_dataset_and_skips_invalid_images(tmp_path):
     real_image = tmp_path / "sushi.png"
     real_image.write_bytes(b"fake-png")
