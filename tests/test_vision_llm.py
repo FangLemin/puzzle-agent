@@ -209,3 +209,38 @@ def test_qwen_client_judges_value_match_with_chat_completions_payload():
     content = captured["payload"]["messages"][0]["content"][0]["text"]
     assert "复古站台店铺" in content
     assert "版权与风格风险" in content
+
+
+def test_value_match_formats_structured_conclusion_evidence_citations_and_review():
+    def fake_transport(payload, api_key, base_url):
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "conclusion": "符合日本本土饮食文化",
+                                "visual_evidence": ["主体为寿司拼盘", "色彩清爽明亮", "料理桌面近景"],
+                                "citation_ids": ["JP_VALUE_001#chunk-1"],
+                                "risk_tags": [],
+                                "manual_review": "确认食材呈现与来源授权",
+                                "confidence": 0.92,
+                            },
+                            ensure_ascii=False,
+                        )
+                    }
+                }
+            ]
+        }
+
+    client = QwenVisionLLMClient("test-key", transport=fake_transport)
+    result = client.judge_value_match(
+        {"country": "日本", "subject": "寿司", "subject_description": "主体内容：寿司拼盘；色彩氛围：清爽明亮；构图环境：料理桌面近景。"},
+        (("JP_VALUE_001#chunk-1", "寿司属于日本本土饮食文化"),),
+    )
+
+    assert "结论：符合日本本土饮食文化" in result
+    assert "图像证据：主体为寿司拼盘、色彩清爽明亮、料理桌面近景" in result
+    assert "RAG依据：JP_VALUE_001#chunk-1" in result
+    assert "风险提示：未发现明确风险" in result
+    assert "人工复核：确认食材呈现与来源授权" in result

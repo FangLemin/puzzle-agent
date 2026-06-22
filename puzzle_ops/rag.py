@@ -130,12 +130,23 @@ class LocalEmbeddingProvider:
     def similarity(self, query: str, text: str) -> float:
         return _cosine(_tokens(query), _tokens(text))
 
+    def similarities(self, query: str, texts: tuple[str, ...]) -> tuple[float, ...]:
+        return tuple(self.similarity(query, text) for text in texts)
+
 
 class LocalRerankProvider:
     provider_name = "local-rule-rerank"
 
     def rerank(self, query: str, country: str, chunk: RagChunk, bm25_score: float, vector_score: float) -> float:
         return _rerank_score(query, country, chunk, bm25_score, vector_score)
+
+    def rerank_many(
+        self,
+        query: str,
+        country: str,
+        candidates: tuple[tuple[RagChunk, float, float], ...],
+    ) -> tuple[float, ...]:
+        return tuple(self.rerank(query, country, chunk, bm25, vector) for chunk, bm25, vector in candidates)
 
 
 class ConfiguredEmbeddingProvider(LocalEmbeddingProvider):
@@ -160,6 +171,7 @@ class DashScopeEmbeddingProvider(LocalEmbeddingProvider):
         cache_get: Callable[[str, str, str], tuple[float, ...] | None] | None = None,
         cache_set: Callable[[str, str, str, tuple[float, ...]], None] | None = None,
         stats: RagRuntimeStats | None = None,
+        batch_size: int = 10,
     ):
         self.api_key = api_key
         self.model = model
@@ -170,34 +182,48 @@ class DashScopeEmbeddingProvider(LocalEmbeddingProvider):
         self.cache_get = cache_get
         self.cache_set = cache_set
         self.stats = stats or RagRuntimeStats()
+        self.batch_size = max(batch_size, 1)
 
     def similarity(self, query: str, text: str) -> float:
+        return self.similarities(query, (text,))[0]
+
+    def similarities(self, query: str, texts: tuple[str, ...]) -> tuple[float, ...]:
         try:
-            query_vector = self._embedding(query)
-            text_vector = self._embedding(text)
+            vectors = self._embeddings_batch((query, *texts))
         except Exception:
             self.stats.embedding_fallbacks += 1
-            return super().similarity(query, text)
-        return _vector_cosine(query_vector, text_vector)
+            return tuple(LocalEmbeddingProvider.similarity(self, query, text) for text in texts)
+        query_vector = vectors[0]
+        return tuple(_vector_cosine(query_vector, text_vector) for text_vector in vectors[1:])
 
     def _embedding(self, text: str) -> tuple[float, ...]:
-        if text in self._cache:
-            self.stats.embedding_cache_hits += 1
-            return self._cache[text]
-        if self.cache_get:
-            cached = self.cache_get("dashscope", self.model, text)
+        return self._embeddings_batch((text,))[0]
+
+    def _embeddings_batch(self, texts: tuple[str, ...]) -> tuple[tuple[float, ...], ...]:
+        missing: list[str] = []
+        for text in dict.fromkeys(texts):
+            if text in self._cache:
+                self.stats.embedding_cache_hits += 1
+                continue
+            cached = self.cache_get("dashscope", self.model, text) if self.cache_get else None
             if cached is not None:
                 self.stats.embedding_cache_hits += 1
                 self._cache[text] = cached
-                return cached
-        self.stats.embedding_remote_calls += 1
-        response = self.transport([text], self.api_key, self.endpoint, self.model)
-        vectors = _extract_embedding_vectors(response)
-        vector = vectors[0] if vectors else ()
-        self._cache[text] = vector
-        if self.cache_set and vector:
-            self.cache_set("dashscope", self.model, text, vector)
-        return vector
+            else:
+                missing.append(text)
+        if missing:
+            for start in range(0, len(missing), self.batch_size):
+                batch = missing[start : start + self.batch_size]
+                self.stats.embedding_remote_calls += 1
+                response = self.transport(batch, self.api_key, self.endpoint, self.model)
+                vectors = _extract_embedding_vectors(response)
+                if len(vectors) != len(batch) or any(not vector for vector in vectors):
+                    raise RuntimeError("embedding provider 返回向量数量不完整")
+                for text, vector in zip(batch, vectors):
+                    self._cache[text] = vector
+                    if self.cache_set:
+                        self.cache_set("dashscope", self.model, text, vector)
+        return tuple(self._cache[text] for text in texts)
 
 
 class DashScopeRerankProvider(LocalRerankProvider):
@@ -229,6 +255,34 @@ class DashScopeRerankProvider(LocalRerankProvider):
             self.stats.rerank_fallbacks += 1
             return super().rerank(query, country, chunk, bm25_score, vector_score)
         return score
+
+    def rerank_many(
+        self,
+        query: str,
+        country: str,
+        candidates: tuple[tuple[RagChunk, float, float], ...],
+    ) -> tuple[float, ...]:
+        if not candidates:
+            return ()
+        documents = [f"{chunk.title}：{chunk.text}" for chunk, _, _ in candidates]
+        try:
+            self.stats.rerank_remote_calls += 1
+            response = self.transport(query, documents, self.api_key, self.endpoint, self.model)
+            remote_scores = _extract_rerank_scores(response, len(candidates))
+        except Exception:
+            self.stats.rerank_fallbacks += len(candidates)
+            return tuple(
+                LocalRerankProvider.rerank(self, query, country, chunk, bm25, vector)
+                for chunk, bm25, vector in candidates
+            )
+        scores = []
+        for index, (chunk, bm25, vector) in enumerate(candidates):
+            score = remote_scores[index]
+            if score is None:
+                self.stats.rerank_fallbacks += 1
+                score = super().rerank(query, country, chunk, bm25, vector)
+            scores.append(score)
+        return tuple(scores)
 
 
 def providers_from_config(
@@ -336,17 +390,31 @@ class HybridRagRetriever:
         if not query_tokens:
             return ()
         allowed_sources = set(source_types or ())
-        hits = []
-        for chunk in self.chunks:
-            if chunk.country not in {country, "GLOBAL"}:
-                continue
-            if allowed_sources and chunk.source_type not in allowed_sources:
-                continue
+        eligible_chunks = tuple(
+            chunk
+            for chunk in self.chunks
+            if chunk.country in {country, "GLOBAL"} and (not allowed_sources or chunk.source_type in allowed_sources)
+        )
+        vector_scores = self.embedding_provider.similarities(
+            query,
+            tuple(chunk.text + " " + chunk.title for chunk in eligible_chunks),
+        )
+        candidates: list[tuple[RagChunk, float, float]] = []
+        for chunk, vector in zip(eligible_chunks, vector_scores):
             bm25 = self._bm25(query_tokens, chunk)
-            vector = self.embedding_provider.similarity(query, chunk.text + " " + chunk.title)
-            rerank = self.rerank_provider.rerank(query, country, chunk, bm25, vector)
             if bm25 > 0 or vector > 0 or _has_exact_phrase(query, chunk.text):
-                hits.append(RagHit(chunk, round(bm25, 4), round(vector, 4), round(rerank, 4), _reason(chunk, bm25, vector, self.embedding_provider.provider_name, self.rerank_provider.provider_name)))
+                candidates.append((chunk, bm25, vector))
+        rerank_scores = self.rerank_provider.rerank_many(query, country, tuple(candidates))
+        hits = [
+            RagHit(
+                chunk,
+                round(bm25, 4),
+                round(vector, 4),
+                round(rerank, 4),
+                _reason(chunk, bm25, vector, self.embedding_provider.provider_name, self.rerank_provider.provider_name),
+            )
+            for (chunk, bm25, vector), rerank in zip(candidates, rerank_scores)
+        ]
         ranked = sorted(hits, key=lambda hit: hit.rerank_score, reverse=True)
         return tuple(ranked[:top_k])
 
@@ -527,3 +595,21 @@ def _extract_rerank_score(response: dict[str, object]) -> float | None:
             if score is not None:
                 return float(score)
     return None
+
+
+def _extract_rerank_scores(response: dict[str, object], count: int) -> tuple[float | None, ...]:
+    scores: list[float | None] = [None] * count
+    results = response.get("results")
+    if not isinstance(results, list):
+        output = response.get("output")
+        results = output.get("results") if isinstance(output, dict) else None
+    if not isinstance(results, list):
+        return tuple(scores)
+    for fallback_index, item in enumerate(results):
+        if not isinstance(item, dict):
+            continue
+        index = int(item.get("index", fallback_index))
+        value = item.get("relevance_score", item.get("score"))
+        if 0 <= index < count and value is not None:
+            scores[index] = float(value)
+    return tuple(scores)

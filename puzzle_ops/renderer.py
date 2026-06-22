@@ -538,13 +538,32 @@ def render_rag_summary(summary: dict[str, object]) -> str:
         f"rerank remote {summary.get('rerank_remote_calls', 0)}；"
         f"rerank fallback {summary.get('rerank_fallbacks', 0)}"
     )
+    citation_rows = render_rag_citation_details(summary.get("citation_details", ()))
     return f"""
 <div class="rag-grid">
   <article><strong>父子知识块</strong><span>{escape(str(summary.get("chunk_count", 0)))} 个 chunk</span><small>{escape(source_text)}</small></article>
   <article><strong>多路召回</strong><span>BM25 + Embedding + Rerank</span><small>Embedding：{escape(embedding)}；Rerank：{escape(rerank)}。{escape(provider_status)}</small></article>
   <article><strong>引用依据</strong><span>{escape(citation_text or "暂无引用")}</span><small>{escape(context[:140] or "暂无召回上下文")}；{escape(stats)}</small></article>
 </div>
+<h3>引用明细</h3>
+<div class="table-wrap"><table><thead><tr><th>引用ID</th><th>知识来源</th><th>父文档</th><th>标题</th><th>内容</th></tr></thead><tbody>{citation_rows}</tbody></table></div>
 """
+
+
+def render_rag_citation_details(details: object) -> str:
+    if not isinstance(details, (list, tuple)) or not details:
+        return '<tr><td colspan="5">暂无可溯源引用明细。</td></tr>'
+    return "".join(
+        "<tr>"
+        f"<td>{escape(str(item.get('chunk_id', '')))}</td>"
+        f"<td>{escape(str(item.get('source_type', '')))}</td>"
+        f"<td>{escape(str(item.get('parent_id', '')))}</td>"
+        f"<td>{escape(str(item.get('title', '')))}</td>"
+        f"<td>{escape(str(item.get('text', '')))}</td>"
+        "</tr>"
+        for item in details
+        if isinstance(item, dict)
+    )
 
 
 def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:

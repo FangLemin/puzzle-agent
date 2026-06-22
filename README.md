@@ -125,6 +125,8 @@ Harness RAG 指标说明：Agent 评测页会把最近一次 RAG runtime stats �
 
 Harness Case Trace 与 Memory Debug 说明：每个 Harness case 现在保存结构化 `evidence_trace`，区分视觉输入证据、RAG citation/context 和四层 memory 证据，并用 `failure_categories` 对缺图、缺 gold、风险漏召回、等级误判、生成 provider 未配置、生成失败和字段缺失进行业务分类。为控制真实模型成本，同一 Harness run 每个国家只执行一次真实 RAG 检索，再把 run 级引用证据关联到该国 case。多模态底座新增只读 Memory Debug 表，可按当前主体查看层级、memory type、RAG source、命中分、入库状态和内容。
 
+RAG 批处理与引用溯源说明：DashScope embedding 会按每批 10 条文本调用 `text-embedding-v3`，rerank 会把候选 chunk 合并为一次 `gte-rerank-v2` 请求；批量失败后直接使用本地 fallback，不再逐 chunk 重试远程接口。真实日本知识库验证结果为 embedding 8 个批次、rerank 1 个批次、fallback 0。多模态底座新增引用明细，展示 citation ID、知识来源、父文档、标题和正文。价值观大师要求 LLM 输出结论、当前图像证据、真实 RAG citation、风险提示和人工复核事项，旧版 `value_match/evidence` JSON 仍兼容。
+
 Harness HITL 说明：Agent 评测页的失败样本复盘区会展示样本缩略图、gold label、Agent 输出和失败原因，并提供人工修正入口。当前人工修正先写入本地 HITL memory，作为后续回写 gold dataset 或导出到 Label Studio/Argilla 的数据基础。
 
 Harness 修正回流说明：Agent 评测页支持将 HITL 人工修正导出为 CSV，默认写到运行目录中的 `harness_overrides_<国家>.csv`。该 CSV 可作为人工复核后的中间层，再手动合并回 `PUZZLEOPS_HARNESS_DATASET`，避免直接覆盖真实 gold dataset。

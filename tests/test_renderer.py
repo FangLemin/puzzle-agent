@@ -429,6 +429,9 @@ def test_runtime_page_shows_memory_debug_table():
     assert "Memory Debug" in html
     assert "RAG Source" in html
     assert "命中分" in html
+    assert "引用明细" in html
+    assert "父文档" in html
+    assert "知识来源" in html
 
 
 def test_page_css_prevents_grid_content_from_widening_viewport():

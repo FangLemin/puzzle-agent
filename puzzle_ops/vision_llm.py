@@ -346,7 +346,7 @@ def _value_match_prompt(row: dict[str, object], value_rules: tuple[tuple[str, st
         "请基于当前图片的视觉LLM解析结果和 RAG 召回的价值观/审核引用依据，判断这张试新图是否符合市场价值观。"
         "不要套用默认模板；必须引用当前主体、色彩氛围、构图环境中的证据。"
         "如果引用依据不足，请明确要求人工复核，不要编造不存在的规则。"
-        "只输出 JSON，字段为 value_match, confidence, evidence, risk_tags。"
+        "只输出 JSON，字段为 conclusion, visual_evidence, citation_ids, risk_tags, manual_review, confidence。"
         f"\n国家：{row.get('country', '')}"
         f"\nJS分类：{row.get('js_category', '')}"
         f"\n运营tag：{row.get('operation_tag', '')}"
@@ -354,27 +354,36 @@ def _value_match_prompt(row: dict[str, object], value_rules: tuple[tuple[str, st
         f"\n主体描述：{row.get('subject_description', '')}"
         f"\n解析备注：{row.get('remark', '')}"
         f"\nRAG引用依据：\n{rules}"
-        "\n输出要求：value_match 用中文一句话说明是否符合、为什么、需要规避什么风险。"
+        "\n输出要求：conclusion 只写符合/部分符合/不符合及简短理由；visual_evidence 必须来自当前图片解析；"
+        "citation_ids 只能填写上方真实存在的 RAG 引用 ID；risk_tags 无风险时返回空数组；"
+        "manual_review 写运营需要复核的具体事项。"
     )
 
 
 def _value_match_text(data: dict[str, object], output_text: str, provider: str) -> str:
-    value_match = str(data.get("value_match", "") or output_text).strip()
+    conclusion = str(data.get("conclusion", "") or data.get("value_match", "") or output_text).strip()
     confidence = data.get("confidence")
-    evidence = tuple(str(item) for item in data.get("evidence", []) if item) if isinstance(data.get("evidence"), list) else ()
+    visual_source = data.get("visual_evidence", data.get("evidence", []))
+    visual_evidence = tuple(str(item) for item in visual_source if item) if isinstance(visual_source, list) else ()
+    citation_source = data.get("citation_ids", [])
+    citations = tuple(str(item) for item in citation_source if item) if isinstance(citation_source, list) else ()
     risks = tuple(str(item) for item in data.get("risk_tags", []) if item) if isinstance(data.get("risk_tags"), list) else ()
-    suffix = []
+    manual_review = str(data.get("manual_review", "") or "运营需复核图像细节、文化准确性与素材授权").strip()
+    lines = [
+        f"结论：{conclusion or '依据不足，暂不能判断'}",
+        f"图像证据：{'、'.join(visual_evidence) or '未提供可核验的当前图片证据'}",
+        f"RAG依据：{'、'.join(citations) or '未提供可溯源引用'}",
+        f"风险提示：{'、'.join(risks) or '未发现明确风险'}",
+        f"人工复核：{manual_review}",
+    ]
+    model_detail = f"价值观LLM：真实{provider}"
     if confidence not in (None, ""):
         try:
-            suffix.append(f"置信度{float(confidence):.2f}")
+            model_detail += f"，置信度{float(confidence):.2f}"
         except (TypeError, ValueError):
-            suffix.append(f"置信度{confidence}")
-    if evidence:
-        suffix.append("证据：" + "、".join(evidence))
-    if risks:
-        suffix.append("风险：" + "、".join(risks))
-    detail = "；".join(suffix)
-    return f"{value_match}（价值观LLM：真实{provider}" + (f"，{detail}" if detail else "") + "）"
+            model_detail += f"，置信度{confidence}"
+    lines.append(f"模型记录：{model_detail}")
+    return "；".join(lines)
 
 
 def _load_env_file(path: Path) -> None:

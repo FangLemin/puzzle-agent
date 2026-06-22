@@ -440,6 +440,18 @@ class PuzzleOpsAgent:
         query = f"{country}市场试新提需是否符合价值观，并检查版权/IP、文字水印、文化混淆和AI质量风险"
         answer = self.value_audit_rag_answer(country, query, top_k=5)
         chunks = self.repository.rag_chunks(country)
+        chunk_by_id = {str(chunk["chunk_id"]): chunk for chunk in chunks}
+        citation_details = tuple(
+            {
+                "chunk_id": citation,
+                "parent_id": str(chunk_by_id[citation]["parent_id"]),
+                "source_type": str(chunk_by_id[citation]["source_type"]),
+                "title": str(chunk_by_id[citation]["title"]),
+                "text": str(chunk_by_id[citation]["text"]),
+            }
+            for citation in answer.citations
+            if citation in chunk_by_id
+        )
         source_counts: dict[str, int] = {}
         for chunk in chunks:
             source_type = str(chunk["source_type"])
@@ -448,6 +460,7 @@ class PuzzleOpsAgent:
             "chunk_count": len(chunks),
             "source_counts": source_counts,
             "citations": answer.citations,
+            "citation_details": citation_details,
             "context": answer.context,
             "prompt": answer.prompt,
             "embedding_provider": self.rag_provider_config.embedding_provider,

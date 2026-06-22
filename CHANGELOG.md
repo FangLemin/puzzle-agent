@@ -2,6 +2,58 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.52 - RAG 批处理、引用溯源与结构化价值观答案
+
+日期：2026-06-22
+
+阶段目标：
+
+- 解决真实 RAG 在页面打开时逐 chunk 请求导致的高调用量和长尾延迟。
+- 让价值观判断同时展示图像证据、RAG citation、风险和人工复核事项。
+- 把 citation 从一串 ID 升级为运营可检查的知识来源明细。
+
+已完成：
+
+- Embedding 批处理：
+  - `LocalEmbeddingProvider` 新增 `similarities(...)` 批量接口。
+  - `DashScopeEmbeddingProvider` 支持缓存合并与每批 10 条文本请求。
+  - 查询和候选文本不再逐 chunk 单独请求 embedding。
+  - 批次失败时直接本地 cosine fallback，不递归重试远程请求。
+- Rerank 批处理：
+  - `LocalRerankProvider` 新增 `rerank_many(...)`。
+  - `DashScopeRerankProvider` 一次提交全部候选文档，并按 response index 恢复分数。
+  - 批量请求失败时直接执行本地规则精排，不再退回远程单条 rerank。
+- 引用溯源：
+  - `value_audit_rag_summary(...)` 新增 `citation_details`。
+  - 每条引用包含 `chunk_id`、`parent_id`、`source_type`、`title`、`text`。
+  - 多模态底座新增“引用明细”表。
+- 价值观大师结构化输出：
+  - 新 prompt 要求 `conclusion`、`visual_evidence`、`citation_ids`、`risk_tags`、`manual_review`、`confidence`。
+  - 页面文本固定展示“结论 / 图像证据 / RAG依据 / 风险提示 / 人工复核 / 模型记录”。
+  - 兼容旧模型返回的 `value_match` 和 `evidence` 字段。
+
+真实模型验证：
+
+- 使用现有本地 DashScope 配置运行日本知识库检索。
+- `text-embedding-v3`：8 个批次，`embedding_fallbacks=0`。
+- `gte-rerank-v2`：1 个批次，`rerank_fallbacks=0`。
+- 返回 5 条带父文档和来源类型的 citation。
+
+当前限制：
+
+- Embedding 默认批次大小为 10，目前是代码默认值，后续可加入 `.env` 调优项。
+- RAG 仍在同步页面请求中执行；批处理已明显减少调用，但后续还应增加结果 TTL 缓存和异步刷新。
+- Citation 能证明知识依据，但价值观最终结论仍需运营人工复核。
+- 真实图像生成 Provider 尚未配置，本版不伪造衍生图。
+
+验证记录：
+
+- RAG 批处理、批量失败禁止逐条重试、结构化价值观答案、引用明细测试通过。
+- `PYTHONPATH=. pytest tests/test_rag.py tests/test_vision_llm.py tests/test_agents.py tests/test_renderer.py tests/test_harness.py tests/test_storage_runtime.py -q`：103 passed。
+- `PYTHONPATH=. pytest tests -q`：200 passed，用时 13.53s。
+- 真实 DashScope 验证：embedding 8 批、rerank 1 批，两个 provider 的 fallback 均为 0。
+- Chrome 1440x2400 页面验证：Memory Debug、RAG 状态卡和引用明细表均在主内容区内换行，无页面级横向溢出；截图 `/private/tmp/puzzleops-runtime-v0352.png`。
+
 ## v0.3.51 - Harness Case Trace 与 Memory Debug
 
 日期：2026-06-22

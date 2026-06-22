@@ -493,6 +493,17 @@ def test_agent_rag_summary_includes_runtime_stats():
     assert "rerank_fallbacks" in summary
 
 
+def test_agent_rag_summary_exposes_citation_source_parent_and_text():
+    summary = PuzzleOpsAgent().value_audit_rag_summary("日本")
+
+    assert summary["citation_details"]
+    first = summary["citation_details"][0]
+    assert first["chunk_id"]
+    assert first["parent_id"]
+    assert first["source_type"]
+    assert first["text"]
+
+
 def test_agent_exports_harness_annotation_files_for_label_tools(monkeypatch, tmp_path):
     image_path = tmp_path / "real-sushi.png"
     image_path.write_bytes(b"fake-png")

@@ -129,6 +129,63 @@ def test_dashscope_embedding_provider_uses_transport_and_cosine_similarity():
     assert provider.provider_name == "dashscope:text-embedding-v3"
 
 
+def test_hybrid_retriever_batches_dashscope_embeddings_in_one_request():
+    calls = []
+
+    def fake_transport(texts, api_key, endpoint, model):
+        calls.append(tuple(texts))
+        vectors = {
+            "日本寿司": [1.0, 0.0],
+            "寿司属于日本饮食文化 饮食文化": [0.9, 0.1],
+            "日式料理保持生活语境 文化真实性": [0.8, 0.2],
+        }
+        return {"data": [{"embedding": vectors[text]} for text in texts]}
+
+    documents = (
+        RagDocument("JP_VALUE_001", "日本", "value_rule", "饮食文化", "寿司属于日本饮食文化", {}),
+        RagDocument("JP_VALUE_002", "日本", "value_rule", "文化真实性", "日式料理保持生活语境", {}),
+    )
+    chunks = tuple(chunk for document in documents for chunk in chunk_document(document))
+    stats = RagRuntimeStats()
+    provider = DashScopeEmbeddingProvider(
+        api_key="dashscope-test",
+        model="text-embedding-v3",
+        endpoint="https://dashscope.test/embeddings",
+        transport=fake_transport,
+        stats=stats,
+    )
+
+    hits = HybridRagRetriever(chunks, embedding_provider=provider).search("日本寿司", country="日本", top_k=2)
+
+    assert len(calls) == 1
+    assert len(calls[0]) == 3
+    assert len(hits) == 2
+    assert stats.embedding_remote_calls == 1
+
+
+def test_dashscope_embedding_provider_splits_large_batches_by_configured_limit():
+    calls = []
+
+    def fake_transport(texts, api_key, endpoint, model):
+        calls.append(tuple(texts))
+        return {"data": [{"embedding": [1.0, float(index)]} for index, _ in enumerate(texts)]}
+
+    provider = DashScopeEmbeddingProvider(
+        api_key="dashscope-test",
+        model="text-embedding-v3",
+        endpoint="https://dashscope.test/embeddings",
+        transport=fake_transport,
+        stats=RagRuntimeStats(),
+        batch_size=10,
+    )
+
+    scores = provider.similarities("query", tuple(f"document-{index}" for index in range(11)))
+
+    assert len(scores) == 11
+    assert [len(batch) for batch in calls] == [10, 2]
+    assert provider.stats.embedding_remote_calls == 2
+
+
 def test_dashscope_embedding_provider_uses_persistent_cache_before_remote_call():
     calls = []
     cache = {"寿司价值观": (1.0, 0.0, 0.0), "寿司属于日本饮食文化": (0.8, 0.2, 0.0)}
@@ -178,6 +235,70 @@ def test_dashscope_rerank_provider_uses_transport_score():
     assert calls[0][0] == "寿司是否符合日本价值观"
     assert calls[0][1] == ["文化真实性：寿司属于日本本土饮食文化。"]
     assert provider.provider_name == "dashscope:gte-rerank-v2"
+
+
+def test_hybrid_retriever_batches_dashscope_rerank_in_one_request():
+    calls = []
+
+    def fake_transport(query, documents, api_key, endpoint, model):
+        calls.append((query, documents))
+        return {
+            "results": [
+                {"index": index, "relevance_score": 0.9 - index * 0.1}
+                for index, _ in enumerate(documents)
+            ]
+        }
+
+    documents = (
+        RagDocument("JP_VALUE_001", "日本", "value_rule", "饮食文化", "寿司属于日本本土饮食文化。", {}),
+        RagDocument("JP_VALUE_002", "日本", "value_rule", "文化真实性", "日式料理应保持真实生活语境。", {}),
+    )
+    chunks = tuple(chunk for document in documents for chunk in chunk_document(document))
+    provider = DashScopeRerankProvider(
+        api_key="dashscope-test",
+        model="gte-rerank-v2",
+        endpoint="https://dashscope.test/rerank",
+        transport=fake_transport,
+        stats=RagRuntimeStats(),
+    )
+
+    hits = HybridRagRetriever(chunks, rerank_provider=provider).search("日本寿司饮食文化", country="日本", top_k=2)
+
+    assert len(calls) == 1
+    assert len(calls[0][1]) == 2
+    assert len(hits) == 2
+    assert provider.stats.rerank_remote_calls == 1
+
+
+def test_dashscope_batch_rerank_failure_falls_back_without_single_remote_retries():
+    calls = []
+
+    def broken_transport(query, documents, api_key, endpoint, model):
+        calls.append(tuple(documents))
+        raise RuntimeError("timeout")
+
+    chunks = tuple(
+        chunk_document(document)[0]
+        for document in (
+            RagDocument("JP_VALUE_001", "日本", "value_rule", "饮食文化", "寿司属于日本本土饮食文化。", {}),
+            RagDocument("JP_VALUE_002", "日本", "value_rule", "真实性", "料理需要真实生活语境。", {}),
+        )
+    )
+    stats = RagRuntimeStats()
+    provider = DashScopeRerankProvider(
+        api_key="dashscope-test",
+        model="gte-rerank-v2",
+        endpoint="https://dashscope.test/rerank",
+        transport=broken_transport,
+        stats=stats,
+    )
+
+    scores = provider.rerank_many("日本寿司", "日本", tuple((chunk, 0.2, 0.3) for chunk in chunks))
+
+    assert len(scores) == 2
+    assert len(calls) == 1
+    assert stats.rerank_remote_calls == 1
+    assert stats.rerank_fallbacks == 2
 
 
 def test_rag_runtime_stats_tracks_remote_and_fallback_paths():
