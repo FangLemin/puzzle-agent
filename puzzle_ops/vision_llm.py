@@ -238,8 +238,15 @@ def _qwen_transport(payload: dict[str, object], api_key: str, base_url: str) -> 
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
         method="POST",
     )
-    with request.urlopen(req, timeout=30) as response:
+    with request.urlopen(req, timeout=_qwen_timeout_seconds()) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def _qwen_timeout_seconds() -> float:
+    try:
+        return min(max(float(os.getenv("QWEN_TIMEOUT_SECONDS", "90")), 10.0), 300.0)
+    except ValueError:
+        return 90.0
 
 
 def _extract_chat_completion_text(raw: dict[str, object]) -> str:
@@ -364,10 +371,10 @@ def _value_match_text(data: dict[str, object], output_text: str, provider: str) 
     conclusion = str(data.get("conclusion", "") or data.get("value_match", "") or output_text).strip()
     confidence = data.get("confidence")
     visual_source = data.get("visual_evidence", data.get("evidence", []))
-    visual_evidence = tuple(str(item) for item in visual_source if item) if isinstance(visual_source, list) else ()
+    visual_evidence = _tuple_field(visual_source)
     citation_source = data.get("citation_ids", [])
-    citations = tuple(str(item) for item in citation_source if item) if isinstance(citation_source, list) else ()
-    risks = tuple(str(item) for item in data.get("risk_tags", []) if item) if isinstance(data.get("risk_tags"), list) else ()
+    citations = _tuple_field(citation_source)
+    risks = _tuple_field(data.get("risk_tags", []))
     manual_review = str(data.get("manual_review", "") or "运营需复核图像细节、文化准确性与素材授权").strip()
     lines = [
         f"结论：{conclusion or '依据不足，暂不能判断'}",
@@ -384,6 +391,13 @@ def _value_match_text(data: dict[str, object], output_text: str, provider: str) 
             model_detail += f"，置信度{confidence}"
     lines.append(f"模型记录：{model_detail}")
     return "；".join(lines)
+
+
+def _tuple_field(value: object) -> tuple[str, ...]:
+    if isinstance(value, (list, tuple)):
+        return tuple(str(item).strip() for item in value if str(item).strip())
+    text = str(value or "").strip()
+    return (text,) if text else ()
 
 
 def _load_env_file(path: Path) -> None:

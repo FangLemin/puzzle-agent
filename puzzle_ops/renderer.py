@@ -599,23 +599,31 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
     report = agent.eval_report(state.country)
     harness_summary = agent.harness_summary(state.country)
     harness_samples = agent.harness_samples(state.country)
-    harness_run = agent.harness_run(state.country)
+    harness_run = agent.harness_display_run(state.country)
     version_compare = agent.harness_compare(harness_run)
     sample_by_id = {sample.sample_id: sample for sample in harness_samples}
     sync_message = render_sync_message(state)
     context = hidden_context(state, view="eval")
     metric_cards = "".join(f"<article><span>{escape(key)}</span><strong>{escape(value)}</strong></article>" for key, value in metrics.items())
     harness_metric_cards = "".join(
-        f"<article><span>{escape(key)}</span><strong>{escape(_pct_text(value))}</strong></article>"
+        f"<article><span>{escape(key)}</span><strong>{escape(_harness_metric_text(harness_run, key, value))}</strong></article>"
         for key, value in harness_run.metrics.items()
     )
     summary_rows = "".join(
         f"<tr><td>{escape(key)}</td><td>{render_summary_value(value)}</td></tr>"
         for key, value in harness_summary.items()
     )
+    review_cases = list(harness_run.failures)
+    seen_cases = {(case.sample_id, case.task_type) for case in review_cases}
+    for case in harness_run.cases:
+        key = (case.sample_id, case.task_type)
+        has_skipped_score = any(score == "not_evaluable" for score in case.scores.values())
+        if key not in seen_cases and has_skipped_score and case.task_type in {"trial_parse_eval", "value_match_eval", "audit_eval"}:
+            review_cases.append(case)
+            seen_cases.add(key)
     failure_rows = "".join(
         render_harness_failure_row(case, sample_by_id.get(case.sample_id))
-        for case in harness_run.failures[:6]
+        for case in review_cases[:6]
     )
     generation_failure_rows = render_generation_failure_distribution(agent.generation_events(state.country))
     case_evidence_rows = render_harness_case_evidence_rows(harness_run.cases)
@@ -639,6 +647,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
 <section class="panel">
   <div class="section-line"><h2>Harness Dashboard</h2><div class="inline-actions"><form method="post" action="/export_harness_overrides">{context}<button>导出人工修正CSV</button></form><form method="post" action="/export_harness_annotations">{context}<button>导出标注平台文件</button></form></div></div>
   <p>内置轻量 Harness：按真实样本与合成 demo 分开统计，批量运行 trial_parse_eval、value_match_eval、audit_eval、grade_predict_eval、derive_generation_eval 和 feishu_sync_eval。</p>
+  <form class="harness-run-form" method="post" action="/run_harness">{context}<input type="hidden" name="run_real_models" value="1"><button class="primary">运行真实 VLM Harness</button><label><input type="checkbox" name="include_generation" value="1">包含付费生成评测</label><small>真实 VLM 会按图片样本调用模型并产生少量费用；默认不调用图像生成模型，勾选后会额外生成参考图。</small></form>
   {sync_message}
 </section>
 <section class="grid two">
@@ -648,6 +657,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
     <div><dt>版本</dt><dd>{escape(harness_run.version)}</dd></div>
     <div><dt>模型</dt><dd>{escape(harness_run.model_provider)}</dd></div>
     <div><dt>生成 provider</dt><dd>{escape(harness_run.generator_provider)}</dd></div>
+    <div><dt>执行模式</dt><dd>{escape(harness_run.execution_mode)}</dd></div>
   </dl></div>
 </section>
 <section class="metrics">{harness_metric_cards}</section>
@@ -707,6 +717,12 @@ def render_generation_failure_distribution(events: tuple[dict[str, str], ...]) -
     return "".join(f"<tr><td>{escape(error_type)}</td><td>{count}</td></tr>" for error_type, count in sorted(counts.items()))
 
 
+def _harness_metric_text(run, key: str, value: float) -> str:
+    if key in run.metric_evaluable_counts and run.metric_evaluable_counts[key] == 0:
+        return "未评测"
+    return _pct_text(value)
+
+
 def render_harness_case_evidence_rows(cases) -> str:
     rows = []
     for case in cases[:12]:
@@ -759,7 +775,7 @@ def render_harness_failure_row(case, sample) -> str:
         f"<td>{gold}</td>"
         f"<td>{escape(case.task_type)}</td>"
         f"<td>{escape(case.agent_output)}</td>"
-        f"<td>{escape('；'.join(case.failure_reasons))}</td>"
+        f"<td>{escape('；'.join(case.failure_reasons) or '待运行真实模型')}</td>"
         f"<td>{correction_form}</td>"
         "</tr>"
     )

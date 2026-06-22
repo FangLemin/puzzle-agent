@@ -3,6 +3,7 @@ from puzzle_ops.renderer import AppState, render_page
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.vision_llm import MissingVisionLLMConfig
 from puzzle_ops.image_generation import CloudImageGenerationProvider
+from puzzle_ops.storage import PuzzleRepository
 
 
 def agent_without_vlm(tmp_path):
@@ -455,6 +456,31 @@ def test_eval_page_has_harness_override_export_action():
     assert "导出人工修正CSV" in html
     assert 'action="/export_harness_annotations"' in html
     assert "导出标注平台文件" in html
+
+
+def test_eval_page_is_read_only_until_explicit_harness_run(tmp_path):
+    class FailIfCalledGenerator:
+        provider_name = "paid-provider"
+
+        def healthcheck(self):
+            return {"configured": True, "provider": self.provider_name}
+
+        def generate_derivatives(self, *args, **kwargs):
+            raise AssertionError("rendering eval page must not call paid generation")
+
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "eval-readonly.db"))
+    agent.image_generator = FailIfCalledGenerator()
+    before = agent.repository.harness_runs()
+
+    html = render_page(agent, AppState(country="日本", view="eval"))
+
+    assert agent.repository.harness_runs() == before
+    assert 'action="/run_harness"' in html
+    assert 'name="include_generation"' in html
+    assert "默认不调用图像生成模型" in html
+    assert "主体识别准确率</span><strong>未评测" in html
+    assert "价值观一致率</span><strong>未评测" in html
+    assert "generation_not_authorized" not in html
 
 
 def test_stock_and_value_cards_render_real_image_tags_instead_of_text_cards():

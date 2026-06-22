@@ -99,13 +99,13 @@ cp .env.example .env
 
 Excel 图片说明：真实样表中的“图片本身”字段使用 `DISPIMG` 公式，项目会解析 `xl/cellimages.xml` 并把图片抽取到本地路径；生产环境有真实 `image_url` 时，可以优先展示 URL。
 
-LLM 大脑说明：当前版本支持通过 `VISION_LLM_PROVIDER=qwen` 或 `VISION_LLM_PROVIDER=openai` 接入真实视觉语言模型。Qwen 默认模型为 `qwen3.7-plus`，用于试新图片的主体内容、色彩氛围、构图环境解析，以及价值观大师的图片证据判断。未配置真实 key 时，系统只保留本地像素层解析和明确的未配置提示，不会伪造语义主体识别。
+LLM 大脑说明：当前版本支持通过 `VISION_LLM_PROVIDER=qwen` 或 `VISION_LLM_PROVIDER=openai` 接入真实视觉语言模型。Qwen 默认模型为 `qwen3.7-plus`，用于试新图片的主体内容、色彩氛围、构图环境解析，以及价值观大师的图片证据判断。Qwen 请求默认超时为 90 秒，可通过 `QWEN_TIMEOUT_SECONDS` 调整；未配置真实 key 时，系统只保留本地像素层解析和明确的未配置提示，不会伪造语义主体识别。
 
 好图衍生生成说明：`IMAGE_GENERATION_PROVIDER` 默认为空时，好图衍生只输出衍生方向；`mock` 只用于本地 Harness/UI 链路验证，生成的占位图不会同步为飞书附件；配置为 `dashscope` 后，系统使用通义万相参考图生成能力生成真实参考图。生成图必须依次通过真实视觉 LLM 二次解析、审核规则复检和运营人工确认，三层均通过后才允许同步到飞书图片附件字段；未配置 VLM、VLM 调用失败、命中风险或未人工确认时，页面保留记录但阻断同步。
 
 DashScope/通义万相说明：先运行 `python -m pip install -r requirements.txt`，再设置 `IMAGE_GENERATION_PROVIDER=dashscope` 和 `IMAGE_GENERATION_MODEL=wan2.6-image`。默认复用现有 `QWEN_API_KEY`，如需独立密钥可设置 `IMAGE_GENERATION_API_KEY` 覆盖。系统通过官方 DashScope Python SDK 把本地参考图临时上传并调用 `ImageGeneration`，不会再把参考图错误地发送到文生图接口。任务失败、额度不足或返回结构异常时，试新页面会保留原始提需并显示可分类错误，不伪造生成图。试新页提供 Provider 诊断；generation trace 记录来源运营 tag、生成图路径、二次审核和人工确认后的飞书附件资格。
 
-Agent Harness 真实评测集说明：默认 Harness 会从历史样表和合成 demo 生成样本，适合本地演示；如果要证明真实业务效果，请按 `docs/harness_gold_samples_template.csv` 整理 30-50 条真实拼图样本，并在 `.env` 设置 `PUZZLEOPS_HARNESS_DATASET=/absolute/path/to/gold_samples.csv`。导入时会校验真实图片路径，缺图样本会被标记为导入问题而不会让评测崩溃；缺少 gold label 的指标会显示为 `not_evaluable`。
+Agent Harness 真实评测集说明：默认页面只展示离线 Harness 预览，不调用远程 RAG、视觉 LLM 或图像生成，也不会因刷新页面新增历史 run。点击“运行真实 VLM Harness”后，系统才会使用真实图片解析结果对照人工 gold label；“包含付费生成评测”需要单独勾选。默认 Harness 会从历史样表和合成 demo 生成样本，适合本地演示；如果要证明真实业务效果，请按 `docs/harness_gold_samples_template.csv` 整理 30-50 条真实拼图样本，并在 `.env` 设置 `PUZZLEOPS_HARNESS_DATASET=/absolute/path/to/gold_samples.csv`。导入时会校验真实图片路径，缺图样本会被标记为导入问题而不会让评测崩溃；缺少 gold label 或未执行真实模型的指标会显示为 `not_evaluable`。
 
 Harness 生成 trace 说明：Agent 评测页会读取本地 generation event memory，计算 `生成Trace完整率`、`二次审核通过率`、`飞书附件Ready率`、`生成失败可分类率`，并展示生成失败类型分布。该指标用于证明好图衍生链路是否可回放、可诊断、可评测；没有真实生成事件时指标为 0，不伪造生成效果。
 

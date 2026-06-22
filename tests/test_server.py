@@ -888,6 +888,26 @@ def test_export_harness_annotations_action_writes_label_tool_files():
     assert (export_dir / "label_studio_harness_日本.json").exists()
 
 
+def test_run_harness_action_requires_explicit_generation_opt_in(monkeypatch):
+    APP.state = AppState(country="日本", view="eval")
+    calls = []
+    original = APP.agent.harness_run
+
+    def fake_harness_run(country, **kwargs):
+        calls.append((country, kwargs))
+        return original(country, execute_models=False, execute_generation=False, save=False)
+
+    monkeypatch.setattr(APP.agent, "harness_run", fake_harness_run)
+
+    handle_action("/run_harness", {"country": ["日本"], "view": ["eval"], "run_real_models": ["1"]})
+
+    assert calls[0][0] == "日本"
+    assert calls[0][1]["execute_models"] is True
+    assert calls[0][1]["execute_generation"] is False
+    assert calls[0][1]["save"] is True
+    assert "真实 VLM Harness" in APP.state.sync_message
+
+
 def test_replace_schedule_action_records_slot_replacement():
     APP.state = AppState(country="日本", view="schedule", schedule_day="周一")
     original = APP.agent.schedule("日本", "周一")[0]

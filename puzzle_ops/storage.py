@@ -360,6 +360,9 @@ class PuzzleRepository:
                     metrics=payload["metrics"],
                     failures=failures,
                     created_at=payload["created_at"],
+                    country=payload.get("country", ""),
+                    execution_mode=payload.get("execution_mode", "offline"),
+                    metric_evaluable_counts=payload.get("metric_evaluable_counts", {}),
                 )
             )
         return tuple(runs)

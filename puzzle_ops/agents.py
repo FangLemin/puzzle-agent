@@ -396,12 +396,19 @@ class PuzzleOpsAgent:
         self.repository.save_rag_index(country, documents, chunks)
         return documents
 
-    def value_audit_rag_answer(self, country: str, query: str, top_k: int = 6) -> RagPrompt:
+    def value_audit_rag_answer(
+        self,
+        country: str,
+        query: str,
+        top_k: int = 6,
+        *,
+        provider_config: RagProviderConfig | None = None,
+    ) -> RagPrompt:
         self.build_value_audit_rag_index(country)
         chunks = tuple(_rag_chunk_from_row(row) for row in self.repository.rag_chunks(country))
         stats = RagRuntimeStats()
         embedding_provider, rerank_provider = providers_from_config(
-            self.rag_provider_config,
+            provider_config or self.rag_provider_config,
             stats=stats,
             cache_get=self.repository.get_rag_embedding_cache,
             cache_set=self.repository.set_rag_embedding_cache,
@@ -933,14 +940,39 @@ class PuzzleOpsAgent:
             return samples
         return AgentHarness(self, self.image_generator).default_samples(country)
 
-    def harness_run(self, country: str, *, save: bool = True):
+    def harness_run(
+        self,
+        country: str,
+        *,
+        execute_models: bool = False,
+        execute_generation: bool = False,
+        save: bool = False,
+    ):
         version_path = Path(__file__).resolve().parent.parent / "VERSION"
         version = version_path.read_text(encoding="utf-8").strip() if version_path.exists() else "dev"
-        harness = AgentHarness(self, self.image_generator)
+        harness = AgentHarness(
+            self,
+            self.image_generator,
+            execute_model_calls=execute_models,
+            execute_generation=execute_generation,
+        )
         run = harness.run(self.harness_samples(country), dataset_name=f"{country} small-real-eval", version=version)
         if save:
             self.repository.save_harness_run(run)
         return run
+
+    def latest_harness_run(self, country: str):
+        return next(
+            (
+                run
+                for run in self.repository.harness_runs(limit=20)
+                if run.country == country or (not run.country and run.dataset_name.startswith(country))
+            ),
+            None,
+        )
+
+    def harness_display_run(self, country: str):
+        return self.latest_harness_run(country) or self.harness_run(country, save=False)
 
     def harness_summary(self, country: str) -> dict[str, object]:
         harness = AgentHarness(self, self.image_generator)
@@ -954,7 +986,7 @@ class PuzzleOpsAgent:
         return summary
 
     def harness_version_compare(self, country: str) -> dict[str, str]:
-        return self.harness_compare(self.harness_run(country))
+        return self.harness_compare(self.harness_display_run(country))
 
     def harness_compare(self, current) -> dict[str, str]:
         harness = AgentHarness(self, self.image_generator)

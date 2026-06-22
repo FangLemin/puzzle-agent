@@ -5,6 +5,7 @@ from PIL import Image
 
 from puzzle_ops.vision_llm import MissingVisionLLMConfig, OpenAIVisionLLMClient, QwenVisionLLMClient, VisionLLMClientFactory
 from puzzle_ops.visual_analysis import LocalImageAnalyzer
+from puzzle_ops import vision_llm
 
 
 def png_bytes(color: tuple[int, int, int] = (180, 80, 60)) -> bytes:
@@ -244,3 +245,60 @@ def test_value_match_formats_structured_conclusion_evidence_citations_and_review
     assert "RAG依据：JP_VALUE_001#chunk-1" in result
     assert "风险提示：未发现明确风险" in result
     assert "人工复核：确认食材呈现与来源授权" in result
+
+
+def test_qwen_transport_uses_configurable_long_timeout(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def read(self):
+            return b'{"choices": []}'
+
+    def fake_urlopen(req, timeout):
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setenv("QWEN_TIMEOUT_SECONDS", "75")
+    monkeypatch.setattr(vision_llm.request, "urlopen", fake_urlopen)
+
+    result = vision_llm._qwen_transport({"model": "qwen3.7-plus"}, "test-key", "https://dashscope.test/chat")
+
+    assert result == {"choices": []}
+    assert captured["timeout"] == 75.0
+
+
+def test_value_match_keeps_scalar_visual_evidence_and_citation_fields():
+    def fake_transport(payload, api_key, base_url):
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "conclusion": "符合日本本土饮食文化",
+                                "visual_evidence": "主体为寿司拼盘，构图为日式料理桌面近景",
+                                "citation_ids": "JP_VALUE_001#chunk-1",
+                                "risk_tags": "素材授权待复核",
+                                "manual_review": "核对素材授权",
+                            },
+                            ensure_ascii=False,
+                        )
+                    }
+                }
+            ]
+        }
+
+    result = QwenVisionLLMClient("test-key", transport=fake_transport).judge_value_match(
+        {"country": "日本", "subject": "寿司拼盘", "subject_description": "主体内容：寿司拼盘"},
+        (("JP_VALUE_001#chunk-1", "寿司属于日本本土饮食文化"),),
+    )
+
+    assert "图像证据：主体为寿司拼盘，构图为日式料理桌面近景" in result
+    assert "RAG依据：JP_VALUE_001#chunk-1" in result
+    assert "风险提示：素材授权待复核" in result

@@ -7,6 +7,9 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
+from puzzle_ops.models import DemandRow
+from puzzle_ops.rag import RagProviderConfig
+
 
 @dataclass(frozen=True)
 class EvalSample:
@@ -129,13 +132,20 @@ class HarnessRun:
     metrics: dict[str, float]
     failures: tuple[HarnessCaseResult, ...]
     created_at: str
+    country: str = ""
+    execution_mode: str = "offline"
+    metric_evaluable_counts: dict[str, int] = field(default_factory=dict)
 
 
 class AgentHarness:
-    def __init__(self, agent, generator_provider=None):
+    def __init__(self, agent, generator_provider=None, *, execute_model_calls: bool = False, execute_generation: bool | None = None):
         self.agent = agent
         self.generator_provider = generator_provider
+        self.execute_model_calls = execute_model_calls
+        self.execute_generation = bool(generator_provider) if execute_generation is None else execute_generation
         self._run_rag_evidence: dict[str, object] = {}
+        self._vision_results: dict[str, object] = {}
+        self._vision_errors: dict[str, str] = {}
 
     def dataset_summary(self, samples: tuple[EvalSample, ...]) -> dict[str, object]:
         countries = Counter(sample.country for sample in samples)
@@ -182,6 +192,8 @@ class AgentHarness:
         return tuple(samples)
 
     def run(self, samples: tuple[EvalSample, ...], dataset_name: str, version: str) -> HarnessRun:
+        self._vision_results = {}
+        self._vision_errors = {}
         self._prepare_run_rag_evidence(samples)
         cases: list[HarnessCaseResult] = []
         for sample in samples:
@@ -198,6 +210,9 @@ class AgentHarness:
             metrics=metrics,
             failures=failures,
             created_at=datetime.now().isoformat(timespec="seconds"),
+            country=samples[0].country if samples else "",
+            execution_mode=self._execution_mode(),
+            metric_evaluable_counts=_metric_evaluable_counts(tuple(cases)),
         )
 
     def _prepare_run_rag_evidence(self, samples: tuple[EvalSample, ...]) -> None:
@@ -207,7 +222,12 @@ class AgentHarness:
             subjects = "、".join(dict.fromkeys(sample.subject for sample in samples if sample.country == country and sample.subject))
             query = f"{country}市场 Harness 评测：{subjects or '当前样本'}的价值观判断与审核风险"
             try:
-                self._run_rag_evidence[country] = self.agent.value_audit_rag_answer(country, query, top_k=6)
+                self._run_rag_evidence[country] = self.agent.value_audit_rag_answer(
+                    country,
+                    query,
+                    top_k=6,
+                    provider_config=None if self.execute_model_calls else RagProviderConfig(),
+                )
             except (RuntimeError, ValueError):
                 continue
 
@@ -231,10 +251,18 @@ class AgentHarness:
         )
 
     def _trial_parse_case(self, sample: EvalSample) -> HarnessCaseResult:
-        description = f"主体内容：{sample.subject}；色彩氛围：{sample.gold_color_mood or '待 VLM/人工确认'}；构图环境：{sample.gold_composition or '待 VLM/人工确认'}。"
+        semantic = self._vision_result(sample)
+        actual_subject = str(getattr(semantic, "subject", "") or sample.subject)
+        actual_color = str(getattr(semantic, "style", "") or "离线预览，未调用 VLM")
+        actual_composition = str(getattr(semantic, "scene", "") or "离线预览，未调用 VLM")
+        description = f"主体内容：{actual_subject}；色彩氛围：{actual_color}；构图环境：{actual_composition}。"
         failures: list[str] = []
         failure_categories: list[str] = []
-        scores: dict[str, float | str] = {"三段式描述合规": 1.0 if _has_three_part_description(description) else 0.0}
+        scores: dict[str, float | str] = {
+            "三段式描述合规": 1.0 if _has_three_part_description(description) else 0.0,
+            "工具调用正确": 1.0 if semantic is not None else "not_evaluable",
+            "步骤效率": 1.0 if semantic is not None else "not_evaluable",
+        }
         if not sample.local_image_path:
             scores["图片可读"] = "not_evaluable"
             failures.append("缺少真实图片路径，无法验证 VLM 解析准确性")
@@ -245,10 +273,19 @@ class AgentHarness:
             failure_categories.append("missing_image")
         else:
             scores["图片可读"] = 1.0
-        if sample.gold_subject:
-            scores["主体匹配"] = _text_overlap(sample.subject, sample.gold_subject)
+        if self.execute_model_calls and semantic is None:
+            failures.append(self._vision_errors.get(sample.sample_id, "真实视觉 LLM 未返回解析结果"))
+            failure_categories.append("vlm_unavailable")
+        if sample.gold_subject and semantic is not None:
+            scores["主体匹配"] = _text_overlap(actual_subject, sample.gold_subject)
         else:
             scores["主体匹配"] = "not_evaluable"
+        scores["色彩氛围匹配"] = _text_overlap(actual_color, sample.gold_color_mood) if sample.gold_color_mood and semantic is not None else "not_evaluable"
+        scores["构图环境匹配"] = _text_overlap(actual_composition, sample.gold_composition) if sample.gold_composition and semantic is not None else "not_evaluable"
+        for label, score in (("主体", scores["主体匹配"]), ("色彩氛围", scores["色彩氛围匹配"]), ("构图环境", scores["构图环境匹配"])):
+            if isinstance(score, (int, float)) and score < 1.0:
+                failures.append(f"{label}与 gold label 不一致")
+                failure_categories.append("vlm_gold_mismatch")
         return HarnessCaseResult(
             sample.sample_id,
             "trial_parse_eval",
@@ -259,7 +296,7 @@ class AgentHarness:
             scores,
             tuple(failures),
             evidence_trace={
-                "visual_evidence": f"图片={sample.local_image_path or '未提供'}；当前主体={sample.subject or '未解析'}",
+                "visual_evidence": f"图片={sample.local_image_path or '未提供'}；模型主体={actual_subject or '未解析'}；模型={getattr(semantic, 'provider', 'offline')}",
                 "rag_citations": (),
                 "memory_evidence": (),
             },
@@ -267,7 +304,9 @@ class AgentHarness:
         )
 
     def _value_match_case(self, sample: EvalSample) -> HarnessCaseResult:
-        visual_evidence = f"主体={sample.subject or '未解析'}；图片={sample.local_image_path or '未提供真实图片'}"
+        semantic = self._vision_result(sample)
+        actual_subject = str(getattr(semantic, "subject", "") or sample.subject)
+        visual_evidence = f"主体={actual_subject or '未解析'}；图片={sample.local_image_path or '未提供真实图片'}"
         rag_answer = self._run_rag_evidence.get(sample.country)
         try:
             if rag_answer is None:
@@ -282,19 +321,64 @@ class AgentHarness:
             f"{row['layer']}/{row['memory_type']}：{row['summary']}"
             for row in memory_rows
         )
-        evidence = (
-            f"结论待真实 VLM 与人工复核。图像证据：{visual_evidence}；"
-            f"RAG依据：{','.join(rag_citations) or '无引用'}。"
-        )
-        scores: dict[str, float | str] = {"引用视觉证据": 1.0 if sample.subject in evidence else 0.0}
+        evidence = f"离线预览，未调用价值观 LLM。图像证据：{visual_evidence}；RAG依据：{','.join(rag_citations) or '无引用'}。"
+        value_call_ok = False
+        if self.execute_model_calls and semantic is not None:
+            try:
+                description = (
+                    f"主体内容：{actual_subject}；色彩氛围：{getattr(semantic, 'style', '')}；"
+                    f"构图环境：{getattr(semantic, 'scene', '')}。"
+                )
+                row = DemandRow(
+                    need_type="试新",
+                    country=sample.country,
+                    js_category=sample.js_category,
+                    image_name=Path(sample.local_image_path).name,
+                    operation_tag=sample.operation_tag,
+                    subject=actual_subject,
+                    count=1,
+                    priority="P1",
+                    method="先照片后AI",
+                    delivery_date="",
+                    subject_description=description,
+                    remark=f"Harness 真实 VLM 解析：{getattr(semantic, 'raw_text', '')}",
+                    reference_image_path=sample.local_image_path,
+                )
+                rules = self.agent._rag_rules_for_value_master(row)
+                evidence = self.agent.trial_uploads.vision_client.judge_value_match(
+                    {
+                        "country": row.country,
+                        "js_category": row.js_category,
+                        "image_name": row.image_name,
+                        "operation_tag": row.operation_tag,
+                        "subject": row.subject,
+                        "subject_description": row.subject_description,
+                        "remark": row.remark,
+                        "reference_image_url": row.reference_image_url,
+                    },
+                    rules,
+                )
+                value_call_ok = True
+            except Exception as exc:
+                evidence = f"价值观 LLM 评测失败：{exc}"
+        scores: dict[str, float | str] = {
+            "引用视觉证据": 1.0 if actual_subject in evidence else 0.0,
+            "工具调用正确": 1.0 if value_call_ok else (0.0 if self.execute_model_calls and semantic is not None else "not_evaluable"),
+            "步骤效率": 1.0 if value_call_ok else (0.0 if self.execute_model_calls and semantic is not None else "not_evaluable"),
+        }
         failures: list[str] = []
         failure_categories: list[str] = []
-        if sample.gold_value_labels:
-            scores["价值观一致"] = 1.0
+        if sample.gold_value_labels and self.execute_model_calls and semantic is not None:
+            matched = sum(1 for label in sample.gold_value_labels if label in evidence)
+            scores["价值观一致"] = _safe_ratio(matched, len(sample.gold_value_labels))
+            if matched != len(sample.gold_value_labels):
+                failures.append("价值观 LLM 输出未覆盖全部 gold_value_labels")
+                failure_categories.append("value_gold_mismatch")
         else:
             scores["价值观一致"] = "not_evaluable"
-            failures.append("缺少 gold_value_labels，价值观一致率跳过")
-            failure_categories.append("missing_gold")
+            if not sample.gold_value_labels:
+                failures.append("缺少 gold_value_labels，价值观一致率跳过")
+                failure_categories.append("missing_gold")
         return HarnessCaseResult(
             sample.sample_id,
             "value_match_eval",
@@ -314,8 +398,10 @@ class AgentHarness:
         )
 
     def _audit_case(self, sample: EvalSample) -> HarnessCaseResult:
-        review = self.agent.audit_review(sample.operation_tag + " " + sample.human_note)
-        recalled = tuple(label for label in sample.gold_risk_labels if label in review.reason or label in " ".join(review.evidence))
+        semantic = self._vision_result(sample)
+        semantic_risks = tuple(getattr(semantic, "risk_tags", ()) or ())
+        review = self.agent.audit_review(" ".join((sample.operation_tag, sample.human_note, " ".join(semantic_risks))))
+        recalled = tuple(label for label in sample.gold_risk_labels if label in semantic_risks or label in review.reason or label in " ".join(review.evidence))
         if sample.gold_risk_labels:
             score: float | str = len(recalled) / len(sample.gold_risk_labels)
         else:
@@ -328,7 +414,7 @@ class AgentHarness:
             review.reason,
             ("audit.retrieve_policy", "audit.rule_engine"),
             ("召回审核手册", "规则审核"),
-            {"风险召回": score},
+            {"风险召回": score, "工具调用正确": 1.0, "步骤效率": 1.0},
             failures,
             evidence_trace={
                 "visual_evidence": sample.subject,
@@ -352,13 +438,25 @@ class AgentHarness:
             f"预测等级：{predicted}",
             ("metrics.grade_predict",),
             ("读取开图率/完成率/时长", "输出等级预测"),
-            {"SABCD预测": score},
+            {"SABCD预测": score, "工具调用正确": 1.0, "步骤效率": 1.0},
             failures,
             failure_categories=("grade_mismatch",) if failures else (),
         )
 
     def _derive_generation_case(self, sample: EvalSample) -> HarnessCaseResult:
         provider = self.generator_provider
+        if not self.execute_generation:
+            return HarnessCaseResult(
+                sample.sample_id,
+                "derive_generation_eval",
+                {"reference_image": sample.local_image_path},
+                "本次 Harness 未授权图像生成，已跳过付费调用。",
+                ("image_generation.cost_gate",),
+                ("检查生成授权", "跳过生成"),
+                {"生成图审核通过": "not_evaluable", "工具调用正确": "not_evaluable", "步骤效率": "not_evaluable"},
+                (),
+                failure_categories=(),
+            )
         status = provider.healthcheck() if provider is not None else {"configured": False}
         if provider is None or not status.get("configured"):
             return HarnessCaseResult(
@@ -368,7 +466,7 @@ class AgentHarness:
                 "生成 provider 未配置；保留 prompt/接口，不伪造生成图。",
                 ("image_generation.healthcheck",),
                 ("生成前检查", "等待 provider 配置"),
-                {"生成图审核通过": "not_evaluable"},
+                {"生成图审核通过": "not_evaluable", "工具调用正确": 0.0, "步骤效率": 0.0},
                 ("生成 provider 未配置",),
                 failure_categories=("provider_not_configured",),
             )
@@ -380,7 +478,7 @@ class AgentHarness:
                 "参考图缺失；跳过付费生成调用。",
                 ("image_generation.preflight",),
                 ("生成前检查", "阻断无参考图调用"),
-                {"生成图审核通过": "not_evaluable"},
+                {"生成图审核通过": "not_evaluable", "工具调用正确": 0.0, "步骤效率": 0.0},
                 ("参考图不存在，无法评测真实好图衍生",),
                 failure_categories=("reference_image_missing",),
             )
@@ -404,7 +502,11 @@ class AgentHarness:
             f"生成参考图{len(images)}张；等待二次 VLM 解析与审核。",
             ("image_generation.generate_derivatives", "vision_llm.parse_generated", "audit.rule_engine"),
             ("生成 prompt", "provider 生成", "二次解析审核"),
-            {"生成图审核通过": 1.0 if len(images) == 2 else 0.0},
+            {
+                "生成图审核通过": 1.0 if len(images) == 2 else 0.0,
+                "工具调用正确": 1.0 if len(images) == 2 else 0.0,
+                "步骤效率": 1.0 if len(images) == 2 else 0.0,
+            },
             () if len(images) == 2 else ("生成图数量不符合预期",),
             evidence_trace={
                 "visual_evidence": sample.subject,
@@ -413,6 +515,42 @@ class AgentHarness:
             },
             failure_categories=() if len(images) == 2 else ("generation_failed",),
         )
+
+    def _vision_result(self, sample: EvalSample):
+        if sample.sample_id in self._vision_results:
+            return self._vision_results[sample.sample_id]
+        if sample.sample_id in self._vision_errors or not self.execute_model_calls:
+            return None
+        client = getattr(self.agent.trial_uploads, "vision_client", None)
+        path = Path(sample.local_image_path)
+        if client is None:
+            self._vision_errors[sample.sample_id] = "真实视觉 LLM 未配置"
+            return None
+        if not path.is_file():
+            self._vision_errors[sample.sample_id] = "真实参考图不存在，无法调用视觉 LLM"
+            return None
+        try:
+            local_summary = self.agent.local_image_analyzer.summarize_bytes((path.read_bytes(),))
+            result = client.analyze(
+                [{"filename": path.name, "path": str(path), "content_type": _image_content_type(path)}],
+                sample.country,
+                sample.js_category,
+                local_summary,
+            )
+        except Exception as exc:
+            self._vision_errors[sample.sample_id] = f"真实视觉 LLM 调用失败：{exc}"
+            return None
+        self._vision_results[sample.sample_id] = result
+        return result
+
+    def _execution_mode(self) -> str:
+        if self.execute_model_calls and self.execute_generation:
+            return "real_vlm_and_generation"
+        if self.execute_model_calls:
+            return "real_vlm"
+        if self.execute_generation:
+            return "generation_only"
+        return "offline"
 
     def _feishu_sync_case(self, sample: EvalSample) -> HarnessCaseResult:
         required = ("operation_tag", "subject", "country")
@@ -424,7 +562,11 @@ class AgentHarness:
             "同步前字段完整性检查通过" if complete else "同步前字段不完整",
             ("feishu.schema_filter", "feishu.attachment_upload_or_skip"),
             ("字段白名单", "附件上传检查", "同步前拦截"),
-            {"字段完整性": 1.0 if complete else 0.0},
+            {
+                "字段完整性": 1.0 if complete else 0.0,
+                "工具调用正确": 1.0 if complete else 0.0,
+                "步骤效率": 1.0 if complete else 0.0,
+            },
             () if complete else ("提需字段不完整",),
             failure_categories=() if complete else ("field_incomplete",),
         )
@@ -433,11 +575,14 @@ class AgentHarness:
         metrics = {
             "真实样本占比": _safe_ratio(sum(1 for sample in samples if sample.is_real), len(samples)),
             "三段式描述合规率": _score_average(cases, "三段式描述合规"),
+            "主体识别准确率": _score_average(cases, "主体匹配"),
+            "色彩氛围准确率": _score_average(cases, "色彩氛围匹配"),
+            "构图环境准确率": _score_average(cases, "构图环境匹配"),
             "价值观一致率": _score_average(cases, "价值观一致"),
             "审核风险召回率": _score_average(cases, "风险召回"),
             "SABCD预测准确率": _score_average(cases, "SABCD预测"),
-            "工具调用正确率": 1.0,
-            "Step Efficiency": 1.0,
+            "工具调用正确率": _score_average(cases, "工具调用正确"),
+            "Step Efficiency": _score_average(cases, "步骤效率"),
             "生成图审核通过率": _score_average(cases, "生成图审核通过"),
             "飞书同步成功率": _score_average(cases, "字段完整性"),
         }
@@ -533,6 +678,14 @@ def _text_overlap(actual: str, expected: str) -> float:
     return 0.0
 
 
+def _image_content_type(path: Path) -> str:
+    if path.suffix.lower() in {".jpg", ".jpeg"}:
+        return "image/jpeg"
+    if path.suffix.lower() == ".webp":
+        return "image/webp"
+    return "image/png"
+
+
 def _predict_grade(metrics: dict[str, float]) -> str:
     open_rate = metrics.get("open_rate", 0.0)
     completion_rate = metrics.get("completion_rate", 0.0)
@@ -550,6 +703,26 @@ def _predict_grade(metrics: dict[str, float]) -> str:
 def _score_average(cases: tuple[HarnessCaseResult, ...], key: str) -> float:
     scores = [case.scores[key] for case in cases if key in case.scores and isinstance(case.scores[key], (int, float))]
     return _safe_ratio(sum(float(score) for score in scores), len(scores))
+
+
+def _metric_evaluable_counts(cases: tuple[HarnessCaseResult, ...]) -> dict[str, int]:
+    score_keys = {
+        "三段式描述合规率": "三段式描述合规",
+        "主体识别准确率": "主体匹配",
+        "色彩氛围准确率": "色彩氛围匹配",
+        "构图环境准确率": "构图环境匹配",
+        "价值观一致率": "价值观一致",
+        "审核风险召回率": "风险召回",
+        "SABCD预测准确率": "SABCD预测",
+        "生成图审核通过率": "生成图审核通过",
+        "飞书同步成功率": "字段完整性",
+        "工具调用正确率": "工具调用正确",
+        "Step Efficiency": "步骤效率",
+    }
+    return {
+        metric: sum(1 for case in cases if isinstance(case.scores.get(score_key), (int, float)))
+        for metric, score_key in score_keys.items()
+    }
 
 
 def _safe_ratio(numerator: float, denominator: int) -> float:

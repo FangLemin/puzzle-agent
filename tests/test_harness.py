@@ -6,6 +6,9 @@ from puzzle_ops.adapters import ArgillaExporter, DeepEvalAdapter, PhoenixExporte
 from puzzle_ops.harness import EvalSample, AgentHarness, load_eval_samples_csv
 from puzzle_ops.image_generation import ImageGenerationProviderFactory, MockImageGenerationProvider, CloudImageGenerationProvider, DashScopeImageGenerationProvider
 from puzzle_ops.storage import PuzzleRepository
+from puzzle_ops.trial_upload import TrialImageUploadService
+from puzzle_ops.vision_llm import VisionLLMResult
+from PIL import Image
 
 
 def test_harness_builds_real_and_synthetic_dataset_summary(tmp_path):
@@ -46,6 +49,78 @@ def test_harness_builds_real_and_synthetic_dataset_summary(tmp_path):
     assert summary["国家分布"]["日本"] == 2
     assert summary["等级分布"]["S"] == 1
     assert summary["等级分布"]["B"] == 1
+
+
+class FakeHarnessVisionClient:
+    provider = "fake-qwen"
+
+    def __init__(self):
+        self.analyze_calls = []
+        self.value_calls = []
+
+    def config_status(self):
+        return {"provider": self.provider, "mode": "real", "model": "fake-vlm"}
+
+    def analyze(self, images, country, category, local_summary):
+        self.analyze_calls.append((images, country, category, local_summary))
+        return VisionLLMResult(
+            subject="寿司拼盘",
+            scene="日式料理桌面近景",
+            culture_elements=("寿司", "日式餐具"),
+            style="米白与鲑鱼橙，明亮清爽",
+            risk_tags=(),
+            prompt_keywords=("寿司", "日式料理"),
+            confidence=0.92,
+            provider=self.provider,
+            raw_text="真实模型解析结果",
+        )
+
+    def judge_value_match(self, row, value_rules):
+        self.value_calls.append((row, value_rules))
+        return "价值观判断：符合本土饮食文化；图像证据为寿司拼盘、日式料理桌面和明亮清爽色彩。"
+
+
+def test_harness_real_model_mode_scores_actual_vlm_output_against_gold(tmp_path):
+    image_path = tmp_path / "real-sushi.png"
+    Image.new("RGB", (80, 60), (220, 150, 90)).save(image_path)
+    client = FakeHarnessVisionClient()
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "harness.db"))
+    agent.trial_uploads = TrialImageUploadService(tmp_path / "uploads", vision_client=client)
+    sample = EvalSample(
+        sample_id="real-vlm-001",
+        country="日本",
+        local_image_path=str(image_path),
+        operation_tag="试新_日本_待解析0622",
+        subject="上传前旧文本",
+        js_category="food",
+        source="real",
+        position=5,
+        metrics={"open_rate": 0.31, "completion_rate": 0.93, "avg_finish_time": 42.0},
+        gold_grade="S",
+        gold_subject="寿司拼盘",
+        gold_color_mood="米白与鲑鱼橙，明亮清爽",
+        gold_composition="日式料理桌面近景",
+        gold_value_labels=("本土饮食文化",),
+        gold_risk_labels=(),
+        human_note="真实运营 gold label",
+    )
+
+    run = AgentHarness(agent, execute_model_calls=True).run((sample,), dataset_name="real-vlm", version="0.3.55")
+
+    parse_case = next(case for case in run.cases if case.task_type == "trial_parse_eval")
+    value_case = next(case for case in run.cases if case.task_type == "value_match_eval")
+    assert run.execution_mode == "real_vlm"
+    assert "主体内容：寿司拼盘" in parse_case.agent_output
+    assert "上传前旧文本" not in parse_case.agent_output
+    assert parse_case.scores["主体匹配"] == 1.0
+    assert parse_case.scores["色彩氛围匹配"] == 1.0
+    assert parse_case.scores["构图环境匹配"] == 1.0
+    assert value_case.scores["价值观一致"] == 1.0
+    assert run.metrics["工具调用正确率"] == 1.0
+    assert run.metric_evaluable_counts["工具调用正确率"] == 5
+    assert "本土饮食文化" in value_case.agent_output
+    assert len(client.analyze_calls) == 1
+    assert len(client.value_calls) == 1
 
 
 def test_harness_run_records_case_results_failures_and_skips_missing_gold(tmp_path):

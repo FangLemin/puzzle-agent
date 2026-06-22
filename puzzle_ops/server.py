@@ -298,6 +298,26 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             state.sync_message = f"Memory 停用失败：{exc}"
         state.sync_url = ""
         state.view = "runtime"
+    elif path == "/run_harness":
+        execute_models = value(form, "run_real_models", "") == "1"
+        execute_generation = value(form, "include_generation", "") == "1"
+        real_samples = tuple(sample for sample in agent.harness_samples(state.country) if sample.is_real)
+        if execute_models and not real_samples:
+            state.sync_message = "真实 VLM Harness 未运行：当前没有可读取的真实图片样本。"
+        else:
+            try:
+                run = agent.harness_run(
+                    state.country,
+                    execute_models=execute_models,
+                    execute_generation=execute_generation,
+                    save=True,
+                )
+                generation_copy = "，包含图像生成评测" if execute_generation else "，未调用图像生成模型"
+                state.sync_message = f"真实 VLM Harness 已完成：run_id={run.run_id}{generation_copy}。"
+            except Exception as exc:
+                state.sync_message = f"Harness 运行失败：{exc}"
+        state.sync_url = ""
+        state.view = "eval"
     elif path == "/save_harness_override":
         agent.record_harness_override(
             state.country,

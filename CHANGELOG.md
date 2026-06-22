@@ -2,6 +2,54 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.55 - Harness 显式执行、费用门禁与真实 VLM Gold 评测
+
+日期：2026-06-22
+
+阶段目标：
+
+- 修复打开 Agent 评测页面可能触发远程 RAG 或批量图像生成的费用风险。
+- 让 `trial_parse_eval` 和 `value_match_eval` 真正比较模型输出与人工 gold label，而不是复述样本字段后自评分。
+- 保留离线 Harness 预览与本地 RAG 引用，同时把真实模型执行改为人工显式动作。
+
+已完成：
+
+- Harness 执行模式：
+  - `offline`：页面默认模式，只运行本地规则、本地 RAG 和字段检查。
+  - `real_vlm`：显式调用真实视觉 LLM，评测主体、色彩氛围、构图环境和价值观匹配。
+  - `real_vlm_and_generation`：在真实 VLM 基础上额外执行付费图像生成。
+  - `generation_only`：供程序化评测使用的独立生成模式。
+- 费用门禁：
+  - GET 渲染评测页不再保存新 run、不调用视觉 LLM、不调用远程 embedding/rerank、不调用图像生成。
+  - 离线预览仍通过本地 BM25/向量 fallback 生成可溯源 RAG 引用。
+  - 页面新增“运行真实 VLM Harness”按钮。
+  - “包含付费生成评测”使用独立 checkbox，默认不勾选。
+- 真实 VLM case：
+  - 每个真实样本只解析一次并缓存语义结果，供解析、价值观和审核 case 复用。
+  - `trial_parse_eval` 使用模型输出生成三段式描述，并与 `gold_subject`、`gold_color_mood`、`gold_composition` 分别评分。
+  - `value_match_eval` 使用当前图像解析、RAG 规则和真实价值观 LLM 输出，对 `gold_value_labels` 评分。
+  - `audit_eval` 将 VLM 风险标签与规则审核结果合并后对照 `gold_risk_labels`。
+- Harness run 增加 `country` 和 `execution_mode`，旧 SQLite run JSON 可向后兼容读取。
+- Dashboard 展示执行模式；优先展示最近一次已保存 run，没有历史 run 时才生成不落库的离线预览。
+- 指标新增主体识别准确率、色彩氛围准确率和构图环境准确率。
+- 工具调用正确率与 Step Efficiency 改为由实际执行 case 聚合，不再硬编码 100%；跳过的远程步骤不进入分母。
+- Dashboard 区分 `0%` 与“未评测”，未授权生成属于正常 skipped，不再污染失败样本和失败分类。
+- 复盘区先展示真实失败，再补充尚未执行模型的待评测 case，确保完整 gold 样本仍保留 HITL 入口。
+- Qwen 网络超时改为 `QWEN_TIMEOUT_SECONDS` 可配置，默认 90 秒，避免价值观长提示在原 30 秒限制下误判失败。
+- 兼容 Qwen 将 `visual_evidence`、`citation_ids` 或 `risk_tags` 返回为字符串的情况，不再丢失真实证据。
+
+验证：
+
+- TDD 覆盖真实 VLM 输出与 gold label 对照、页面只读、显式运行及生成 opt-in。
+- `PYTHONPATH=. pytest tests -q`：214 passed，用时 20.56s。
+- 单条真实寿司图片 smoke test：`real_vlm` 模式完成 6 个 case；主体/色彩/构图解析成功，价值观结论成功，远程 embedding 与 rerank 各 1 次且无降级，图像生成保持未授权跳过。
+
+当前限制：
+
+- 真实业务效果仍取决于 30-50 张人工标注真实拼图验证集；当前 5 条真实图片只能验证链路，不能证明稳定准确率。
+- 勾选生成评测会按真实图片样本产生通义万相费用，正式运行前应控制数据集规模。
+- Gold label 文本评分当前采用严格包含匹配，后续可增加同义词归一化或 LLM-as-Judge，但必须保留人工抽查。
+
 ## v0.3.54 - 通义万相真实好图衍生与人工放行门禁
 
 日期：2026-06-22
