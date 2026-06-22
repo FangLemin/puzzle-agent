@@ -231,7 +231,7 @@ def render_trial(agent: PuzzleOpsAgent, state: AppState) -> str:
         f'<a class="mode-card {"active" if state.trial_mode == mode else ""}" href="{href(state, view="trial", trial_mode=mode)}"><strong>{label}</strong><span>{copy}</span></a>'
         for mode, label, copy in (
             ("parse", "参考图解析提需", "上传 1-3 张参考图，AI解析主体/色彩/构图。"),
-            ("derive", "好图衍生提需", "上传 1 张历史好图，解析可复用视觉特征并整理衍生方向。"),
+            ("derive", "好图衍生提需", "上传 1 张历史好图，解析衍生方向并通过已配置 Provider 生成参考图。"),
         )
     )
     row = state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)
@@ -253,6 +253,9 @@ def render_trial(agent: PuzzleOpsAgent, state: AppState) -> str:
     )
     generation_diagnostic = render_generation_provider_diagnostic(generation_status)
     generation_event = render_generation_event(state.generation_event)
+    approval_form = ""
+    if any(item.generation_review_status == "passed" and not item.human_approved for item in state.trial_rows):
+        approval_form = f'<form method="post" action="/approve_generated_derivatives">{context}<button>确认生成图可同步</button></form>'
     return f"""
 <section class="panel"><h2>试新模式</h2><div class="mode-grid">{mode_links}</div></section>
 <section class="grid two">
@@ -260,7 +263,7 @@ def render_trial(agent: PuzzleOpsAgent, state: AppState) -> str:
   <div class="panel"><h2>解析状态</h2><p class="alert">解析结果已写入下方试新提需表，可在表格中继续编辑后同步飞书。</p><dl class="detail"><div><dt>视觉 LLM 语义解析</dt><dd>{vision_mode_copy(vision_status)}</dd></div><div><dt>图像生成 Provider</dt><dd>{escape(str(generation_status.get("message", "生成 provider 未配置")))}</dd></div><div><dt>当前图片</dt><dd>{escape(row.image_name)}</dd></div><div><dt>解析备注</dt><dd>{escape(row.remark or "等待上传图片")}</dd></div></dl>{generation_diagnostic}{generation_event}<form method="post" action="/check_generation_provider">{context}<button>检查生成 Provider</button></form></div>
 </section>
 <section class="panel">
-  <div class="section-line"><h2>试新提需表预览</h2><form method="post" action="/apply_value_master">{context}<button>价值观大师</button></form></div>
+  <div class="section-line"><h2>试新提需表预览</h2><div class="inline-actions"><form method="post" action="/apply_value_master">{context}<button>价值观大师</button></form>{approval_form}</div></div>
   {sync_message}
   <form method="post" action="/save_trial">{context}<div class="demand-card-list trial-demand-list">{row_html}</div><div class="section-line"><button class="primary">保存试新修改</button><button formaction="/sync_trial_feishu" formmethod="post">一键同步到飞书表格</button></div></form>
 </section>

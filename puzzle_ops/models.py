@@ -76,6 +76,8 @@ class DemandRow:
     reference_image_path: str = ""
     reference_image_content_type: str = ""
     reference_image_syncable: bool = True
+    generation_review_status: str = ""
+    human_approved: bool = False
 
     def edited(self, **changes: object) -> "DemandRow":
         return replace(self, **changes)

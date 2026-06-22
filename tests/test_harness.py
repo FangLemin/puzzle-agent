@@ -1,4 +1,5 @@
 from pathlib import Path
+import base64
 
 from puzzle_ops.agents import PuzzleOpsAgent
 from puzzle_ops.adapters import ArgillaExporter, DeepEvalAdapter, PhoenixExporter, PromptfooExporter
@@ -229,9 +230,14 @@ def test_image_generation_factory_reports_unconfigured_mock_and_cloud(monkeypatc
     assert cloud.healthcheck()["model"] == "wanx2.1-t2i-plus"
 
     monkeypatch.setenv("IMAGE_GENERATION_PROVIDER", "dashscope")
-    dashscope = ImageGenerationProviderFactory.create(tmp_path, transport=lambda method, url, payload, api_key: {"output": {"task_id": "task-1"}})
+    monkeypatch.delenv("IMAGE_GENERATION_API_KEY", raising=False)
+    monkeypatch.setenv("QWEN_API_KEY", "shared-qwen-key")
+    monkeypatch.delenv("IMAGE_GENERATION_MODEL", raising=False)
+    dashscope = ImageGenerationProviderFactory.create(tmp_path, transport=lambda **kwargs: {"images": []})
     assert isinstance(dashscope, DashScopeImageGenerationProvider)
     assert dashscope.healthcheck()["provider"] == "dashscope"
+    assert dashscope.healthcheck()["model"] == "wan2.6-image"
+    assert dashscope.api_key == "shared-qwen-key"
 
 
 def test_harness_skips_unconfigured_generation_provider(tmp_path):
@@ -249,6 +255,24 @@ def test_harness_skips_unconfigured_generation_provider(tmp_path):
     derive_case = next(case for case in run.cases if case.task_type == "derive_generation_eval")
     assert derive_case.scores["生成图审核通过"] == "not_evaluable"
     assert "生成 provider 未配置" in derive_case.failure_reasons
+
+
+def test_harness_skips_configured_generation_when_reference_image_is_missing(tmp_path):
+    sample = EvalSample.synthetic_demo(
+        sample_id="syn-no-image",
+        country="日本",
+        operation_tag="常规_日本_猫咪鲤鱼0609",
+        subject="猫咪鲤鱼",
+        gold_grade="B",
+    )
+    provider = MockImageGenerationProvider(tmp_path)
+
+    run = AgentHarness(PuzzleOpsAgent(), generator_provider=provider).run((sample,), dataset_name="demo-set", version="0.3.54")
+
+    derive_case = next(case for case in run.cases if case.task_type == "derive_generation_eval")
+    assert derive_case.scores["生成图审核通过"] == "not_evaluable"
+    assert "参考图" in derive_case.failure_reasons[0]
+    assert not list(tmp_path.glob("derivative_*.png"))
 
 
 def test_harness_metrics_include_generation_trace_replay_events():
@@ -363,36 +387,32 @@ def test_cloud_generation_provider_writes_returned_images_with_generation_metada
     assert images[0].risk_notes == ("生成图需二次 VLM 解析与审核",)
 
 
-def test_dashscope_generation_provider_polls_task_and_downloads_results(tmp_path):
+def test_dashscope_generation_provider_uses_reference_image_and_downloads_sdk_result(tmp_path):
     png_b64 = (
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/"
         "pLvAAAAAElFTkSuQmCC"
     )
     calls = []
 
-    def fake_transport(method, url, payload, api_key):
-        calls.append((method, url, payload, api_key))
-        if method == "POST":
-            return {"output": {"task_id": "task-123"}, "request_id": "req-1"}
+    def fake_sdk_generate(**kwargs):
+        calls.append(kwargs)
         return {
-            "output": {
-                "task_status": "SUCCEEDED",
-                "results": [
-                    {"b64_json": png_b64, "prompt": "春季寿司便当"},
-                    {"b64_json": png_b64, "prompt": "夏季寿司店铺"},
-                ],
-            }
+            "images": [
+                {"url": "https://example.test/generated-1.png", "prompt": "春季寿司便当"},
+                {"b64_json": png_b64, "prompt": "夏季寿司店铺"},
+            ]
         }
+
+    def fake_download(url):
+        assert url == "https://example.test/generated-1.png"
+        return base64.b64decode(png_b64)
 
     provider = DashScopeImageGenerationProvider(
         output_dir=tmp_path,
         api_key="gen-test",
-        model="wanx2.1-t2i-plus",
-        submit_url="https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis",
-        task_url_template="https://dashscope.aliyuncs.com/api/v1/tasks/{task_id}",
-        transport=fake_transport,
-        poll_interval_seconds=0,
-        max_polls=2,
+        model="wan2.6-image",
+        sdk_generate=fake_sdk_generate,
+        image_downloader=fake_download,
     )
 
     images = provider.generate_derivatives(
@@ -404,9 +424,10 @@ def test_dashscope_generation_provider_polls_task_and_downloads_results(tmp_path
         style_constraints={"source_sample_id": "sample-1", "retained_features": "寿司；明亮清爽"},
     )
 
-    assert [call[0] for call in calls] == ["POST", "GET"]
-    assert calls[0][2]["input"]["prompt"] == "保留寿司主体和日式餐桌，换成春季便当场景"
-    assert calls[0][2]["parameters"]["n"] == 2
+    assert len(calls) == 1
+    assert calls[0]["reference_image"] == "real-sushi.png"
+    assert calls[0]["prompt"] == "保留寿司主体和日式餐桌，换成春季便当场景"
+    assert calls[0]["count"] == 2
     assert len(images) == 2
     assert images[0].provider == "dashscope"
     assert images[0].source_sample_id == "sample-1"
@@ -414,20 +435,14 @@ def test_dashscope_generation_provider_polls_task_and_downloads_results(tmp_path
 
 
 def test_dashscope_generation_provider_raises_clear_error_on_failed_task(tmp_path):
-    def fake_transport(method, url, payload, api_key):
-        if method == "POST":
-            return {"output": {"task_id": "task-fail"}}
-        return {"output": {"task_status": "FAILED", "message": "quota exceeded"}}
+    def fake_sdk_generate(**kwargs):
+        raise RuntimeError("quota exceeded")
 
     provider = DashScopeImageGenerationProvider(
         output_dir=tmp_path,
         api_key="gen-test",
-        model="wanx2.1-t2i-plus",
-        submit_url="submit",
-        task_url_template="task/{task_id}",
-        transport=fake_transport,
-        poll_interval_seconds=0,
-        max_polls=1,
+        model="wan2.6-image",
+        sdk_generate=fake_sdk_generate,
     )
 
     try:

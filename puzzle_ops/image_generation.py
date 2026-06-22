@@ -8,7 +8,6 @@ import base64
 import hashlib
 import json
 import os
-import time
 
 
 @dataclass(frozen=True)
@@ -166,29 +165,23 @@ class DashScopeImageGenerationProvider(ImageGenerationProvider):
         output_dir: Path | str,
         api_key: str,
         model: str,
-        submit_url: str,
-        task_url_template: str,
-        transport=None,
-        poll_interval_seconds: float = 1.0,
-        max_polls: int = 30,
+        sdk_generate=None,
+        image_downloader=None,
     ):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.api_key = api_key
         self.model = model
-        self.submit_url = submit_url
-        self.task_url_template = task_url_template
-        self.transport = transport or _dashscope_transport
-        self.poll_interval_seconds = poll_interval_seconds
-        self.max_polls = max_polls
+        self.sdk_generate = sdk_generate or _dashscope_sdk_generate
+        self.image_downloader = image_downloader or _download_image
 
     def healthcheck(self) -> dict[str, object]:
         return {
             "provider": self.provider_name,
-            "configured": bool(self.api_key and self.model and self.submit_url and self.task_url_template),
-            "message": f"DashScope 图像生成 provider 已配置：{self.model}",
+            "configured": bool(self.api_key and self.model),
+            "message": f"DashScope 参考图生成 provider 已配置：{self.model}",
             "model": self.model,
-            "base_url": self.submit_url,
+            "base_url": "DashScope SDK ImageGeneration",
         }
 
     def generate_derivatives(
@@ -200,21 +193,27 @@ class DashScopeImageGenerationProvider(ImageGenerationProvider):
         seed: int,
         style_constraints: dict[str, str],
     ) -> tuple[DerivativeImage, ...]:
-        submit_payload = {
-            "model": self.model,
-            "input": {"prompt": prompt, "negative_prompt": negative_prompt},
-            "parameters": {"n": count, "seed": seed},
-            "reference_image": reference_image,
-            "style_constraints": style_constraints,
-        }
-        submit_response = self.transport("POST", self.submit_url, submit_payload, self.api_key)
-        task_id = _dashscope_task_id(submit_response)
-        results = self._poll_results(task_id)
+        try:
+            response = self.sdk_generate(
+                model=self.model,
+                api_key=self.api_key,
+                reference_image=reference_image,
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                count=count,
+                seed=seed,
+                style_constraints=style_constraints,
+            )
+        except Exception as exc:
+            raise RuntimeError(f"DashScope 图像生成失败：{exc}") from exc
+        results = response.get("images", []) if isinstance(response, dict) else []
+        if not results:
+            raise RuntimeError("DashScope 图像生成失败：响应中没有生成图片")
         images: list[DerivativeImage] = []
         for index, item in enumerate(results[:count]):
-            image_bytes = _image_bytes_from_response_item(item)
+            image_bytes = _image_bytes_from_response_item(item, self.image_downloader)
             item_seed = seed + index
-            digest = hashlib.sha1(image_bytes + f":{task_id}:{item_seed}".encode("utf-8")).hexdigest()[:12]
+            digest = hashlib.sha1(image_bytes + f":{item_seed}".encode("utf-8")).hexdigest()[:12]
             path = self.output_dir / f"dashscope_derivative_{digest}.png"
             path.write_bytes(image_bytes)
             images.append(
@@ -233,25 +232,6 @@ class DashScopeImageGenerationProvider(ImageGenerationProvider):
                 )
             )
         return tuple(images)
-
-    def _poll_results(self, task_id: str) -> list[dict[str, object]]:
-        task_url = self.task_url_template.format(task_id=task_id)
-        last_status = ""
-        last_message = ""
-        for _ in range(self.max_polls):
-            response = self.transport("GET", task_url, None, self.api_key)
-            output = response.get("output", {}) if isinstance(response, dict) else {}
-            status = str(output.get("task_status") or output.get("status") or "")
-            last_status = status
-            last_message = str(output.get("message") or response.get("message") or "") if isinstance(response, dict) else ""
-            if status == "SUCCEEDED":
-                results = output.get("results") or output.get("images") or []
-                return [item for item in results if isinstance(item, dict)]
-            if status in {"FAILED", "CANCELED", "UNKNOWN"}:
-                raise RuntimeError(f"DashScope 图像生成失败：{last_message or status}")
-            if self.poll_interval_seconds:
-                time.sleep(self.poll_interval_seconds)
-        raise RuntimeError(f"DashScope 图像生成超时：task_id={task_id}，last_status={last_status or 'unknown'}")
 
 
 class ImageGenerationProviderFactory:
@@ -274,16 +254,14 @@ class ImageGenerationProviderFactory:
                 transport=transport,
             )
         if provider in {"dashscope", "wanx"}:
-            api_key = os.getenv("IMAGE_GENERATION_API_KEY", "")
+            api_key = os.getenv("IMAGE_GENERATION_API_KEY", "") or os.getenv("QWEN_API_KEY", "")
             if not api_key:
                 return MissingImageGenerationProvider()
             return DashScopeImageGenerationProvider(
                 output_dir=output_dir,
                 api_key=api_key,
-                model=os.getenv("IMAGE_GENERATION_MODEL", "wanx2.1-t2i-plus"),
-                submit_url=os.getenv("IMAGE_GENERATION_BASE_URL", "https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis"),
-                task_url_template=os.getenv("IMAGE_GENERATION_TASK_URL_TEMPLATE", "https://dashscope.aliyuncs.com/api/v1/tasks/{task_id}"),
-                transport=transport,
+                model=os.getenv("IMAGE_GENERATION_MODEL", "wan2.6-image"),
+                sdk_generate=transport,
             )
         return MissingImageGenerationProvider()
 
@@ -304,7 +282,7 @@ def _placeholder_png_bytes() -> bytes:
     )
 
 
-def _image_bytes_from_response_item(item: object) -> bytes:
+def _image_bytes_from_response_item(item: object, image_downloader=None) -> bytes:
     if not isinstance(item, dict):
         raise ValueError("图像生成响应 item 必须是 dict")
     encoded = item.get("b64_json") or item.get("image_base64")
@@ -317,7 +295,50 @@ def _image_bytes_from_response_item(item: object) -> bytes:
     if isinstance(url, str) and url.startswith("data:image"):
         _, encoded = url.split(",", 1)
         return base64.b64decode(encoded)
-    raise ValueError("图像生成响应缺少 b64_json/image_base64/local_image_path")
+    if isinstance(url, str) and url.startswith(("http://", "https://")):
+        return (image_downloader or _download_image)(url)
+    raise ValueError("图像生成响应缺少 b64_json/image_base64/local_image_path/url")
+
+
+def _download_image(url: str) -> bytes:
+    with request.urlopen(url, timeout=90) as response:
+        return response.read()
+
+
+def _dashscope_sdk_generate(
+    *, model: str, api_key: str, reference_image: str, prompt: str,
+    negative_prompt: str, count: int, seed: int, style_constraints: dict[str, str],
+) -> dict[str, object]:
+    try:
+        from dashscope.aigc.image_generation import ImageGeneration
+        from dashscope.api_entities.dashscope_response import Message, Role
+    except ImportError as exc:
+        raise RuntimeError("缺少 dashscope Python SDK，请安装 requirements.txt") from exc
+
+    if not reference_image.strip():
+        raise ValueError("参考图路径或 URL 不能为空")
+    candidate = Path(reference_image).expanduser()
+    if candidate.is_file():
+        reference = str(candidate.resolve())
+    elif reference_image.startswith(("http://", "https://", "oss://")):
+        reference = reference_image
+    else:
+        raise ValueError(f"参考图不存在：{reference_image}")
+    instruction = f"{prompt}\n必须规避：{negative_prompt}"
+    message = Message(role=Role.USER, content=[{"text": instruction}, {"image": reference}])
+    response = ImageGeneration.call(model=model, api_key=api_key, messages=[message], n=count, seed=seed)
+    if int(getattr(response, "status_code", 500)) != 200:
+        raise RuntimeError(f"{getattr(response, 'code', 'unknown')}：{getattr(response, 'message', '调用失败')}")
+    output = getattr(response, "output", {}) or {}
+    choices = output.get("choices", []) if hasattr(output, "get") else []
+    images: list[dict[str, object]] = []
+    for choice in choices or []:
+        message_value = choice.get("message", {}) if hasattr(choice, "get") else {}
+        content = message_value.get("content", []) if hasattr(message_value, "get") else []
+        for item in content or []:
+            if isinstance(item, dict) and item.get("image"):
+                images.append({"url": item["image"], "prompt": prompt})
+    return {"images": images}
 
 
 def _cloud_transport(payload: dict[str, object], api_key: str, base_url: str) -> dict[str, object]:
@@ -328,27 +349,5 @@ def _cloud_transport(payload: dict[str, object], api_key: str, base_url: str) ->
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
         method="POST",
     )
-    with request.urlopen(req, timeout=90) as response:
-        return json.loads(response.read().decode("utf-8"))
-
-
-def _dashscope_task_id(response: dict[str, object]) -> str:
-    output = response.get("output", {}) if isinstance(response, dict) else {}
-    task_id = output.get("task_id") if isinstance(output, dict) else ""
-    if not task_id:
-        task_id = response.get("task_id") if isinstance(response, dict) else ""
-    if not task_id:
-        raise RuntimeError(f"DashScope 图像生成提交失败：缺少 task_id，响应={response}")
-    return str(task_id)
-
-
-def _dashscope_transport(method: str, url: str, payload: dict[str, object] | None, api_key: str) -> dict[str, object]:
-    data = json.dumps(payload or {}, ensure_ascii=False).encode("utf-8") if method == "POST" else None
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "X-DashScope-Async": "enable",
-    }
-    req = request.Request(url, data=data, headers=headers, method=method)
     with request.urlopen(req, timeout=90) as response:
         return json.loads(response.read().decode("utf-8"))

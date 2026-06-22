@@ -289,7 +289,9 @@ class PuzzleOpsAgent:
                 reference_image_url=f"/uploads/{path.name}",
                 reference_image_path=str(path),
                 reference_image_content_type="image/png",
-                reference_image_syncable=second_review_passed,
+                reference_image_syncable=False,
+                generation_review_status="passed" if second_review_passed else "blocked",
+                human_approved=False,
                 remark=remark,
             )
             rows.append(generated_row)

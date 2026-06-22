@@ -669,13 +669,27 @@ def test_real_generation_derivatives_require_vlm_second_review_before_sync(tmp_p
     handle_action("/generate_trial_derivatives", {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["derive"]})
 
     assert len(APP.state.trial_rows) == 2
-    assert all(row.reference_image_syncable is True for row in APP.state.trial_rows)
+    assert all(row.generation_review_status == "passed" for row in APP.state.trial_rows)
+    assert all(row.human_approved is False for row in APP.state.trial_rows)
+    assert all(row.reference_image_syncable is False for row in APP.state.trial_rows)
     assert all("二次 VLM 解析与审核通过" in row.remark for row in APP.state.trial_rows)
     assert all(row.subject_description.startswith("主体内容：日式塔楼游客；色彩氛围：明亮清透的日式旅游插画；构图环境：海边步道") for row in APP.state.trial_rows)
     assert all(row.reference_image_path.endswith(".png") for row in APP.state.trial_rows)
     assert len(fake_vision.calls) == 2
     assert APP.state.generation_event["second_review_status"] == "passed"
+    assert APP.state.generation_event["feishu_attachment_status"] == "pending_human_approval"
+
+    handle_action("/sync_trial_feishu", {"country": ["日本"], "view": ["trial"]})
+
+    assert len(APP.state.trial_rows) == 2
+    assert "运营确认" in APP.state.sync_message
+
+    handle_action("/approve_generated_derivatives", {"country": ["日本"], "view": ["trial"]})
+
+    assert all(row.human_approved is True for row in APP.state.trial_rows)
+    assert all(row.reference_image_syncable is True for row in APP.state.trial_rows)
     assert APP.state.generation_event["feishu_attachment_status"] == "ready"
+    assert "运营已确认" in APP.state.sync_message
 
 
 def test_real_generation_derivatives_with_vlm_risk_stay_unsyncable(tmp_path):

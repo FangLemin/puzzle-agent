@@ -489,3 +489,20 @@ def test_trial_page_shows_generation_failure_message():
 
     assert "生成衍生参考图失败" in html
     assert "quota exceeded" in html
+
+
+def test_trial_page_shows_human_approval_for_vlm_passed_generated_rows(tmp_path):
+    agent = agent_without_vlm(tmp_path)
+    row = agent.create_trial_demand("日本", "人物", mode="derive").edited(
+        image_name="衍生参考图1.png",
+        reference_image_path=str(tmp_path / "generated.png"),
+        generation_review_status="passed",
+        human_approved=False,
+        reference_image_syncable=False,
+    )
+    state = AppState(country="日本", view="trial", trial_mode="derive", trial_row=row, trial_rows=[row])
+
+    html = render_page(agent, state)
+
+    assert 'action="/approve_generated_derivatives"' in html
+    assert "确认生成图可同步" in html

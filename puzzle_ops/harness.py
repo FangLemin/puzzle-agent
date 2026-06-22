@@ -372,6 +372,18 @@ class AgentHarness:
                 ("生成 provider 未配置",),
                 failure_categories=("provider_not_configured",),
             )
+        if not sample.local_image_path or not Path(sample.local_image_path).is_file():
+            return HarnessCaseResult(
+                sample.sample_id,
+                "derive_generation_eval",
+                {"reference_image": sample.local_image_path},
+                "参考图缺失；跳过付费生成调用。",
+                ("image_generation.preflight",),
+                ("生成前检查", "阻断无参考图调用"),
+                {"生成图审核通过": "not_evaluable"},
+                ("参考图不存在，无法评测真实好图衍生",),
+                failure_categories=("reference_image_missing",),
+            )
         images = provider.generate_derivatives(
             sample.local_image_path,
             prompt=f"保留{sample.subject}的核心吸引力，变化场景和季节元素",

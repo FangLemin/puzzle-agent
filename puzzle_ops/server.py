@@ -156,6 +156,12 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             state.sync_url = ""
             state.view = "trial"
             return None
+        pending_generated = [row for row in rows_to_sync if row.generation_review_status and not row.reference_image_syncable]
+        if pending_generated:
+            state.sync_message = "生成图尚未完成二次审核与运营确认，暂不能同步飞书附件。"
+            state.sync_url = ""
+            state.view = "trial"
+            return None
         result = agent.sync_demand_rows(state.country, [_demand_row_payload(row) for row in rows_to_sync], require_real=True)
         if result.success:
             state.trial_row = agent.create_trial_demand(state.country, state.category, state.trial_mode)
@@ -228,6 +234,21 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             feishu_attachment_status=_feishu_attachment_status(rows),
         )
         agent.record_generation_event(state.country, state.generation_event)
+        state.view = "trial"
+    elif path == "/approve_generated_derivatives":
+        approved = []
+        for row in state.trial_rows:
+            can_approve = row.generation_review_status == "passed" and bool(row.reference_image_path)
+            approved.append(row.edited(human_approved=can_approve, reference_image_syncable=can_approve))
+        state.trial_rows = approved
+        if approved:
+            state.trial_row = approved[-1]
+        state.generation_event = dict(state.generation_event)
+        state.generation_event["feishu_attachment_status"] = _feishu_attachment_status(approved)
+        state.generation_event["message"] = "二次 VLM 审核通过的生成图已由运营确认，可同步飞书附件。"
+        agent.record_generation_event(state.country, state.generation_event)
+        state.sync_message = "运营已确认生成参考图，可继续同步飞书。"
+        state.sync_url = ""
         state.view = "trial"
     elif path == "/check_generation_provider":
         status = agent.generation_provider_status()
@@ -345,13 +366,17 @@ def generation_event(
 def _second_review_status(rows) -> str:
     if not rows:
         return "not_started"
-    return "passed" if all(row.reference_image_syncable for row in rows) else "blocked"
+    return "passed" if all(row.generation_review_status == "passed" for row in rows) else "blocked"
 
 
 def _feishu_attachment_status(rows) -> str:
     if not rows:
         return "blocked"
-    return "ready" if all(row.reference_image_syncable for row in rows) else "blocked"
+    if all(row.reference_image_syncable for row in rows):
+        return "ready"
+    if all(row.generation_review_status == "passed" for row in rows):
+        return "pending_human_approval"
+    return "blocked"
 
 
 def classify_generation_error(message: str) -> str:

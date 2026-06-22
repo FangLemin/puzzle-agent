@@ -444,8 +444,8 @@ def test_agent_records_four_layer_memory_types():
     assert overview["感知记忆"]["latest"]["payload"]["subject"] == "寿司"
 
 
-def test_agent_builds_value_audit_rag_context_with_citations():
-    agent = PuzzleOpsAgent()
+def test_agent_builds_value_audit_rag_context_with_citations(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "isolated_rag.db"))
     agent.record_long_term_memory("日本", "value_rule_approval", {"rule_text": "寿司提需需保留日式餐桌语境和清爽色彩。"})
     agent.record_extracted_fact("日本", "image_semantic_fact", {"subject": "寿司", "value_labels": ["本土饮食文化"]})
 
