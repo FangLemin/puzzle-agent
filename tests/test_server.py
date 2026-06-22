@@ -882,3 +882,39 @@ def test_replace_schedule_action_records_slot_replacement():
 
     assert 0 in APP.state.schedule_replacements
     assert APP.state.schedule_replacements[0].image_name != original.image_name
+
+
+def test_memory_governance_actions_promote_and_retire_memory():
+    APP.state = AppState(country="日本", view="runtime")
+    source_id = APP.agent.record_perception_memory("日本", "route_test", {"subject": "寿司路由测试"})
+
+    handle_action(
+        "/promote_memory",
+        {
+            "country": ["日本"],
+            "view": ["runtime"],
+            "memory_id": [str(source_id)],
+            "target_layer": ["facts"],
+            "human_note": ["运营确认路由测试事实"],
+        },
+    )
+
+    promoted = next(
+        row
+        for row in APP.agent.memory_debug("日本", query="寿司路由测试")
+        if row["source_memory_id"] == source_id and row["status"] == "active"
+    )
+    assert "Memory 晋升成功" in APP.state.sync_message
+
+    handle_action(
+        "/retire_memory",
+        {"country": ["日本"], "view": ["runtime"], "memory_id": [str(promoted["memory_id"])]},
+    )
+
+    retired = next(
+        row
+        for row in APP.agent.memory_debug("日本", query="寿司路由测试", limit=100)
+        if row["memory_id"] == promoted["memory_id"]
+    )
+    assert retired["status"] == "retired"
+    assert "不再进入 RAG" in APP.state.sync_message

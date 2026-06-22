@@ -1,4 +1,5 @@
 from pathlib import Path
+import sqlite3
 
 from puzzle_ops.cache import CacheProvider, RedisCache
 from puzzle_ops.excel_importer import import_history_workbook
@@ -55,6 +56,86 @@ def test_repository_stores_layered_memory_payloads(tmp_path):
     assert perception[0]["memory_layer"] == "perception"
     assert perception[0]["payload"]["subject"] == "寿司"
     assert facts[0]["payload"]["value_labels"] == ["本土饮食文化"]
+
+
+def test_layered_memory_deduplicates_active_payload_and_tracks_status(tmp_path):
+    repo = PuzzleRepository(tmp_path / "puzzle_ops.db")
+
+    first_id = repo.add_layered_memory("日本", "perception", "vision_parse", {"subject": "寿司"})
+    second_id = repo.add_layered_memory("日本", "perception", "vision_parse", {"subject": "寿司"})
+
+    rows = repo.layered_memories("日本", layer="perception", include_inactive=True)
+    assert first_id == second_id
+    assert len(rows) == 1
+    assert rows[0]["memory_id"] == first_id
+    assert rows[0]["status"] == "active"
+    assert rows[0]["fingerprint"]
+
+
+def test_layered_memory_ttl_expires_and_leaves_active_rag_view(tmp_path):
+    repo = PuzzleRepository(tmp_path / "puzzle_ops.db")
+    memory_id = repo.add_layered_memory(
+        "日本",
+        "working",
+        "task_state",
+        {"status": "parsed"},
+        ttl_seconds=-1,
+    )
+
+    assert repo.layered_memories("日本", layer="working") == ()
+    archived = repo.layered_memories("日本", layer="working", include_inactive=True)
+    assert archived[0]["memory_id"] == memory_id
+    assert archived[0]["status"] == "expired"
+
+
+def test_repository_promotes_memory_with_human_verified_provenance(tmp_path):
+    repo = PuzzleRepository(tmp_path / "puzzle_ops.db")
+    source_id = repo.add_layered_memory("日本", "perception", "vision_parse", {"subject": "寿司"})
+
+    target_id = repo.promote_layered_memory(
+        source_id,
+        target_layer="facts",
+        target_type="verified_image_fact",
+        human_note="运营确认主体准确",
+    )
+
+    rows = repo.layered_memories("日本", include_inactive=True)
+    source = next(row for row in rows if row["memory_id"] == source_id)
+    target = next(row for row in rows if row["memory_id"] == target_id)
+    assert source["status"] == "promoted"
+    assert target["status"] == "active"
+    assert target["source_memory_id"] == source_id
+    assert target["human_verified"] is True
+    assert target["payload"]["human_note"] == "运营确认主体准确"
+
+
+def test_repository_migrates_legacy_layered_memory_schema_without_data_loss(tmp_path):
+    db_path = tmp_path / "legacy.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE layered_memory (
+                memory_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                country TEXT NOT NULL,
+                memory_layer TEXT NOT NULL,
+                memory_type TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO layered_memory(country, memory_layer, memory_type, payload) VALUES (?, ?, ?, ?)",
+            ("日本", "facts", "legacy_fact", '{"subject":"寿司"}'),
+        )
+
+    repo = PuzzleRepository(db_path)
+    rows = repo.layered_memories("日本", include_inactive=True)
+
+    assert len(rows) == 1
+    assert rows[0]["payload"]["subject"] == "寿司"
+    assert rows[0]["status"] == "active"
+    assert rows[0]["fingerprint"]
 
 
 def test_repository_stores_parent_child_rag_index(tmp_path):

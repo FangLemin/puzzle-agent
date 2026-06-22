@@ -2,6 +2,63 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.53 - 四层 Memory 生命周期与人工治理
+
+日期：2026-06-22
+
+阶段目标：
+
+- 让四层 memory 从“只追加、只展示”升级为有生命周期、可去重、可晋升、可停用的业务记忆系统。
+- 明确短期上下文与长期事实的边界，避免临时状态永久污染 RAG。
+- 保留人工确认与来源链，支持 Harness/HITL 的可解释回流。
+
+已完成：
+
+- SQLite `layered_memory` 增加：
+  - `status`：`active/promoted/expired/retired`。
+  - `source_memory_id`：记录晋升来源。
+  - `expires_at`：TTL 到期时间。
+  - `fingerprint`：规范化 payload 的 SHA-256 去重标识。
+  - `human_verified`：运营人工确认标记。
+  - `updated_at`：生命周期更新时间。
+- 旧库迁移：
+  - 启动时通过 `PRAGMA table_info` 检查并补列。
+  - 为旧 memory 回填 fingerprint 和 updated_at。
+  - 不删除、不重建已有业务数据库。
+- 写入与过期策略：
+  - 相同国家/层/类型/payload 的 active memory 返回已有 ID，不重复插入。
+  - 感知记忆默认 TTL 7 天。
+  - 短期记忆默认 TTL 24 小时。
+  - 长期记忆和结构化事实不自动过期。
+  - 读取 active memory 前自动将到期记录标记为 `expired`。
+- 人工治理：
+  - 感知/短期记忆可晋升为 `facts`。
+  - 短期/事实可晋升为 `long_term`。
+  - 晋升目标写入 `human_verified=true` 和 `source_memory_id`，来源改为 `promoted`。
+  - active memory 可人工停用为 `retired`。
+  - 不同来源的人工晋升不会被普通 payload 去重误合并。
+- RAG 边界：
+  - 只有 active memory 进入父子知识库。
+  - RAG metadata 增加 memory_id、source_memory_id 和 human_verified。
+- 页面与路由：
+  - Memory 概览区分 active 与归档数量。
+  - Memory Debug 展示 ID、状态、来源、人工确认和 RAG Ready。
+  - 新增 `/promote_memory` 与 `/retire_memory` 操作及结果提示。
+
+当前限制：
+
+- TTL 当前使用固定默认值，尚未提供 `.env` 或页面级策略配置。
+- 去重是规范化 payload 的精确去重，不是 embedding 语义去重。
+- 停用/晋升后不可在页面撤销，后续可增加恢复与版本历史。
+- 真实图像生成仍等待通义万相权限和付费调用确认。
+
+验证记录：
+
+- 去重、TTL 过期、人工晋升来源链、停用、旧 SQLite 迁移、RAG active 过滤、页面表单和 HTTP 路由测试通过。
+- `PYTHONPATH=. pytest tests/test_storage_runtime.py tests/test_agents.py tests/test_renderer.py tests/test_server.py tests/test_rag.py tests/test_harness.py -q`：144 passed。
+- `PYTHONPATH=. pytest tests -q`：207 passed，用时 13.18s。
+- Chrome 1440x2400 页面验证：四层 active/归档计数、Memory Debug 状态列、来源链和治理表单完整显示，无页面级横向溢出；截图 `/private/tmp/puzzleops-runtime-v0353.png`。
+
 ## v0.3.52 - RAG 批处理、引用溯源与结构化价值观答案
 
 日期：2026-06-22

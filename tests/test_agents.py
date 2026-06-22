@@ -34,6 +34,35 @@ def test_memory_debug_exposes_layer_source_and_query_match(tmp_path):
     assert rows[0]["match_score"] >= rows[-1]["match_score"]
 
 
+def test_agent_promotes_memory_and_rag_uses_only_active_target(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    source_id = agent.record_perception_memory("日本", "vision_parse", {"subject": "寿司", "scene": "料理桌面"})
+
+    target_id = agent.promote_memory(
+        source_id,
+        target_layer="facts",
+        human_note="运营确认视觉事实",
+    )
+    documents = agent._layered_memory_rag_documents("日本")
+    debug = agent.memory_debug("日本", query="寿司")
+
+    assert target_id != source_id
+    assert sum(1 for document in documents if "subject=寿司" in document.text) == 1
+    assert {row["status"] for row in debug} == {"active", "promoted"}
+    assert any(row["source_memory_id"] == source_id for row in debug if row["status"] == "active")
+
+
+def test_agent_retires_memory_and_removes_it_from_rag(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    memory_id = agent.record_long_term_memory("日本", "approved_rule", {"rule": "寿司属于本土饮食文化"})
+
+    agent.retire_memory(memory_id)
+
+    assert all("寿司属于本土饮食文化" not in document.text for document in agent._layered_memory_rag_documents("日本"))
+    row = next(item for item in agent.memory_debug("日本") if item["memory_id"] == memory_id)
+    assert row["status"] == "retired"
+
+
 def test_audit_review_falls_back_when_manual_is_not_readable(monkeypatch):
     def denied(cls, path):
         raise PermissionError(f"cannot read {path}")

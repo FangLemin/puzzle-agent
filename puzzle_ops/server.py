@@ -257,6 +257,26 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             value(form, "human_note", "运营确认加入固定价值观"),
         )
         state.view = "runtime"
+    elif path == "/promote_memory":
+        try:
+            target_id = agent.promote_memory(
+                int(value(form, "memory_id", "0")),
+                target_layer=value(form, "target_layer", "facts"),
+                human_note=value(form, "human_note", "运营人工确认"),
+            )
+            state.sync_message = f"Memory 晋升成功：新 memory_id={target_id}"
+        except (TypeError, ValueError) as exc:
+            state.sync_message = f"Memory 晋升失败：{exc}"
+        state.sync_url = ""
+        state.view = "runtime"
+    elif path == "/retire_memory":
+        try:
+            agent.retire_memory(int(value(form, "memory_id", "0")))
+            state.sync_message = "Memory 已停用，不再进入 RAG。"
+        except (TypeError, ValueError) as exc:
+            state.sync_message = f"Memory 停用失败：{exc}"
+        state.sync_url = ""
+        state.view = "runtime"
     elif path == "/save_harness_override":
         agent.record_harness_override(
             state.country,

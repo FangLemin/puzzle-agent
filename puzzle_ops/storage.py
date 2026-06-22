@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import asdict
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -46,22 +47,69 @@ class PuzzleRepository:
             rows = conn.execute("SELECT country, memory_type, content FROM agent_memory WHERE country = ?", (country,)).fetchall()
         return tuple(dict(row) for row in rows)
 
-    def add_layered_memory(self, country: str, memory_layer: str, memory_type: str, payload: dict[str, object]) -> None:
+    def add_layered_memory(
+        self,
+        country: str,
+        memory_layer: str,
+        memory_type: str,
+        payload: dict[str, object],
+        *,
+        ttl_seconds: int | None = None,
+        source_memory_id: int | None = None,
+        human_verified: bool = False,
+    ) -> int:
+        encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        fingerprint = _text_hash(encoded)
+        expires_at = None
+        if ttl_seconds is not None:
+            expires_at = (datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)).isoformat(timespec="seconds")
         with self._connect() as conn:
-            conn.execute(
-                "INSERT INTO layered_memory(country, memory_layer, memory_type, payload) VALUES (?, ?, ?, ?)",
-                (country, memory_layer, memory_type, json.dumps(payload, ensure_ascii=False)),
+            self._expire_layered_memories_conn(conn)
+            existing = conn.execute(
+                """
+                SELECT memory_id FROM layered_memory
+                WHERE country = ? AND memory_layer = ? AND memory_type = ?
+                  AND fingerprint = ? AND status = 'active'
+                  AND ((? IS NULL AND source_memory_id IS NULL) OR source_memory_id = ?)
+                ORDER BY memory_id DESC LIMIT 1
+                """,
+                (country, memory_layer, memory_type, fingerprint, source_memory_id, source_memory_id),
+            ).fetchone()
+            if existing:
+                return int(existing["memory_id"])
+            cursor = conn.execute(
+                """
+                INSERT INTO layered_memory(
+                    country, memory_layer, memory_type, payload, status, source_memory_id,
+                    expires_at, fingerprint, human_verified, updated_at
+                ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                (country, memory_layer, memory_type, encoded, source_memory_id, expires_at, fingerprint, int(human_verified)),
             )
+            return int(cursor.lastrowid)
 
-    def layered_memories(self, country: str, layer: str | None = None) -> tuple[dict[str, object], ...]:
+    def layered_memories(
+        self,
+        country: str,
+        layer: str | None = None,
+        *,
+        include_inactive: bool = False,
+    ) -> tuple[dict[str, object], ...]:
+        self.expire_layered_memories()
         where = "WHERE country = ?"
         params: tuple[str, ...] = (country,)
         if layer:
             where += " AND memory_layer = ?"
             params = (country, layer)
+        if not include_inactive:
+            where += " AND status = 'active'"
         with self._connect() as conn:
             rows = conn.execute(
-                f"SELECT country, memory_layer, memory_type, payload, created_at FROM layered_memory {where} ORDER BY memory_id",
+                f"""
+                SELECT memory_id, country, memory_layer, memory_type, payload, status,
+                       source_memory_id, expires_at, fingerprint, human_verified, created_at, updated_at
+                FROM layered_memory {where} ORDER BY memory_id
+                """,
                 params,
             ).fetchall()
         items = []
@@ -71,8 +119,73 @@ class PuzzleRepository:
                 item["payload"] = json.loads(str(item["payload"]))
             except json.JSONDecodeError:
                 item["payload"] = {}
+            item["human_verified"] = bool(item.get("human_verified"))
             items.append(item)
         return tuple(items)
+
+    def promote_layered_memory(
+        self,
+        memory_id: int,
+        *,
+        target_layer: str,
+        target_type: str,
+        human_note: str,
+    ) -> int:
+        with self._connect() as conn:
+            source = conn.execute("SELECT * FROM layered_memory WHERE memory_id = ?", (memory_id,)).fetchone()
+            if source is None:
+                raise ValueError(f"memory_id 不存在：{memory_id}")
+            if source["status"] == "promoted":
+                target = conn.execute(
+                    "SELECT memory_id FROM layered_memory WHERE source_memory_id = ? AND status = 'active' ORDER BY memory_id DESC LIMIT 1",
+                    (memory_id,),
+                ).fetchone()
+                if target:
+                    return int(target["memory_id"])
+            if source["status"] != "active":
+                raise ValueError(f"只有 active memory 可以晋升，当前状态：{source['status']}")
+            payload = json.loads(str(source["payload"]))
+            if human_note.strip():
+                payload["human_note"] = human_note.strip()
+        target_id = self.add_layered_memory(
+            str(source["country"]),
+            target_layer,
+            target_type,
+            payload,
+            source_memory_id=memory_id,
+            human_verified=True,
+        )
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE layered_memory SET status = 'promoted', updated_at = CURRENT_TIMESTAMP WHERE memory_id = ?",
+                (memory_id,),
+            )
+        return target_id
+
+    def retire_layered_memory(self, memory_id: int) -> None:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "UPDATE layered_memory SET status = 'retired', updated_at = CURRENT_TIMESTAMP WHERE memory_id = ? AND status = 'active'",
+                (memory_id,),
+            )
+            if cursor.rowcount == 0:
+                raise ValueError(f"没有可停用的 active memory：{memory_id}")
+
+    def expire_layered_memories(self) -> int:
+        with self._connect() as conn:
+            return self._expire_layered_memories_conn(conn)
+
+    def _expire_layered_memories_conn(self, conn: sqlite3.Connection) -> int:
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        cursor = conn.execute(
+            """
+            UPDATE layered_memory
+            SET status = 'expired', updated_at = CURRENT_TIMESTAMP
+            WHERE status = 'active' AND expires_at IS NOT NULL AND expires_at <= ?
+            """,
+            (now,),
+        )
+        return int(cursor.rowcount)
 
     def add_value_rule(self, country: str, rule_text: str, status: str) -> None:
         with self._connect() as conn:
@@ -258,131 +371,102 @@ class PuzzleRepository:
 
     def _init_schema(self) -> None:
         with self._connect() as conn:
-            conn.execute(
+            statements = (
                 """
                 CREATE TABLE IF NOT EXISTS historical_records (
-                    grade TEXT NOT NULL,
-                    image_formula TEXT NOT NULL,
-                    image_id TEXT PRIMARY KEY,
-                    image_url TEXT NOT NULL,
-                    local_image_path TEXT NOT NULL,
-                    thumbnail_path TEXT NOT NULL,
-                    position INTEGER NOT NULL,
-                    dimension_grade TEXT NOT NULL,
-                    open_rate REAL NOT NULL,
-                    completion_rate REAL NOT NULL,
-                    avg_finish_time REAL NOT NULL,
-                    operation_tag TEXT NOT NULL,
-                    subject_tag TEXT NOT NULL,
-                    js_category TEXT NOT NULL,
-                    source TEXT NOT NULL,
-                    remark TEXT NOT NULL,
-                    distribution_date TEXT NOT NULL,
-                    distribution_cycle TEXT NOT NULL,
-                    country TEXT NOT NULL
+                    grade TEXT NOT NULL, image_formula TEXT NOT NULL, image_id TEXT PRIMARY KEY,
+                    image_url TEXT NOT NULL, local_image_path TEXT NOT NULL, thumbnail_path TEXT NOT NULL,
+                    position INTEGER NOT NULL, dimension_grade TEXT NOT NULL, open_rate REAL NOT NULL,
+                    completion_rate REAL NOT NULL, avg_finish_time REAL NOT NULL, operation_tag TEXT NOT NULL,
+                    subject_tag TEXT NOT NULL, js_category TEXT NOT NULL, source TEXT NOT NULL, remark TEXT NOT NULL,
+                    distribution_date TEXT NOT NULL, distribution_cycle TEXT NOT NULL, country TEXT NOT NULL
                 )
-                """
-            )
-            conn.execute(
+                """,
                 """
                 CREATE TABLE IF NOT EXISTS agent_memory (
-                    memory_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    country TEXT NOT NULL,
-                    memory_type TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    memory_id INTEGER PRIMARY KEY AUTOINCREMENT, country TEXT NOT NULL,
+                    memory_type TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
-                """
-            )
-            conn.execute(
+                """,
                 """
                 CREATE TABLE IF NOT EXISTS value_rules (
-                    rule_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    country TEXT NOT NULL,
-                    rule_text TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    rule_id INTEGER PRIMARY KEY AUTOINCREMENT, country TEXT NOT NULL,
+                    rule_text TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
-                """
-            )
-            conn.execute(
+                """,
                 """
                 CREATE TABLE IF NOT EXISTS layered_memory (
-                    memory_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    country TEXT NOT NULL,
-                    memory_layer TEXT NOT NULL,
-                    memory_type TEXT NOT NULL,
-                    payload TEXT NOT NULL,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    memory_id INTEGER PRIMARY KEY AUTOINCREMENT, country TEXT NOT NULL,
+                    memory_layer TEXT NOT NULL, memory_type TEXT NOT NULL, payload TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active', source_memory_id INTEGER, expires_at TEXT,
+                    fingerprint TEXT NOT NULL DEFAULT '', human_verified INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
-                """
-            )
-            conn.execute(
+                """,
                 """
                 CREATE TABLE IF NOT EXISTS sync_events (
-                    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    country TEXT NOT NULL,
-                    action TEXT NOT NULL,
-                    target TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    event_id INTEGER PRIMARY KEY AUTOINCREMENT, country TEXT NOT NULL, action TEXT NOT NULL,
+                    target TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
-                """
-            )
-            conn.execute(
+                """,
                 """
                 CREATE TABLE IF NOT EXISTS harness_runs (
-                    run_id TEXT PRIMARY KEY,
-                    version TEXT NOT NULL,
-                    dataset_name TEXT NOT NULL,
-                    model_provider TEXT NOT NULL,
-                    generator_provider TEXT NOT NULL,
-                    payload TEXT NOT NULL,
-                    created_at TEXT NOT NULL
+                    run_id TEXT PRIMARY KEY, version TEXT NOT NULL, dataset_name TEXT NOT NULL,
+                    model_provider TEXT NOT NULL, generator_provider TEXT NOT NULL,
+                    payload TEXT NOT NULL, created_at TEXT NOT NULL
                 )
-                """
-            )
-            conn.execute(
+                """,
                 """
                 CREATE TABLE IF NOT EXISTS rag_documents (
-                    document_id TEXT PRIMARY KEY,
-                    country TEXT NOT NULL,
-                    source_type TEXT NOT NULL,
-                    title TEXT NOT NULL,
-                    text TEXT NOT NULL,
-                    metadata TEXT NOT NULL,
+                    document_id TEXT PRIMARY KEY, country TEXT NOT NULL, source_type TEXT NOT NULL,
+                    title TEXT NOT NULL, text TEXT NOT NULL, metadata TEXT NOT NULL,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
-                """
-            )
-            conn.execute(
+                """,
                 """
                 CREATE TABLE IF NOT EXISTS rag_chunks (
-                    chunk_id TEXT PRIMARY KEY,
-                    parent_id TEXT NOT NULL,
-                    country TEXT NOT NULL,
-                    source_type TEXT NOT NULL,
-                    title TEXT NOT NULL,
-                    text TEXT NOT NULL,
-                    chunk_index INTEGER NOT NULL,
-                    metadata TEXT NOT NULL,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    chunk_id TEXT PRIMARY KEY, parent_id TEXT NOT NULL, country TEXT NOT NULL,
+                    source_type TEXT NOT NULL, title TEXT NOT NULL, text TEXT NOT NULL,
+                    chunk_index INTEGER NOT NULL, metadata TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
-                """
-            )
-            conn.execute(
+                """,
                 """
                 CREATE TABLE IF NOT EXISTS rag_embedding_cache (
-                    provider TEXT NOT NULL,
-                    model TEXT NOT NULL,
-                    text_hash TEXT NOT NULL,
-                    text TEXT NOT NULL,
-                    vector TEXT NOT NULL,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY(provider, model, text_hash)
+                    provider TEXT NOT NULL, model TEXT NOT NULL, text_hash TEXT NOT NULL, text TEXT NOT NULL,
+                    vector TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(provider, model, text_hash)
                 )
-                """
+                """,
+            )
+            for statement in statements:
+                conn.execute(statement)
+            self._ensure_column(conn, "layered_memory", "status", "TEXT NOT NULL DEFAULT 'active'")
+            self._ensure_column(conn, "layered_memory", "source_memory_id", "INTEGER")
+            self._ensure_column(conn, "layered_memory", "expires_at", "TEXT")
+            self._ensure_column(conn, "layered_memory", "fingerprint", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(conn, "layered_memory", "human_verified", "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, "layered_memory", "updated_at", "TEXT")
+            self._backfill_layered_memory_fingerprints(conn)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_layered_memory_active ON layered_memory(country, memory_layer, status)")
+
+    @staticmethod
+    def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+        columns = {str(row["name"]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if column not in columns:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+    @staticmethod
+    def _backfill_layered_memory_fingerprints(conn: sqlite3.Connection) -> None:
+        rows = conn.execute("SELECT memory_id, payload FROM layered_memory WHERE fingerprint = ''").fetchall()
+        for row in rows:
+            try:
+                payload = json.loads(str(row["payload"]))
+                encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            except json.JSONDecodeError:
+                encoded = str(row["payload"])
+            conn.execute(
+                "UPDATE layered_memory SET fingerprint = ?, updated_at = COALESCE(updated_at, created_at) WHERE memory_id = ?",
+                (_text_hash(encoded), int(row["memory_id"])),
             )
 
 

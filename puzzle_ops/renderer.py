@@ -448,10 +448,11 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
     memory_items = "".join(f'<li>{escape(str(memory["content"]))}</li>' for memory in memories)
     memory_overview_cards = render_memory_overview(memory_overview)
     rag_cards = render_rag_summary(rag_summary)
-    memory_debug_rows = render_memory_debug_rows(agent.memory_debug(state.country, query=feature.main_subject))
+    memory_debug_rows = render_memory_debug_rows(agent.memory_debug(state.country, query=feature.main_subject), state)
     return f"""
 <section class="panel">
   <h2>多模态底座</h2>
+  {render_sync_message(state)}
   <div class="grid two">
     <div><h3>ImageProfile</h3><dl class="detail">
       <div><dt>图片ID</dt><dd>{escape(profile.asset.image_id)}</dd></div>
@@ -484,7 +485,7 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
   <div class="panel"><h2>HITL Memory</h2><ul>{memory_items or '<li>暂无人工反馈记忆。</li>'}</ul></div>
 </section>
 <section class="panel"><h2>四层 Memory 概览</h2><div class="memory-grid">{memory_overview_cards}</div></section>
-<section class="panel"><h2>Memory Debug</h2><div class="table-wrap"><table><thead><tr><th>层级</th><th>类型</th><th>RAG Source</th><th>命中分</th><th>RAG Ready</th><th>记忆内容</th><th>时间</th></tr></thead><tbody>{memory_debug_rows}</tbody></table></div></section>
+<section class="panel"><h2>Memory Debug</h2><div class="table-wrap"><table><thead><tr><th>ID</th><th>层级/类型</th><th>状态</th><th>RAG Source</th><th>命中分</th><th>RAG Ready</th><th>来源</th><th>记忆内容</th><th>治理</th></tr></thead><tbody>{memory_debug_rows}</tbody></table></div></section>
 <section class="panel"><h2>价值观与审核 RAG</h2>{rag_cards}</section>
 """
 
@@ -497,27 +498,50 @@ def render_memory_overview(overview: dict[str, dict[str, object]]) -> str:
         payload = latest.get("payload", {}) if isinstance(latest, dict) else {}
         summary = "；".join(f"{key}={value}" for key, value in list(payload.items())[:3]) if isinstance(payload, dict) else ""
         rag_ready = item.get("rag_ready_count", 0) if isinstance(item, dict) else 0
+        inactive = item.get("inactive_count", 0) if isinstance(item, dict) else 0
         cards.append(
-            f"<article class='memory-card'><strong>{escape(label)}</strong><span>{escape(str(item.get('count', 0) if isinstance(item, dict) else 0))} 条</span><small>RAG Ready {escape(str(rag_ready))} 条；{escape(summary or '暂无记录')}</small></article>"
+            f"<article class='memory-card'><strong>{escape(label)}</strong><span>{escape(str(item.get('count', 0) if isinstance(item, dict) else 0))} 条 active</span><small>归档 {escape(str(inactive))} 条；RAG Ready {escape(str(rag_ready))} 条；{escape(summary or '暂无记录')}</small></article>"
         )
     return "".join(cards)
 
 
-def render_memory_debug_rows(rows: tuple[dict[str, object], ...]) -> str:
+def render_memory_debug_rows(rows: tuple[dict[str, object], ...], state: AppState) -> str:
     if not rows:
-        return '<tr><td colspan="7">暂无四层 memory 记录。</td></tr>'
+        return '<tr><td colspan="9">暂无四层 memory 记录。</td></tr>'
     return "".join(
         "<tr>"
-        f"<td>{escape(str(row.get('layer', '')))}</td>"
-        f"<td>{escape(str(row.get('memory_type', '')))}</td>"
+        f"<td>{escape(str(row.get('memory_id', '')))}</td>"
+        f"<td>{escape(str(row.get('layer', '')))}<br><small>{escape(str(row.get('memory_type', '')))}</small></td>"
+        f"<td>{escape(str(row.get('status', '')))}{' · 人工确认' if row.get('human_verified') else ''}</td>"
         f"<td>{escape(str(row.get('rag_source_type', '')))}</td>"
         f"<td>{escape(str(row.get('match_score', 0)))}</td>"
         f"<td>{'是' if row.get('rag_ready') else '否'}</td>"
+        f"<td>{escape(str(row.get('source_memory_id') or '原始'))}</td>"
         f"<td>{escape(str(row.get('summary', '')))}</td>"
-        f"<td>{escape(str(row.get('created_at', '')))}</td>"
+        f"<td>{render_memory_actions(row, state)}</td>"
         "</tr>"
         for row in rows
     )
+
+
+def render_memory_actions(row: dict[str, object], state: AppState) -> str:
+    if row.get("status") != "active":
+        return "已归档"
+    memory_id = escape(str(row.get("memory_id", "")))
+    context = hidden_context(state, view="runtime")
+    forms = []
+    if row.get("layer") in {"perception", "working"}:
+        forms.append(
+            f'<form method="post" action="/promote_memory">{context}<input type="hidden" name="memory_id" value="{memory_id}"><input type="hidden" name="target_layer" value="facts"><input name="human_note" value="运营确认事实"><button>晋升为事实</button></form>'
+        )
+    if row.get("layer") in {"working", "facts"}:
+        forms.append(
+            f'<form method="post" action="/promote_memory">{context}<input type="hidden" name="memory_id" value="{memory_id}"><input type="hidden" name="target_layer" value="long_term"><input name="human_note" value="运营确认长期有效"><button>晋升为长期记忆</button></form>'
+        )
+    forms.append(
+        f'<form method="post" action="/retire_memory">{context}<input type="hidden" name="memory_id" value="{memory_id}"><button>停用</button></form>'
+    )
+    return '<div class="memory-actions">' + "".join(forms) + "</div>"
 
 
 def render_rag_summary(summary: dict[str, object]) -> str:
@@ -1022,6 +1046,9 @@ nav { display:grid; gap:8px; margin:18px 0; }
 .memory-card { display:grid; gap:6px; padding:12px; border:1px solid var(--line); border-radius:8px; background:#fffdf7; }
 .memory-card span { color:var(--brand); font-weight:900; }
 .memory-card small { line-height:1.5; overflow-wrap:anywhere; }
+.memory-actions { display:grid; gap:6px; min-width:150px; }
+.memory-actions form { display:grid; gap:4px; }
+.memory-actions input { min-width:0; width:100%; }
 .rag-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
 .rag-grid article { display:grid; gap:6px; padding:12px; border:1px solid var(--line); border-radius:8px; background:#f6faf8; }
 .rag-grid span { color:var(--brand); font-weight:900; overflow-wrap:anywhere; }

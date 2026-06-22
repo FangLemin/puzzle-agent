@@ -424,7 +424,9 @@ def test_eval_page_shows_case_evidence_trace_and_failure_categories():
 
 
 def test_runtime_page_shows_memory_debug_table():
-    html = render_page(PuzzleOpsAgent(), AppState(country="日本", view="runtime"))
+    agent = PuzzleOpsAgent()
+    agent.record_perception_memory("日本", "vision_parse", {"subject": "寿司"})
+    html = render_page(agent, AppState(country="日本", view="runtime"))
 
     assert "Memory Debug" in html
     assert "RAG Source" in html
@@ -432,6 +434,10 @@ def test_runtime_page_shows_memory_debug_table():
     assert "引用明细" in html
     assert "父文档" in html
     assert "知识来源" in html
+    assert "状态" in html
+    assert 'action="/promote_memory"' in html
+    assert 'action="/retire_memory"' in html
+    assert "晋升为事实" in html
 
 
 def test_page_css_prevents_grid_content_from_widening_viewport():

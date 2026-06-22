@@ -659,7 +659,13 @@ class PuzzleOpsAgent:
                         source_type=source_type,
                         title=str(memory.get("memory_type", layer)),
                         text=text,
-                        metadata={"source": "layered_memory", "layer": layer},
+                        metadata={
+                            "source": "layered_memory",
+                            "layer": layer,
+                            "memory_id": memory.get("memory_id"),
+                            "source_memory_id": memory.get("source_memory_id"),
+                            "human_verified": bool(memory.get("human_verified")),
+                        },
                     )
                 )
         return tuple(documents)
@@ -673,17 +679,31 @@ class PuzzleOpsAgent:
     def hitl_memories(self, country: str):
         return self.repository.memories(country)
 
-    def record_perception_memory(self, country: str, memory_type: str, payload: dict[str, object]) -> None:
-        self.repository.add_layered_memory(country, "perception", memory_type, payload)
+    def record_perception_memory(self, country: str, memory_type: str, payload: dict[str, object]) -> int:
+        return self.repository.add_layered_memory(country, "perception", memory_type, payload, ttl_seconds=7 * 24 * 3600)
 
-    def record_working_memory(self, country: str, memory_type: str, payload: dict[str, object]) -> None:
-        self.repository.add_layered_memory(country, "working", memory_type, payload)
+    def record_working_memory(self, country: str, memory_type: str, payload: dict[str, object]) -> int:
+        return self.repository.add_layered_memory(country, "working", memory_type, payload, ttl_seconds=24 * 3600)
 
-    def record_long_term_memory(self, country: str, memory_type: str, payload: dict[str, object]) -> None:
-        self.repository.add_layered_memory(country, "long_term", memory_type, payload)
+    def record_long_term_memory(self, country: str, memory_type: str, payload: dict[str, object]) -> int:
+        return self.repository.add_layered_memory(country, "long_term", memory_type, payload)
 
-    def record_extracted_fact(self, country: str, memory_type: str, payload: dict[str, object]) -> None:
-        self.repository.add_layered_memory(country, "facts", memory_type, payload)
+    def record_extracted_fact(self, country: str, memory_type: str, payload: dict[str, object]) -> int:
+        return self.repository.add_layered_memory(country, "facts", memory_type, payload)
+
+    def promote_memory(self, memory_id: int, *, target_layer: str, human_note: str) -> int:
+        if target_layer not in {"facts", "long_term"}:
+            raise ValueError("memory 只能人工晋升为 facts 或 long_term")
+        target_type = "verified_fact" if target_layer == "facts" else "approved_long_term_memory"
+        return self.repository.promote_layered_memory(
+            memory_id,
+            target_layer=target_layer,
+            target_type=target_type,
+            human_note=human_note,
+        )
+
+    def retire_memory(self, memory_id: int) -> None:
+        self.repository.retire_layered_memory(memory_id)
 
     def memory_overview(self, country: str) -> dict[str, dict[str, object]]:
         labels = {
@@ -695,10 +715,12 @@ class PuzzleOpsAgent:
         overview: dict[str, dict[str, object]] = {}
         for layer, label in labels.items():
             items = self.repository.layered_memories(country, layer=layer)
+            all_items = self.repository.layered_memories(country, layer=layer, include_inactive=True)
             rag_ready_count = sum(1 for item in items if _payload_text(item.get("payload", {})))
             overview[label] = {
                 "layer": layer,
                 "count": len(items),
+                "inactive_count": len(all_items) - len(items),
                 "rag_ready_count": rag_ready_count,
                 "latest": items[-1] if items else {},
             }
@@ -712,18 +734,24 @@ class PuzzleOpsAgent:
             "facts": "fact",
         }
         rows: list[dict[str, object]] = []
-        for memory in self.repository.layered_memories(country):
+        for memory in self.repository.layered_memories(country, include_inactive=True):
             layer = str(memory.get("memory_layer", ""))
             payload = memory.get("payload", {})
             summary = _payload_text(payload) if isinstance(payload, dict) else ""
+            status = str(memory.get("status", "active"))
             rows.append(
                 {
+                    "memory_id": int(memory.get("memory_id", 0)),
                     "layer": layer,
                     "memory_type": str(memory.get("memory_type", "")),
                     "rag_source_type": source_types.get(layer, "memory"),
                     "summary": summary,
+                    "status": status,
+                    "source_memory_id": memory.get("source_memory_id"),
+                    "expires_at": str(memory.get("expires_at", "") or ""),
+                    "human_verified": bool(memory.get("human_verified")),
                     "created_at": str(memory.get("created_at", "")),
-                    "rag_ready": bool(summary),
+                    "rag_ready": bool(summary) and status == "active",
                     "match_score": _memory_match_score(summary, query),
                 }
             )
