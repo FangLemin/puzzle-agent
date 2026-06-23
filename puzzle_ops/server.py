@@ -360,6 +360,17 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             state.sync_message = f"AI 预标注失败：{exc}"
         state.sync_url = ""
         state.view = "eval"
+    elif path == "/approve_harness_silver_labels":
+        result = agent.approve_harness_silver_labels(
+            state.country,
+            reviewer_note=value(form, "reviewer_note", "人工抽查通过"),
+        )
+        state.sync_message = (
+            f"AI Silver 已确认晋升：{result['approved_count']} 条，跳过 {result['skipped_count']} 条；"
+            f"数据集：{result['dataset']}"
+        )
+        state.sync_url = ""
+        state.view = "eval"
     elif path == "/export_harness_overrides":
         export_path = agent.export_harness_overrides(state.country, agent._runtime_dir / f"harness_overrides_{state.country}.csv")
         state.sync_message = f"已导出 Harness 人工修正：{export_path}"

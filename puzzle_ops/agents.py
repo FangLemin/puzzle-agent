@@ -1127,6 +1127,55 @@ class PuzzleOpsAgent:
         self._write_harness_gold_rows(dataset, rows)
         return {"updated_count": updated, "skipped_count": skipped, "dataset": str(dataset)}
 
+    def approve_harness_silver_labels(
+        self,
+        country: str,
+        *,
+        sample_ids: tuple[str, ...] = (),
+        reviewer_note: str = "人工抽查通过",
+    ) -> dict[str, object]:
+        dataset = self.ensure_harness_gold_dataset(country)
+        rows = self._read_harness_gold_rows(dataset)
+        wanted = set(sample_ids)
+        approved = 0
+        skipped = 0
+        note = reviewer_note.strip() or "人工抽查通过"
+        for row in rows:
+            if row.get("country") != country or row.get("source") != "real":
+                continue
+            if wanted and row.get("sample_id") not in wanted:
+                continue
+            if row.get("label_source") != "ai_silver" or row.get("label_status") != "pending_review":
+                skipped += 1
+                continue
+            missing = [field for field in ("gold_grade", "gold_subject", "gold_color_mood", "gold_composition", "gold_value_labels") if not row.get(field)]
+            if missing:
+                skipped += 1
+                continue
+            row["label_source"] = "human_gold"
+            row["label_status"] = "reviewed"
+            row["human_note"] = f"{row.get('human_note', '').strip()}；{note}".strip("；")
+            self.repository.add_memory(country, "harness_gold_label", f"{row.get('sample_id', '')}：{row.get('gold_subject', '')}；{note}")
+            self.record_extracted_fact(
+                country,
+                "harness_gold_label",
+                {
+                    "sample_id": row.get("sample_id", ""),
+                    "gold_grade": row.get("gold_grade", ""),
+                    "gold_subject": row.get("gold_subject", ""),
+                    "gold_color_mood": row.get("gold_color_mood", ""),
+                    "gold_composition": row.get("gold_composition", ""),
+                    "gold_value_labels": row.get("gold_value_labels", ""),
+                    "gold_risk_labels": row.get("gold_risk_labels", ""),
+                    "human_note": note,
+                    "label_source": "human_gold",
+                    "label_status": "reviewed",
+                },
+            )
+            approved += 1
+        self._write_harness_gold_rows(dataset, rows)
+        return {"approved_count": approved, "skipped_count": skipped, "dataset": str(dataset)}
+
     def update_harness_gold_label(
         self,
         country: str,

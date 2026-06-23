@@ -541,6 +541,41 @@ def test_agent_ai_prelabeled_real_samples_as_silver_labels(tmp_path):
     assert any(row["layer"] == "perception" and "法式海滩野餐" in row["summary"] for row in rows)
 
 
+def test_agent_promotes_ai_silver_labels_to_human_gold_facts(tmp_path):
+    image_path = tmp_path / "france-picnic.png"
+    Image.new("RGB", (80, 60), (220, 180, 120)).save(image_path)
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent._runtime_dir = tmp_path
+    dataset = agent.register_harness_real_samples(
+        "法国",
+        [{"sample_id": "fr-real-001", "local_image_path": str(image_path), "gold_grade": "A", "js_category": "lifestyle"}],
+    )
+    rows = agent._read_harness_gold_rows(dataset)
+    rows[0].update(
+        {
+            "gold_subject": "法式海滩野餐",
+            "gold_color_mood": "暖金色夕阳，蓝白桌布与沙滩暖色形成度假氛围",
+            "gold_composition": "海边沙滩上摆放法棍、奶酪、葡萄和酒杯",
+            "gold_value_labels": "生活艺术;自然治愈",
+            "gold_risk_labels": "",
+            "human_note": "AI silver label，待人工抽查。",
+            "label_source": "ai_silver",
+            "label_status": "pending_review",
+        }
+    )
+    agent._write_harness_gold_rows(dataset, rows)
+
+    result = agent.approve_harness_silver_labels("法国", sample_ids=("fr-real-001",), reviewer_note="人工抽查通过")
+
+    assert result["approved_count"] == 1
+    sample = agent.harness_samples("法国")[0]
+    assert sample.label_source == "human_gold"
+    assert sample.label_status == "reviewed"
+    assert "人工抽查通过" in sample.human_note
+    facts = agent.memory_debug("法国", query="法式海滩野餐")
+    assert any(row["layer"] == "facts" and "法式海滩野餐" in row["summary"] for row in facts)
+
+
 def test_agent_persists_generation_events_for_replay():
     agent = PuzzleOpsAgent()
 

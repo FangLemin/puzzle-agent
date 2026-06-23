@@ -660,6 +660,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
     <article><span>缺失字段</span><strong>{escape(str(gold_coverage.get("缺失字段摘要", "无")))}</strong></article>
   </div>
   <form class="harness-run-form" method="post" action="/auto_prelabeled_harness_gold">{context}<button>AI 自动预标注</button><small>调用真实视觉 LLM，为已有人工作等级的真实样本补主体、色彩、构图、价值观候选和风险候选；结果标记为 ai_silver，待人工抽查。</small></form>
+  <form class="harness-run-form" method="post" action="/approve_harness_silver_labels">{context}<input name="reviewer_note" value="人工抽查通过"><button>确认 AI 预标注为 human_gold</button><small>只确认你已抽查过的 silver label；确认后写入 facts memory，作为可信评测标准答案。</small></form>
   <small>Gold label 是 Harness 的人工标准答案；AI 预标注只是 silver label。运营保存确认后才会作为人工确认事实进入 memory/RAG。</small>
   <div class="table-wrap"><table class="gold-workbench"><thead><tr><th>样本</th><th>等级</th><th>主体</th><th>色彩氛围</th><th>构图环境</th><th>价值观/风险</th><th>标注状态</th><th>操作</th></tr></thead><tbody>{gold_rows}</tbody></table></div>
 </section>

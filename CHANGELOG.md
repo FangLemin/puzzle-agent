@@ -2,6 +2,47 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.58 - AI Silver Label 人工确认与 Human Gold 晋升
+
+日期：2026-06-23
+
+阶段目标：
+
+- 补齐 `ai_silver / pending_review` 到 `human_gold / reviewed` 的 HITL 闭环。
+- 让运营抽查通过的 AI 预标注进入 facts memory，作为可信 Harness 标准答案。
+- 保持确认动作不调用模型、不产生费用。
+
+已完成：
+
+- 新增 `approve_harness_silver_labels()`：
+  - 批量确认当前国家的 `ai_silver / pending_review` 样本。
+  - 只确认字段完整的真实样本：等级、主体、色彩、构图、价值观标签必须存在。
+  - 确认后将 `label_source` 改为 `human_gold`，`label_status` 改为 `reviewed`。
+  - 追加人工审核备注。
+  - 写入 `harness_gold_label` HITL 记录，并进入 `facts` 层结构化记忆。
+- 页面新增确认入口：
+  - Gold Dataset 工作台新增“确认 AI 预标注为 human_gold”按钮。
+  - 支持填写 `reviewer_note`，默认为“人工抽查通过”。
+  - 页面继续展示 `label_source / label_status`，方便区分 silver 与 gold。
+- 服务端新增 `/approve_harness_silver_labels` action：
+  - 只修改 CSV 和 memory。
+  - 不调用 VLM、不调用 RAG、不触发图像生成。
+
+验证：
+
+- 新增 TDD 覆盖：
+  - `ai_silver / pending_review` 可晋升为 `human_gold / reviewed`。
+  - 晋升后写入 facts memory。
+  - 服务端 action 可用。
+  - Eval 页面显示确认按钮和审核备注输入。
+- `PYTHONPATH=. pytest tests -q`：227 passed，用时 24.54s。
+- 浏览器验证：法国 Eval 页显示确认按钮、`reviewer_note` 输入框和 `/approve_harness_silver_labels` 表单；页面 `scrollWidth == clientWidth == 1280`。
+
+当前限制：
+
+- 这版确认是批量确认当前国家所有待审核 silver 样本；后续可加逐条 checkbox 审核与差异高亮。
+- Human gold 的质量仍取决于运营是否真实抽查，系统不会替代人工责任。
+
 ## v0.3.57 - 真实样本导入与 AI Silver Label 预标注
 
 日期：2026-06-23
