@@ -660,7 +660,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
     <article><span>缺失字段</span><strong>{escape(str(gold_coverage.get("缺失字段摘要", "无")))}</strong></article>
   </div>
   <form class="harness-run-form" method="post" action="/auto_prelabeled_harness_gold">{context}<button>AI 自动预标注</button><small>调用真实视觉 LLM，为已有人工作等级的真实样本补主体、色彩、构图、价值观候选和风险候选；结果标记为 ai_silver，待人工抽查。</small></form>
-  <form class="harness-run-form" method="post" action="/approve_harness_silver_labels">{context}<input name="reviewer_note" value="人工抽查通过"><button>确认 AI 预标注为 human_gold</button><small>只确认你已抽查过的 silver label；确认后写入 facts memory，作为可信评测标准答案。</small></form>
+  <form id="approve-silver-form" class="harness-run-form" method="post" action="/approve_harness_silver_labels">{context}<input name="reviewer_note" value="人工抽查通过"><button>确认 AI 预标注为 human_gold</button><small>请先在表格中勾选已抽查的 silver label；确认后写入 facts memory，作为可信评测标准答案。</small></form>
   <small>Gold label 是 Harness 的人工标准答案；AI 预标注只是 silver label。运营保存确认后才会作为人工确认事实进入 memory/RAG。</small>
   <div class="table-wrap"><table class="gold-workbench"><thead><tr><th>样本</th><th>等级</th><th>主体</th><th>色彩氛围</th><th>构图环境</th><th>价值观/风险</th><th>标注状态</th><th>操作</th></tr></thead><tbody>{gold_rows}</tbody></table></div>
 </section>
@@ -772,6 +772,13 @@ def render_harness_gold_workbench_rows(samples, state: AppState) -> str:
         return '<tr><td colspan="7">暂无真实图片样本。请先上传真实拼图或生成 Gold 骨架 CSV。</td></tr>'
     rows = []
     for sample in real_samples[:12]:
+        approval_check = ""
+        if sample.label_source == "ai_silver" and sample.label_status == "pending_review":
+            approval_check = (
+                "<label class=\"inline-check\">"
+                f"<input type=\"checkbox\" name=\"sample_id\" value=\"{escape(sample.sample_id)}\" form=\"approve-silver-form\">确认"
+                "</label>"
+            )
         rows.append(
             "<tr>"
             f"<td>{render_harness_sample_cell(sample.sample_id, sample)}<input form=\"gold-{escape(sample.sample_id)}\" type=\"hidden\" name=\"sample_id\" value=\"{escape(sample.sample_id)}\"></td>"
@@ -782,7 +789,7 @@ def render_harness_gold_workbench_rows(samples, state: AppState) -> str:
             f"<td><textarea form=\"gold-{escape(sample.sample_id)}\" name=\"gold_value_labels\" placeholder=\"价值观标签；用分号分隔\">{escape(';'.join(sample.gold_value_labels))}</textarea>"
             f"<textarea form=\"gold-{escape(sample.sample_id)}\" name=\"gold_risk_labels\" placeholder=\"风险标签；可留空\">{escape(';'.join(sample.gold_risk_labels))}</textarea>"
             f"<textarea form=\"gold-{escape(sample.sample_id)}\" name=\"human_note\" placeholder=\"人工备注\">{escape(sample.human_note)}</textarea></td>"
-            f"<td><span class=\"status-pill\">{escape(sample.label_source or 'unknown')}</span><br><small>{escape(sample.label_status or '未记录')}</small></td>"
+            f"<td><span class=\"status-pill\">{escape(sample.label_source or 'unknown')}</span><br><small>{escape(sample.label_status or '未记录')}</small>{approval_check}</td>"
             f"<td><form id=\"gold-{escape(sample.sample_id)}\" method=\"post\" action=\"/save_harness_gold_label\">{hidden_context(state, view='eval')}<button>保存</button></form></td>"
             "</tr>"
         )
@@ -1136,6 +1143,7 @@ nav { display:grid; gap:8px; margin:18px 0; }
 .gold-workbench textarea { min-height:74px; min-width:160px; resize:vertical; }
 .gold-workbench .tiny-input { width:72px; min-width:72px; }
 .gold-workbench .harness-sample-cell { min-width:230px; }
+.inline-check { display:flex; align-items:center; gap:6px; margin-top:8px; font-size:12px; color:#2f5c4f; }
 .image-preview-cell { display:grid; grid-template-columns:92px minmax(140px,1fr); align-items:center; gap:10px; min-width:260px; }
 .choice { display:flex; justify-content:space-between; gap:10px; padding:10px; margin-bottom:8px; border:1px solid var(--line); border-radius:8px; background:#fffdf7; }
 .choice.stock-hot { border-color:#e26357; background:#ffe9e5; color:#9b281f; }

@@ -361,10 +361,11 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         state.sync_url = ""
         state.view = "eval"
     elif path == "/approve_harness_silver_labels":
-        result = agent.approve_harness_silver_labels(
-            state.country,
-            reviewer_note=value(form, "reviewer_note", "人工抽查通过"),
-        )
+        selected_sample_ids = tuple(item.strip() for item in form.get("sample_id", ()) if item.strip())
+        approve_kwargs = {"reviewer_note": value(form, "reviewer_note", "人工抽查通过")}
+        if selected_sample_ids:
+            approve_kwargs["sample_ids"] = selected_sample_ids
+        result = agent.approve_harness_silver_labels(state.country, **approve_kwargs)
         state.sync_message = (
             f"AI Silver 已确认晋升：{result['approved_count']} 条，跳过 {result['skipped_count']} 条；"
             f"数据集：{result['dataset']}"

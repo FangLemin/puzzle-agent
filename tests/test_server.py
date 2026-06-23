@@ -978,6 +978,30 @@ def test_approve_harness_silver_labels_action_runs_agent(monkeypatch):
     assert "AI Silver 已确认晋升：5 条" in APP.state.sync_message
 
 
+def test_approve_harness_silver_labels_action_passes_selected_sample_ids(monkeypatch):
+    APP.state = AppState(country="法国", view="eval")
+    calls = []
+
+    def fake_approve(country, **kwargs):
+        calls.append((country, kwargs))
+        return {"approved_count": 1, "skipped_count": 0, "dataset": "/tmp/harness_gold_samples_法国.csv"}
+
+    monkeypatch.setattr(APP.agent, "approve_harness_silver_labels", fake_approve)
+
+    handle_action(
+        "/approve_harness_silver_labels",
+        {
+            "country": ["法国"],
+            "view": ["eval"],
+            "reviewer_note": ["只确认第1条"],
+            "sample_id": ["fr-real-001"],
+        },
+    )
+
+    assert calls == [("法国", {"sample_ids": ("fr-real-001",), "reviewer_note": "只确认第1条"})]
+    assert "AI Silver 已确认晋升：1 条" in APP.state.sync_message
+
+
 def test_run_harness_action_requires_explicit_generation_opt_in(monkeypatch):
     APP.state = AppState(country="日本", view="eval")
     calls = []

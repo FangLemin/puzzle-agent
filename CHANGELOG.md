@@ -2,6 +2,42 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.59 - AI Silver Label 逐条勾选确认
+
+日期：2026-06-23
+
+阶段目标：
+
+- 修复 v0.3.58 中 `ai_silver` 只能批量确认的问题。
+- 让 Harness Gold Dataset 工作台更符合 HITL 审核：运营逐条抽查、逐条勾选，再晋升为 `human_gold`。
+- 保持本轮不调用模型、不产生费用，只优化人工确认链路。
+
+已完成：
+
+- Gold Dataset 工作台新增逐条确认复选框：
+  - 仅对 `ai_silver / pending_review` 样本显示确认勾选项。
+  - 确认表单继续支持填写 `reviewer_note`。
+  - 未勾选的 silver label 不会被本次确认动作晋升。
+- 服务端 `/approve_harness_silver_labels` 支持接收 `sample_id` 列表：
+  - 勾选样本时只确认选中项。
+  - 保留旧的无选择调用兼容路径，避免历史测试和已有入口断裂。
+- Agent 层确认能力回归验证：
+  - 只确认选中样本。
+  - 未选中的 `ai_silver / pending_review` 继续等待人工审核。
+  - 确认后的样本仍写入 `facts` memory，作为可信评测标准答案。
+
+验证：
+
+- TDD 红绿验证：
+  - 服务端 action 会传递选中的 `sample_id`。
+  - Eval 页面会渲染 `approve-silver-form` 和逐条 checkbox。
+  - Agent 只晋升被选中的 silver 样本。
+- `PYTHONPATH=. pytest tests -q`：230 passed，用时 21.28s。
+
+当前限制：
+
+- 这版解决“选择确认”，但还没有做逐字段差异高亮；后续可以把 AI silver 与人工修正差异显示出来，形成更强的审核证据链。
+
 ## v0.3.58 - AI Silver Label 人工确认与 Human Gold 晋升
 
 日期：2026-06-23

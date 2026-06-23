@@ -194,6 +194,31 @@ def test_eval_page_exposes_silver_approval_action(monkeypatch, tmp_path):
     assert "ai_silver" in html
 
 
+def test_eval_page_uses_checkboxes_for_selected_silver_approval(monkeypatch, tmp_path):
+    image_path = tmp_path / "france-picnic.png"
+    image_path.write_bytes(b"fake-png")
+    dataset = tmp_path / "gold_samples.csv"
+    dataset.write_text(
+        "\n".join(
+            (
+                "sample_id,country,local_image_path,operation_tag,subject,js_category,source,position,open_rate,completion_rate,avg_finish_time,gold_grade,gold_subject,gold_color_mood,gold_composition,gold_value_labels,gold_risk_labels,human_note,label_source,label_status",
+                "fr-real-001,法国,france-picnic.png,试新_法国_样本一0623,法式海滩野餐,lifestyle,real,0,0,0,0,A,法式海滩野餐,暖色,海边沙滩,生活艺术,,AI silver label，待人工抽查。,ai_silver,pending_review",
+                "fr-real-002,法国,france-picnic.png,试新_法国_样本二0623,薰衣草风车,landscape,real,0,0,0,0,S,薰衣草风车,紫色,普罗旺斯田野,法式乡村,,AI silver label，待人工抽查。,ai_silver,pending_review",
+            )
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_HARNESS_DATASET", str(dataset))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+
+    html = render_page(agent, AppState(country="法国", view="eval"))
+
+    assert 'id="approve-silver-form"' in html
+    assert 'form="approve-silver-form"' in html
+    assert 'type="checkbox" name="sample_id" value="fr-real-001"' in html
+    assert 'type="checkbox" name="sample_id" value="fr-real-002"' in html
+
+
 def test_trial_page_has_generation_provider_diagnostic_action(tmp_path):
     agent = agent_without_vlm(tmp_path)
     state = AppState(country="日本", view="trial", trial_mode="derive")
