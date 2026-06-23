@@ -302,3 +302,39 @@ def test_value_match_keeps_scalar_visual_evidence_and_citation_fields():
     assert "图像证据：主体为寿司拼盘，构图为日式料理桌面近景" in result
     assert "RAG依据：JP_VALUE_001#chunk-1" in result
     assert "风险提示：素材授权待复核" in result
+
+
+def test_qwen_analyze_keeps_scalar_list_like_fields_as_single_tags():
+    def fake_transport(payload, api_key, base_url):
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "subject": "法式海滩野餐",
+                                "scene": "海边沙滩野餐",
+                                "culture_elements": "法式餐食",
+                                "style": "暖色写实",
+                                "risk_tags": "素材授权待复核",
+                                "prompt_keywords": "法棍奶酪",
+                                "confidence": 0.91,
+                            },
+                            ensure_ascii=False,
+                        )
+                    }
+                }
+            ]
+        }
+
+    local = LocalImageAnalyzer().summarize_bytes((png_bytes(),))
+    result = QwenVisionLLMClient("test-key", transport=fake_transport).analyze(
+        [{"filename": "picnic.png", "content": png_bytes(), "content_type": "image/png"}],
+        "法国",
+        "lifestyle",
+        local,
+    )
+
+    assert result.culture_elements == ("法式餐食",)
+    assert result.risk_tags == ("素材授权待复核",)
+    assert result.prompt_keywords == ("法棍奶酪",)

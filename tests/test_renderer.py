@@ -146,6 +146,30 @@ def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):
     assert 'action="/export_harness_gold_skeleton"' in html
 
 
+def test_eval_page_exposes_ai_silver_label_action(monkeypatch, tmp_path):
+    image_path = tmp_path / "france-picnic.png"
+    image_path.write_bytes(b"fake-png")
+    dataset = tmp_path / "gold_samples.csv"
+    dataset.write_text(
+        "\n".join(
+            (
+                "sample_id,country,local_image_path,operation_tag,subject,js_category,source,position,open_rate,completion_rate,avg_finish_time,gold_grade,gold_subject,gold_color_mood,gold_composition,gold_value_labels,gold_risk_labels,human_note,label_source,label_status",
+                "fr-real-001,法国,france-picnic.png,试新_法国_真实样本0623,待AI预标注,lifestyle,real,0,0,0,0,A,,,,,,,manual_grade,needs_ai_prelabeled",
+            )
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_HARNESS_DATASET", str(dataset))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+
+    html = render_page(agent, AppState(country="法国", view="eval"))
+
+    assert 'action="/auto_prelabeled_harness_gold"' in html
+    assert "AI 自动预标注" in html
+    assert "manual_grade" in html
+    assert "needs_ai_prelabeled" in html
+
+
 def test_trial_page_has_generation_provider_diagnostic_action(tmp_path):
     agent = agent_without_vlm(tmp_path)
     state = AppState(country="日本", view="trial", trial_mode="derive")

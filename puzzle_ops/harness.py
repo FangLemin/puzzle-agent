@@ -30,6 +30,8 @@ EVAL_SAMPLE_CSV_FIELDS = (
     "gold_value_labels",
     "gold_risk_labels",
     "human_note",
+    "label_source",
+    "label_status",
 )
 
 
@@ -51,6 +53,8 @@ class EvalSample:
     gold_value_labels: tuple[str, ...]
     gold_risk_labels: tuple[str, ...]
     human_note: str
+    label_source: str = ""
+    label_status: str = ""
 
     @classmethod
     def synthetic_demo(cls, sample_id: str, country: str, operation_tag: str, subject: str, gold_grade: str) -> "EvalSample":
@@ -71,6 +75,8 @@ class EvalSample:
             gold_value_labels=(),
             gold_risk_labels=(),
             human_note="合成样本仅用于页面 demo 与边界测试",
+            label_source="synthetic_demo",
+            label_status="demo_only",
         )
 
     @property
@@ -97,6 +103,8 @@ class EvalSample:
             "gold_value_labels": ";".join(self.gold_value_labels),
             "gold_risk_labels": ";".join(self.gold_risk_labels),
             "human_note": self.human_note,
+            "label_source": self.label_source,
+            "label_status": self.label_status,
         }
 
 
@@ -145,6 +153,8 @@ def load_eval_samples_csv(path: Path | str, image_root: Path | str | None = None
                     gold_value_labels=_labels(_field(row, "gold_value_labels")),
                     gold_risk_labels=_labels(_field(row, "gold_risk_labels")),
                     human_note=_field(row, "human_note"),
+                    label_source=_field(row, "label_source"),
+                    label_status=_field(row, "label_status"),
                 )
             )
     return tuple(samples), tuple(issues)
@@ -231,6 +241,8 @@ class AgentHarness:
                     gold_value_labels=(),
                     gold_risk_labels=(),
                     human_note="从历史表导入；需人工补 gold label" if is_real else "合成 demo 样本，不用于证明模型效果",
+                    label_source="manual_grade" if is_real else "synthetic_demo",
+                    label_status="needs_ai_prelabeled" if is_real else "demo_only",
                 )
             )
         return tuple(samples)

@@ -3,8 +3,11 @@ from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.vision_llm import MissingVisionLLMConfig, OpenAIVisionLLMClient
 from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.audit import AuditPolicyRetriever
+from puzzle_ops.trial_upload import TrialImageUploadService
+from puzzle_ops.vision_llm import VisionLLMResult
 from datetime import date
 import json
+from PIL import Image
 
 
 def test_country_data_is_isolated_between_japan_and_france():
@@ -463,6 +466,79 @@ def test_agent_creates_gold_dataset_skeleton_from_default_real_samples(tmp_path)
     assert coverage["真实样本数"] == 1
     assert coverage["完整 gold 样本数"] == 0
     assert "gold_subject" in coverage["缺失字段摘要"]
+
+
+def test_agent_registers_real_samples_with_manual_grade_only(tmp_path):
+    image_path = tmp_path / "france-picnic.png"
+    Image.new("RGB", (80, 60), (220, 180, 120)).save(image_path)
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent._runtime_dir = tmp_path
+
+    dataset = agent.register_harness_real_samples(
+        "法国",
+        [
+            {
+                "sample_id": "fr-real-001",
+                "local_image_path": str(image_path),
+                "gold_grade": "A",
+                "subject": "待AI预标注",
+                "js_category": "lifestyle",
+                "operation_tag": "试新_法国_真实样本0623",
+            }
+        ],
+    )
+
+    content = dataset.read_text(encoding="utf-8")
+    assert "fr-real-001,法国" in content
+    assert ",A,,," in content
+    sample = agent.harness_samples("法国")[0]
+    assert sample.gold_grade == "A"
+    assert sample.gold_subject == ""
+    assert sample.label_source == "manual_grade"
+    assert sample.label_status == "needs_ai_prelabeled"
+
+
+def test_agent_ai_prelabeled_real_samples_as_silver_labels(tmp_path):
+    image_path = tmp_path / "france-picnic.png"
+    Image.new("RGB", (80, 60), (220, 180, 120)).save(image_path)
+
+    class FakeVisionClient:
+        provider = "qwen"
+
+        def analyze(self, images, country, category, local_summary):
+            return VisionLLMResult(
+                subject="法式海滩野餐",
+                scene="海边沙滩上摆放法棍、奶酪、葡萄和酒杯，远处有遮阳伞与海面",
+                culture_elements=("法式餐食", "海滨度假"),
+                style="暖金色夕阳，蓝白桌布与沙滩暖色形成度假氛围",
+                risk_tags=("无明显版权/IP风险",),
+                prompt_keywords=("法式野餐", "海边", "法棍", "奶酪"),
+                confidence=0.91,
+                provider="qwen",
+                raw_text="fake vision result",
+            )
+
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent._runtime_dir = tmp_path
+    agent.trial_uploads = TrialImageUploadService(tmp_path / "uploads", vision_client=FakeVisionClient())
+    agent.register_harness_real_samples(
+        "法国",
+        [{"sample_id": "fr-real-001", "local_image_path": str(image_path), "gold_grade": "A", "js_category": "lifestyle"}],
+    )
+
+    result = agent.auto_prelabeled_harness_samples("法国")
+
+    assert result["updated_count"] == 1
+    sample = agent.harness_samples("法国")[0]
+    assert sample.gold_grade == "A"
+    assert sample.gold_subject == "法式海滩野餐"
+    assert "暖金色夕阳" in sample.gold_color_mood
+    assert "海边沙滩" in sample.gold_composition
+    assert sample.label_source == "ai_silver"
+    assert sample.label_status == "pending_review"
+    assert "生活艺术" in sample.gold_value_labels
+    rows = agent.memory_debug("法国", query="法式海滩野餐")
+    assert any(row["layer"] == "perception" and "法式海滩野餐" in row["summary"] for row in rows)
 
 
 def test_agent_persists_generation_events_for_replay():

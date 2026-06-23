@@ -2,6 +2,55 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.57 - 真实样本导入与 AI Silver Label 预标注
+
+日期：2026-06-23
+
+阶段目标：
+
+- 调整 Gold Dataset 工作流：人工不再需要手填主体、色彩和构图，人工只提供真实图片和真实等级。
+- 让 VLM 自动补充主体内容、色彩氛围、构图环境、价值观候选和风险候选，并明确标记为 `ai_silver`。
+- 解决真实 Qwen 返回字符串标签时被拆成单字的问题。
+
+已完成：
+
+- Harness 样本字段扩展：
+  - 新增 `label_source`，区分 `manual_grade`、`ai_silver`、`human_gold`、`synthetic_demo`。
+  - 新增 `label_status`，区分 `needs_ai_prelabeled`、`pending_review`、`reviewed`、`demo_only`。
+  - CSV 读写兼容旧字段，旧数据缺少新列时不会崩溃。
+- 新增真实样本导入能力：
+  - `register_harness_real_samples()` 支持按图片路径、国家、等级导入真实样本。
+  - 人工等级会写入 `gold_grade`，但主体/色彩/构图保持待 AI 预标注。
+- 新增 AI silver label：
+  - `auto_prelabeled_harness_samples()` 显式调用真实视觉 LLM。
+  - 自动填入 `gold_subject`、`gold_color_mood`、`gold_composition`、`gold_value_labels`、`gold_risk_labels`。
+  - 结果标记为 `ai_silver / pending_review`，只写入感知记忆，不写入 facts，避免把未抽查内容当人工事实。
+  - 页面新增“AI 自动预标注”按钮，打开页面不会自动调用模型。
+- 真实数据落地：
+  - 已将用户提供的 5 张法国真实图片导入 Harness 数据集。
+  - 人工等级映射：1=A、2=A、3=B、4=S、5=C。
+  - 已调用真实 Qwen VLM 完成 5 条 AI silver label 预标注。
+- 解析修复：
+  - `QwenVisionLLMClient.analyze()` 和 `OpenAIVisionLLMClient.analyze()` 复用 `_tuple_field()`。
+  - 当模型把 `risk_tags`、`culture_elements` 或 `prompt_keywords` 返回成字符串时，不再拆成单字。
+
+验证：
+
+- 新增 TDD 覆盖：
+  - 真实样本导入只要求人工等级，不要求人工主体/色彩/构图。
+  - AI 预标注会生成 `ai_silver / pending_review`。
+  - 页面展示 “AI 自动预标注” 按钮与标注状态。
+  - 服务端 `/auto_prelabeled_harness_gold` action 可用。
+  - Qwen analyze 对字符串标签保持完整短语。
+- `PYTHONPATH=. pytest tests -q`：224 passed，用时 23.16s。
+- 真实 VLM smoke：5 张法国图片全部预标注成功，风险标签已恢复为完整短语。
+
+当前限制：
+
+- AI silver label 仍需人工抽查后才能作为 `human_gold` 用于严肃业务准确率证明。
+- 当前价值观候选由 VLM 语义 + 规则映射生成，后续可接 RAG value ideation 进一步提升标签质量。
+- 已导入的 5 张样本都是法国市场；日本样本仍需要按同样流程补充。
+
 ## v0.3.56 - Gold Dataset 工作台与 HITL 标准答案回流
 
 日期：2026-06-23

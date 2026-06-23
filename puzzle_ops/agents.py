@@ -1021,6 +1021,112 @@ class PuzzleOpsAgent:
         self._write_harness_gold_rows(dataset, [sample.csv_row() for sample in samples])
         return dataset
 
+    def register_harness_real_samples(self, country: str, records: list[dict[str, object]]) -> Path:
+        dataset = self.ensure_harness_gold_dataset(country)
+        rows = self._read_harness_gold_rows(dataset)
+        by_id = {row.get("sample_id", ""): row for row in rows}
+        for index, record in enumerate(records, 1):
+            image_path = str(record.get("local_image_path", "")).strip()
+            if not image_path:
+                raise ValueError("真实样本缺少图片路径")
+            path = Path(image_path).expanduser()
+            if not path.exists():
+                raise ValueError(f"图片路径不存在：{path}")
+            sample_id = str(record.get("sample_id", "")).strip() or f"{country}-real-{index:03d}"
+            row = by_id.get(sample_id, {field: "" for field in EVAL_SAMPLE_CSV_FIELDS})
+            row.update(
+                {
+                    "sample_id": sample_id,
+                    "country": country,
+                    "local_image_path": str(path),
+                    "operation_tag": str(record.get("operation_tag", "") or f"试新_{country}_真实样本{self.today.strftime('%m%d')}"),
+                    "subject": str(record.get("subject", "") or "待AI预标注"),
+                    "js_category": str(record.get("js_category", "") or "real_sample"),
+                    "source": "real",
+                    "position": str(record.get("position", "") or 0),
+                    "open_rate": str(record.get("open_rate", "") or 0),
+                    "completion_rate": str(record.get("completion_rate", "") or 0),
+                    "avg_finish_time": str(record.get("avg_finish_time", "") or 0),
+                    "gold_grade": str(record.get("gold_grade", "")).strip(),
+                    "label_source": "manual_grade",
+                    "label_status": "needs_ai_prelabeled",
+                    "human_note": str(record.get("human_note", "") or "人工已提供真实图片与等级；待 AI 预标注主体/色彩/构图。"),
+                }
+            )
+            if sample_id not in by_id:
+                rows.append(row)
+                by_id[sample_id] = row
+        self._write_harness_gold_rows(dataset, rows)
+        return dataset
+
+    def auto_prelabeled_harness_samples(self, country: str, sample_ids: tuple[str, ...] = ()) -> dict[str, object]:
+        dataset = self.ensure_harness_gold_dataset(country)
+        rows = self._read_harness_gold_rows(dataset)
+        wanted = set(sample_ids)
+        client = self.trial_uploads.vision_client
+        if client is None:
+            missing = self.trial_uploads.vision_config_error
+            missing_text = "、".join(missing.missing) if missing else "QWEN_API_KEY"
+            raise ValueError(f"缺少真实视觉 LLM 配置：{missing_text}")
+        updated = 0
+        skipped = 0
+        for row in rows:
+            if row.get("country") != country or row.get("source") != "real":
+                continue
+            if wanted and row.get("sample_id") not in wanted:
+                continue
+            image_path = Path(str(row.get("local_image_path", ""))).expanduser()
+            if not image_path.exists():
+                skipped += 1
+                continue
+            feature = self.local_image_analyzer.analyze_path(image_path)
+            visual = self.local_image_analyzer.summarize_features((feature,) if feature else ())
+            content = image_path.read_bytes()
+            semantic = client.analyze(
+                [
+                    {
+                        "filename": image_path.name,
+                        "path": str(image_path),
+                        "url": str(image_path),
+                        "content_type": _image_content_type_for_path(image_path),
+                        "content": content,
+                    }
+                ],
+                country,
+                row.get("js_category", "") or "real_sample",
+                visual,
+            )
+            row.update(
+                {
+                    "subject": semantic.subject or row.get("subject", ""),
+                    "gold_subject": semantic.subject,
+                    "gold_color_mood": semantic.style or visual.palette_summary,
+                    "gold_composition": semantic.scene or visual.composition_summary,
+                    "gold_value_labels": _silver_value_labels(country, semantic),
+                    "gold_risk_labels": _normalize_label_text(";".join(semantic.risk_tags)),
+                    "human_note": f"AI silver label，待人工抽查；provider={semantic.provider}，confidence={semantic.confidence:.2f}。",
+                    "label_source": "ai_silver",
+                    "label_status": "pending_review",
+                }
+            )
+            self.record_perception_memory(
+                country,
+                "harness_ai_silver_label",
+                {
+                    "sample_id": row.get("sample_id", ""),
+                    "subject": semantic.subject,
+                    "color_mood": row["gold_color_mood"],
+                    "composition": row["gold_composition"],
+                    "value_labels": row["gold_value_labels"],
+                    "risk_labels": row["gold_risk_labels"],
+                    "confidence": semantic.confidence,
+                    "provider": semantic.provider,
+                },
+            )
+            updated += 1
+        self._write_harness_gold_rows(dataset, rows)
+        return {"updated_count": updated, "skipped_count": skipped, "dataset": str(dataset)}
+
     def update_harness_gold_label(
         self,
         country: str,
@@ -1057,6 +1163,8 @@ class PuzzleOpsAgent:
                     "gold_value_labels": _normalize_label_text(gold_value_labels),
                     "gold_risk_labels": _normalize_label_text(gold_risk_labels),
                     "human_note": human_note.strip(),
+                    "label_source": "human_gold",
+                    "label_status": "reviewed",
                 }
             )
             updated = True
@@ -1215,6 +1323,44 @@ def _missing_gold_fields(sample) -> tuple[str, ...]:
 def _normalize_label_text(value: str) -> str:
     labels = [part.strip() for part in re.split(r"[;；、|,，]+", value) if part.strip()]
     return ";".join(dict.fromkeys(labels))
+
+
+def _image_content_type_for_path(path: Path) -> str:
+    if path.suffix.lower() in {".jpg", ".jpeg"}:
+        return "image/jpeg"
+    if path.suffix.lower() == ".webp":
+        return "image/webp"
+    return "image/png"
+
+
+def _silver_value_labels(country: str, semantic) -> str:
+    text = " ".join(
+        (
+            str(getattr(semantic, "subject", "")),
+            str(getattr(semantic, "scene", "")),
+            str(getattr(semantic, "style", "")),
+            " ".join(getattr(semantic, "culture_elements", ()) or ()),
+            " ".join(getattr(semantic, "prompt_keywords", ()) or ()),
+        )
+    )
+    labels: list[str] = []
+    if country == "法国":
+        if any(word in text for word in ("法棍", "奶酪", "葡萄", "酒杯", "野餐", "餐食", "海滨度假")):
+            labels.append("生活艺术")
+        if any(word in text for word in ("薰衣草", "风车", "乡村", "田野")):
+            labels.append("法式乡村")
+        if any(word in text for word in ("花园", "玫瑰", "蕾丝", "复古", "喷泉", "淑女")):
+            labels.append("复古优雅")
+        if any(word in text for word in ("海边", "沙滩", "自然", "花", "庭院")):
+            labels.append("自然治愈")
+    elif country == "日本":
+        if any(word in text for word in ("寿司", "抹茶", "和食")):
+            labels.append("本土饮食文化")
+        if any(word in text for word in ("神社", "塔楼", "庭院", "日式")):
+            labels.append("本土文化符号")
+        if any(word in text for word in ("治愈", "动物", "花", "季节")):
+            labels.append("季节感治愈")
+    return ";".join(labels or ["待人工确认价值观"])
 
 
 def _annotation_cases(cases, failures, overrides: dict[tuple[str, str], str]):

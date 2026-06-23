@@ -349,6 +349,17 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         state.sync_message = f"已生成 Gold Dataset 骨架：{dataset}"
         state.sync_url = ""
         state.view = "eval"
+    elif path == "/auto_prelabeled_harness_gold":
+        try:
+            result = agent.auto_prelabeled_harness_samples(state.country)
+            state.sync_message = (
+                f"AI 预标注完成：{result['updated_count']} 条，跳过 {result['skipped_count']} 条；"
+                f"数据集：{result['dataset']}"
+            )
+        except ValueError as exc:
+            state.sync_message = f"AI 预标注失败：{exc}"
+        state.sync_url = ""
+        state.view = "eval"
     elif path == "/export_harness_overrides":
         export_path = agent.export_harness_overrides(state.country, agent._runtime_dir / f"harness_overrides_{state.country}.csv")
         state.sync_message = f"已导出 Harness 人工修正：{export_path}"

@@ -941,6 +941,23 @@ def test_export_harness_gold_skeleton_action_creates_csv(tmp_path, monkeypatch):
     assert "sample_id,country,local_image_path" in path.read_text(encoding="utf-8")
 
 
+def test_auto_prelabeled_harness_gold_action_runs_agent(monkeypatch):
+    APP.state = AppState(country="法国", view="eval")
+    calls = []
+
+    def fake_auto(country):
+        calls.append(country)
+        return {"updated_count": 5, "skipped_count": 0, "dataset": "/tmp/harness_gold_samples_法国.csv"}
+
+    monkeypatch.setattr(APP.agent, "auto_prelabeled_harness_samples", fake_auto)
+
+    handle_action("/auto_prelabeled_harness_gold", {"country": ["法国"], "view": ["eval"]})
+
+    assert calls == ["法国"]
+    assert APP.state.view == "eval"
+    assert "AI 预标注完成：5 条" in APP.state.sync_message
+
+
 def test_run_harness_action_requires_explicit_generation_opt_in(monkeypatch):
     APP.state = AppState(country="日本", view="eval")
     calls = []
