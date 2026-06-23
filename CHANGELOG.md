@@ -2,6 +2,52 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.56 - Gold Dataset 工作台与 HITL 标准答案回流
+
+日期：2026-06-23
+
+阶段目标：
+
+- 把“需要 30-50 张真实拼图 + gold label”落到可操作页面，而不是让运营手改 CSV。
+- 让 Harness 的真实业务评测依赖人工标准答案，避免把历史主体字段或模型输出误当 gold label。
+- 将人工确认的 gold label 同步进入事实记忆，为后续 RAG/价值观判断提供可信依据。
+
+已完成：
+
+- Harness Gold Dataset 工作台：
+  - Agent 评测页新增 `Gold Dataset 工作台`。
+  - 展示真实样本数、完整 gold 样本数、gold 完成率和缺失字段摘要。
+  - 每条真实样本可直接编辑 `gold_grade`、`gold_subject`、`gold_color_mood`、`gold_composition`、`gold_value_labels`、`gold_risk_labels` 和人工备注。
+  - 新增“生成 Gold 骨架CSV”按钮，可从当前真实历史图片生成待标注数据集。
+- Gold label 保存闭环：
+  - 新增 `update_harness_gold_label()`，保存单条样本级人工标准答案。
+  - 新增 `ensure_harness_gold_dataset()`，没有 CSV 时可生成标注骨架。
+  - 新增 `harness_gold_coverage()`，用于页面和后续 Harness 前置检查。
+  - 保存后写入 `harness_gold_label` HITL 记录，并作为 `facts` 层结构化记忆进入 memory/RAG。
+- 数据真实性修正：
+  - 真实历史图片不再默认把 `subject_tag` 当成 `gold_subject`。
+  - `gold_subject`、色彩、构图和价值观标签必须由人工确认后才算完整 gold label。
+  - 合成 demo 仍保留为页面展示和边界测试，不用于证明业务准确率。
+- 页面体验：
+  - Gold 工作台使用独立局部样式，避免整页横向溢出。
+  - 复用现有 Harness 页面和失败复盘区，不改变路由结构。
+
+验证：
+
+- 新增 TDD 覆盖：
+  - 编辑 gold label 会更新 CSV，并写入 facts memory。
+  - 没有 gold CSV 时可从真实历史图片生成骨架。
+  - `/save_harness_gold_label` 与 `/export_harness_gold_skeleton` 路由可用。
+  - Eval 页面展示 Gold Dataset 工作台与保存表单。
+- `PYTHONPATH=. pytest tests -q`：219 passed，用时 24.74s。
+- 浏览器验证：`http://127.0.0.1:5199/?view=eval` 出现 Gold Dataset 工作台，保存/生成骨架表单存在；页面 `scrollWidth == clientWidth == 1280`，无整页横向溢出。
+
+当前限制：
+
+- 这版提供标注与回流工具，但业务准确率仍需要你补齐 30-50 张真实拼图样本及人工 gold label 后才能证明。
+- 当前 gold 完成率按必填字段统计，未对人工标注质量做二次审核；后续可增加抽检队列和冲突检测。
+- 保存 gold label 不调用 VLM、RAG 或图像生成模型，不产生模型费用。
+
 ## v0.3.55 - Harness 显式执行、费用门禁与真实 VLM Gold 评测
 
 日期：2026-06-22

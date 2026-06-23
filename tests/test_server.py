@@ -888,6 +888,59 @@ def test_export_harness_annotations_action_writes_label_tool_files():
     assert (export_dir / "label_studio_harness_日本.json").exists()
 
 
+def test_save_harness_gold_label_action_updates_dataset_and_memory(monkeypatch, tmp_path):
+    image_path = tmp_path / "real-sushi.png"
+    image_path.write_bytes(b"fake-png")
+    dataset = tmp_path / "gold_samples.csv"
+    dataset.write_text(
+        "\n".join(
+            (
+                "sample_id,country,local_image_path,operation_tag,subject,js_category,source,position,open_rate,completion_rate,avg_finish_time,gold_grade,gold_subject,gold_color_mood,gold_composition,gold_value_labels,gold_risk_labels,human_note",
+                "real-001,日本,real-sushi.png,试新_日本_寿司0615,寿司,food,real,5,0.31,0.93,42,,,,,,,待补 gold",
+            )
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_HARNESS_DATASET", str(dataset))
+    APP.state = AppState(country="日本", view="eval")
+
+    handle_action(
+        "/save_harness_gold_label",
+        {
+            "country": ["日本"],
+            "view": ["eval"],
+            "sample_id": ["real-001"],
+            "gold_grade": ["S"],
+            "gold_subject": ["寿司拼盘"],
+            "gold_color_mood": ["米白与鲑鱼橙，清爽明亮"],
+            "gold_composition": ["日式料理桌面近景"],
+            "gold_value_labels": ["本土饮食文化;治愈食物"],
+            "gold_risk_labels": [""],
+            "human_note": ["运营确认"],
+        },
+    )
+
+    assert APP.state.view == "eval"
+    assert "Gold Label 已保存" in APP.state.sync_message
+    assert "寿司拼盘" in dataset.read_text(encoding="utf-8")
+    assert any("寿司拼盘" in memory["content"] for memory in APP.agent.hitl_memories("日本"))
+
+
+def test_export_harness_gold_skeleton_action_creates_csv(tmp_path, monkeypatch):
+    monkeypatch.delenv("PUZZLEOPS_HARNESS_DATASET", raising=False)
+    APP.state = AppState(country="日本", view="eval")
+    path = APP.agent._runtime_dir / "harness_gold_samples_日本.csv"
+    if path.exists():
+        path.unlink()
+
+    handle_action("/export_harness_gold_skeleton", {"country": ["日本"], "view": ["eval"]})
+
+    assert APP.state.view == "eval"
+    assert "已生成 Gold Dataset 骨架" in APP.state.sync_message
+    assert path.exists()
+    assert "sample_id,country,local_image_path" in path.read_text(encoding="utf-8")
+
+
 def test_run_harness_action_requires_explicit_generation_opt_in(monkeypatch):
     APP.state = AppState(country="日本", view="eval")
     calls = []

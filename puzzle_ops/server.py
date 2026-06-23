@@ -326,6 +326,29 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             value(form, "human_override", ""),
         )
         state.view = "eval"
+    elif path == "/save_harness_gold_label":
+        try:
+            dataset = agent.update_harness_gold_label(
+                state.country,
+                value(form, "sample_id", ""),
+                gold_grade=value(form, "gold_grade", ""),
+                gold_subject=value(form, "gold_subject", ""),
+                gold_color_mood=value(form, "gold_color_mood", ""),
+                gold_composition=value(form, "gold_composition", ""),
+                gold_value_labels=value(form, "gold_value_labels", ""),
+                gold_risk_labels=value(form, "gold_risk_labels", ""),
+                human_note=value(form, "human_note", ""),
+            )
+            state.sync_message = f"Gold Label 已保存：{dataset}"
+        except ValueError as exc:
+            state.sync_message = f"Gold Label 保存失败：{exc}"
+        state.sync_url = ""
+        state.view = "eval"
+    elif path == "/export_harness_gold_skeleton":
+        dataset = agent.ensure_harness_gold_dataset(state.country)
+        state.sync_message = f"已生成 Gold Dataset 骨架：{dataset}"
+        state.sync_url = ""
+        state.view = "eval"
     elif path == "/export_harness_overrides":
         export_path = agent.export_harness_overrides(state.country, agent._runtime_dir / f"harness_overrides_{state.country}.csv")
         state.sync_message = f"已导出 Harness 人工修正：{export_path}"

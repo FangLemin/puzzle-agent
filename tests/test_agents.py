@@ -392,6 +392,79 @@ def test_agent_exports_harness_overrides_to_csv(tmp_path):
     assert "real-002,audit_eval,人工修正：补充版权/IP风险。,日本" in content
 
 
+def test_agent_updates_harness_gold_label_csv_and_records_fact_memory(monkeypatch, tmp_path):
+    image_path = tmp_path / "real-sushi.png"
+    image_path.write_bytes(b"fake-png")
+    dataset = tmp_path / "gold_samples.csv"
+    dataset.write_text(
+        "\n".join(
+            (
+                "sample_id,country,local_image_path,operation_tag,subject,js_category,source,position,open_rate,completion_rate,avg_finish_time,gold_grade,gold_subject,gold_color_mood,gold_composition,gold_value_labels,gold_risk_labels,human_note",
+                "real-001,日本,real-sushi.png,试新_日本_寿司0615,寿司,food,real,5,0.31,0.93,42,,,,,,,待补 gold",
+            )
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_HARNESS_DATASET", str(dataset))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+
+    saved = agent.update_harness_gold_label(
+        "日本",
+        "real-001",
+        gold_grade="S",
+        gold_subject="寿司拼盘",
+        gold_color_mood="米白与鲑鱼橙，清爽明亮",
+        gold_composition="日式料理桌面近景",
+        gold_value_labels="本土饮食文化;治愈食物",
+        gold_risk_labels="",
+        human_note="运营人工确认 gold label",
+    )
+
+    assert saved == dataset
+    samples = agent.harness_samples("日本")
+    assert samples[0].gold_subject == "寿司拼盘"
+    assert samples[0].gold_value_labels == ("本土饮食文化", "治愈食物")
+    coverage = agent.harness_gold_coverage("日本")
+    assert coverage["真实样本数"] == 1
+    assert coverage["完整 gold 样本数"] == 1
+    assert coverage["gold 完成率"] == "100%"
+    facts = agent.memory_debug("日本", query="寿司拼盘")
+    assert any(row["layer"] == "facts" and "寿司拼盘" in row["summary"] for row in facts)
+
+
+def test_agent_creates_gold_dataset_skeleton_from_default_real_samples(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent._runtime_dir = tmp_path
+    image_path = tmp_path / "real-tower.png"
+    image_path.write_bytes(b"fake-png")
+
+    class Record:
+        image_id = "history-001"
+        country = "日本"
+        local_image_path = str(image_path)
+        operation_tag = "试新_日本_游客塔楼0615"
+        subject_tag = "游客塔楼"
+        js_category = "travel"
+        position = 3
+        open_rate = 0.3
+        completion_rate = 0.9
+        avg_finish_time = 44
+        grade = "A"
+
+    agent._history_cache["日本"] = (Record(),)
+
+    path = agent.ensure_harness_gold_dataset("日本")
+
+    assert path.exists()
+    content = path.read_text(encoding="utf-8")
+    assert "history-001,日本" in content
+    assert "游客塔楼" in content
+    coverage = agent.harness_gold_coverage("日本")
+    assert coverage["真实样本数"] == 1
+    assert coverage["完整 gold 样本数"] == 0
+    assert "gold_subject" in coverage["缺失字段摘要"]
+
+
 def test_agent_persists_generation_events_for_replay():
     agent = PuzzleOpsAgent()
 

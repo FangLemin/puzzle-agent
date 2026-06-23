@@ -598,6 +598,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
     trace = agent.run_agent_task(state.country, "value_judge")
     report = agent.eval_report(state.country)
     harness_summary = agent.harness_summary(state.country)
+    gold_coverage = agent.harness_gold_coverage(state.country)
     harness_samples = agent.harness_samples(state.country)
     harness_run = agent.harness_display_run(state.country)
     version_compare = agent.harness_compare(harness_run)
@@ -613,6 +614,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
         f"<tr><td>{escape(key)}</td><td>{render_summary_value(value)}</td></tr>"
         for key, value in harness_summary.items()
     )
+    gold_rows = render_harness_gold_workbench_rows(harness_samples, state)
     review_cases = list(harness_run.failures)
     seen_cases = {(case.sample_id, case.task_type) for case in review_cases}
     for case in harness_run.cases:
@@ -645,10 +647,20 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
     observations = "".join(f"<li>{escape(item)}</li>" for item in trace.observations)
     return f"""
 <section class="panel">
-  <div class="section-line"><h2>Harness Dashboard</h2><div class="inline-actions"><form method="post" action="/export_harness_overrides">{context}<button>导出人工修正CSV</button></form><form method="post" action="/export_harness_annotations">{context}<button>导出标注平台文件</button></form></div></div>
+  <div class="section-line"><h2>Harness Dashboard</h2><div class="inline-actions"><form method="post" action="/export_harness_gold_skeleton">{context}<button>生成 Gold 骨架CSV</button></form><form method="post" action="/export_harness_overrides">{context}<button>导出人工修正CSV</button></form><form method="post" action="/export_harness_annotations">{context}<button>导出标注平台文件</button></form></div></div>
   <p>内置轻量 Harness：按真实样本与合成 demo 分开统计，批量运行 trial_parse_eval、value_match_eval、audit_eval、grade_predict_eval、derive_generation_eval 和 feishu_sync_eval。</p>
   <form class="harness-run-form" method="post" action="/run_harness">{context}<input type="hidden" name="run_real_models" value="1"><button class="primary">运行真实 VLM Harness</button><label><input type="checkbox" name="include_generation" value="1">包含付费生成评测</label><small>真实 VLM 会按图片样本调用模型并产生少量费用；默认不调用图像生成模型，勾选后会额外生成参考图。</small></form>
   {sync_message}
+</section>
+<section class="panel">
+  <div class="section-line"><h2>Gold Dataset 工作台</h2><span class="status-pill">gold 完成率 {escape(str(gold_coverage.get("gold 完成率", "0%")))}</span></div>
+  <div class="gold-coverage">
+    <article><span>真实样本</span><strong>{escape(str(gold_coverage.get("真实样本数", 0)))}</strong></article>
+    <article><span>完整 gold</span><strong>{escape(str(gold_coverage.get("完整 gold 样本数", 0)))}</strong></article>
+    <article><span>缺失字段</span><strong>{escape(str(gold_coverage.get("缺失字段摘要", "无")))}</strong></article>
+  </div>
+  <small>Gold label 是 Harness 的人工标准答案；保存后会写入 CSV，并作为人工确认事实进入 memory/RAG。</small>
+  <div class="table-wrap"><table class="gold-workbench"><thead><tr><th>样本</th><th>等级</th><th>主体</th><th>色彩氛围</th><th>构图环境</th><th>价值观/风险</th><th>操作</th></tr></thead><tbody>{gold_rows}</tbody></table></div>
 </section>
 <section class="grid two">
   <div class="panel"><h2>数据集概览</h2><div class="table-wrap"><table><tbody>{summary_rows}</tbody></table></div></div>
@@ -750,6 +762,28 @@ def render_harness_failure_categories(failures) -> str:
     if not counts:
         return '<tr><td colspan="2">暂无失败分类。</td></tr>'
     return "".join(f"<tr><td>{escape(category)}</td><td>{count}</td></tr>" for category, count in sorted(counts.items()))
+
+
+def render_harness_gold_workbench_rows(samples, state: AppState) -> str:
+    real_samples = [sample for sample in samples if sample.is_real]
+    if not real_samples:
+        return '<tr><td colspan="7">暂无真实图片样本。请先上传真实拼图或生成 Gold 骨架 CSV。</td></tr>'
+    rows = []
+    for sample in real_samples[:12]:
+        rows.append(
+            "<tr>"
+            f"<td>{render_harness_sample_cell(sample.sample_id, sample)}<input form=\"gold-{escape(sample.sample_id)}\" type=\"hidden\" name=\"sample_id\" value=\"{escape(sample.sample_id)}\"></td>"
+            f"<td><input form=\"gold-{escape(sample.sample_id)}\" class=\"tiny-input\" name=\"gold_grade\" value=\"{escape(sample.gold_grade)}\" placeholder=\"S/A/B/C/D\"></td>"
+            f"<td><textarea form=\"gold-{escape(sample.sample_id)}\" name=\"gold_subject\" placeholder=\"主体内容\">{escape(sample.gold_subject)}</textarea></td>"
+            f"<td><textarea form=\"gold-{escape(sample.sample_id)}\" name=\"gold_color_mood\" placeholder=\"色彩氛围\">{escape(sample.gold_color_mood)}</textarea></td>"
+            f"<td><textarea form=\"gold-{escape(sample.sample_id)}\" name=\"gold_composition\" placeholder=\"构图环境\">{escape(sample.gold_composition)}</textarea></td>"
+            f"<td><textarea form=\"gold-{escape(sample.sample_id)}\" name=\"gold_value_labels\" placeholder=\"价值观标签；用分号分隔\">{escape(';'.join(sample.gold_value_labels))}</textarea>"
+            f"<textarea form=\"gold-{escape(sample.sample_id)}\" name=\"gold_risk_labels\" placeholder=\"风险标签；可留空\">{escape(';'.join(sample.gold_risk_labels))}</textarea>"
+            f"<textarea form=\"gold-{escape(sample.sample_id)}\" name=\"human_note\" placeholder=\"人工备注\">{escape(sample.human_note)}</textarea></td>"
+            f"<td><form id=\"gold-{escape(sample.sample_id)}\" method=\"post\" action=\"/save_harness_gold_label\">{hidden_context(state, view='eval')}<button>保存</button></form></td>"
+            "</tr>"
+        )
+    return "".join(rows)
 
 
 def render_summary_value(value: object) -> str:
@@ -1090,6 +1124,15 @@ nav { display:grid; gap:8px; margin:18px 0; }
 .harness-sample-cell { display:grid; grid-template-columns:92px minmax(150px,1fr); gap:8px 10px; align-items:center; min-width:260px; }
 .harness-sample-cell .mini-thumb, .harness-sample-cell .visual-thumb { grid-row:1 / 4; width:92px; min-height:64px; }
 .harness-sample-cell strong, .harness-sample-cell span, .harness-sample-cell small { overflow-wrap:anywhere; }
+.status-pill { display:inline-flex; align-items:center; min-height:34px; padding:6px 10px; border:1px solid var(--brand); border-radius:999px; background:#e7f4ee; color:#17644e; font-weight:900; }
+.gold-coverage { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:8px 0 12px; }
+.gold-coverage article { display:grid; gap:4px; padding:10px; border:1px solid var(--line); border-radius:8px; background:#f6faf8; }
+.gold-coverage span { color:var(--muted); font-size:13px; font-weight:800; }
+.gold-coverage strong { overflow-wrap:anywhere; }
+.gold-workbench th, .gold-workbench td { vertical-align:top; }
+.gold-workbench textarea { min-height:74px; min-width:160px; resize:vertical; }
+.gold-workbench .tiny-input { width:72px; min-width:72px; }
+.gold-workbench .harness-sample-cell { min-width:230px; }
 .image-preview-cell { display:grid; grid-template-columns:92px minmax(140px,1fr); align-items:center; gap:10px; min-width:260px; }
 .choice { display:flex; justify-content:space-between; gap:10px; padding:10px; margin-bottom:8px; border:1px solid var(--line); border-radius:8px; background:#fffdf7; }
 .choice.stock-hot { border-color:#e26357; background:#ffe9e5; color:#9b281f; }
@@ -1168,5 +1211,5 @@ textarea { min-height:58px; resize:vertical; }
 .grade.D { background:#ef6b5b; color:#fff; }
 .pos { display:inline-block; padding:3px 8px; border-radius:999px; background:#ffe1de; color:var(--red); font-weight:900; }
 .empty { color:var(--muted); background:#f8faf9; padding:12px; border-radius:8px; }
-@media (max-width: 900px) { body { grid-template-columns:1fr; } aside { border-right:0; border-bottom:1px solid var(--line); } .metrics, .grid.two, .grid.three, .detail, .memory-grid, .rag-grid { grid-template-columns:1fr; } }
+@media (max-width: 900px) { body { grid-template-columns:1fr; } aside { border-right:0; border-bottom:1px solid var(--line); } .metrics, .grid.two, .grid.three, .detail, .memory-grid, .rag-grid, .gold-coverage { grid-template-columns:1fr; } }
 """

@@ -11,6 +11,28 @@ from puzzle_ops.models import DemandRow
 from puzzle_ops.rag import RagProviderConfig
 
 
+EVAL_SAMPLE_CSV_FIELDS = (
+    "sample_id",
+    "country",
+    "local_image_path",
+    "operation_tag",
+    "subject",
+    "js_category",
+    "source",
+    "position",
+    "open_rate",
+    "completion_rate",
+    "avg_finish_time",
+    "gold_grade",
+    "gold_subject",
+    "gold_color_mood",
+    "gold_composition",
+    "gold_value_labels",
+    "gold_risk_labels",
+    "human_note",
+)
+
+
 @dataclass(frozen=True)
 class EvalSample:
     sample_id: str
@@ -54,6 +76,28 @@ class EvalSample:
     @property
     def is_real(self) -> bool:
         return self.source == "real"
+
+    def csv_row(self) -> dict[str, str]:
+        return {
+            "sample_id": self.sample_id,
+            "country": self.country,
+            "local_image_path": self.local_image_path,
+            "operation_tag": self.operation_tag,
+            "subject": self.subject,
+            "js_category": self.js_category,
+            "source": self.source,
+            "position": str(self.position),
+            "open_rate": _metric_text(self.metrics.get("open_rate", 0.0)),
+            "completion_rate": _metric_text(self.metrics.get("completion_rate", 0.0)),
+            "avg_finish_time": _metric_text(self.metrics.get("avg_finish_time", 0.0)),
+            "gold_grade": self.gold_grade,
+            "gold_subject": self.gold_subject,
+            "gold_color_mood": self.gold_color_mood,
+            "gold_composition": self.gold_composition,
+            "gold_value_labels": ";".join(self.gold_value_labels),
+            "gold_risk_labels": ";".join(self.gold_risk_labels),
+            "human_note": self.human_note,
+        }
 
 
 @dataclass(frozen=True)
@@ -181,7 +225,7 @@ class AgentHarness:
                         "avg_finish_time": record.avg_finish_time,
                     },
                     gold_grade=record.grade,
-                    gold_subject=record.subject_tag,
+                    gold_subject="" if is_real else record.subject_tag,
                     gold_color_mood="",
                     gold_composition="",
                     gold_value_labels=(),
@@ -663,6 +707,10 @@ def _int_field(row: dict[str, str], key: str) -> int:
 def _float_field(row: dict[str, str], key: str) -> float:
     value = _field(row, key)
     return float(value) if value else 0.0
+
+
+def _metric_text(value: float) -> str:
+    return str(int(value)) if float(value).is_integer() else str(value)
 
 
 def _labels(value: str) -> tuple[str, ...]:

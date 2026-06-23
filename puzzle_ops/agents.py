@@ -20,7 +20,7 @@ from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.trulens_eval import TruLensRAGEvaluator
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.eval_suite import AgentEvalSuite
-from puzzle_ops.harness import AgentHarness, load_eval_samples_csv
+from puzzle_ops.harness import AgentHarness, EVAL_SAMPLE_CSV_FIELDS, load_eval_samples_csv
 from puzzle_ops.image_generation import DerivativeImage, ImageGenerationProviderFactory
 from puzzle_ops.visual_analysis import LocalImageAnalyzer
 from puzzle_ops.visual_assets import image_bytes
@@ -985,6 +985,104 @@ class PuzzleOpsAgent:
             summary["导入问题摘要"] = "；".join(f"{issue.sample_id}:{issue.reason}" for issue in issues[:3])
         return summary
 
+    def harness_gold_coverage(self, country: str) -> dict[str, object]:
+        samples = tuple(sample for sample in self.harness_samples(country) if sample.is_real)
+        required_fields = (
+            "gold_grade",
+            "gold_subject",
+            "gold_color_mood",
+            "gold_composition",
+            "gold_value_labels",
+        )
+        missing_counts = {field: 0 for field in required_fields}
+        complete = 0
+        for sample in samples:
+            missing = _missing_gold_fields(sample)
+            for field in missing:
+                if field in missing_counts:
+                    missing_counts[field] += 1
+            if not missing:
+                complete += 1
+        missing_summary = "；".join(f"{field}:{count}" for field, count in missing_counts.items() if count) or "无"
+        return {
+            "真实样本数": len(samples),
+            "完整 gold 样本数": complete,
+            "gold 完成率": _pct(complete / len(samples)) if samples else "0%",
+            "缺失字段摘要": missing_summary,
+            "数据集文件": str(self._active_harness_dataset_path(country)),
+        }
+
+    def ensure_harness_gold_dataset(self, country: str) -> Path:
+        dataset = self._active_harness_dataset_path(country)
+        if dataset.exists():
+            return dataset
+        dataset.parent.mkdir(parents=True, exist_ok=True)
+        samples = tuple(sample for sample in AgentHarness(self, self.image_generator).default_samples(country) if sample.is_real)
+        self._write_harness_gold_rows(dataset, [sample.csv_row() for sample in samples])
+        return dataset
+
+    def update_harness_gold_label(
+        self,
+        country: str,
+        sample_id: str,
+        *,
+        gold_grade: str,
+        gold_subject: str,
+        gold_color_mood: str,
+        gold_composition: str,
+        gold_value_labels: str,
+        gold_risk_labels: str,
+        human_note: str,
+    ) -> Path:
+        dataset = self.ensure_harness_gold_dataset(country)
+        rows = self._read_harness_gold_rows(dataset)
+        sample_lookup = {sample.sample_id: sample for sample in self.harness_samples(country)}
+        if sample_id not in {row.get("sample_id", "") for row in rows}:
+            sample = sample_lookup.get(sample_id)
+            if sample is None:
+                raise ValueError(f"找不到 Harness 样本：{sample_id}")
+            rows.append(sample.csv_row())
+        updated = False
+        for row in rows:
+            if row.get("sample_id") != sample_id:
+                continue
+            if (row.get("country") or country) != country:
+                raise ValueError(f"样本 {sample_id} 不属于当前国家：{country}")
+            row.update(
+                {
+                    "gold_grade": gold_grade.strip(),
+                    "gold_subject": gold_subject.strip(),
+                    "gold_color_mood": gold_color_mood.strip(),
+                    "gold_composition": gold_composition.strip(),
+                    "gold_value_labels": _normalize_label_text(gold_value_labels),
+                    "gold_risk_labels": _normalize_label_text(gold_risk_labels),
+                    "human_note": human_note.strip(),
+                }
+            )
+            updated = True
+            break
+        if not updated:
+            raise ValueError(f"找不到 Harness 样本：{sample_id}")
+        self._write_harness_gold_rows(dataset, rows)
+        self.repository.add_memory(country, "harness_gold_label", f"{sample_id}：{gold_subject.strip()}；{gold_color_mood.strip()}；{gold_composition.strip()}")
+        self.record_extracted_fact(
+            country,
+            "harness_gold_label",
+            {
+                "sample_id": sample_id,
+                "gold_grade": gold_grade.strip(),
+                "gold_subject": gold_subject.strip(),
+                "gold_color_mood": gold_color_mood.strip(),
+                "gold_composition": gold_composition.strip(),
+                "gold_value_labels": _normalize_label_text(gold_value_labels),
+                "gold_risk_labels": _normalize_label_text(gold_risk_labels),
+                "human_note": human_note.strip(),
+            },
+        )
+        if country in self._history_cache:
+            self._history_cache.pop(country, None)
+        return dataset
+
     def harness_version_compare(self, country: str) -> dict[str, str]:
         return self.harness_compare(self.harness_display_run(country))
 
@@ -994,12 +1092,40 @@ class PuzzleOpsAgent:
         return harness.compare_runs(current, previous=previous)
 
     def _configured_harness_samples(self, country: str):
-        dataset = _harness_dataset_path()
+        dataset = self._active_harness_dataset_path(country)
         if not dataset:
             return (), (), ""
+        if not dataset.exists():
+            return (), (), str(dataset)
         samples, issues = load_eval_samples_csv(dataset)
         filtered = tuple(sample for sample in samples if sample.country == country)
         return filtered, issues, str(dataset)
+
+    def _active_harness_dataset_path(self, country: str) -> Path:
+        configured = _harness_dataset_path()
+        if configured:
+            return configured
+        safe_country = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff_-]+", "_", country or "default")
+        return self._runtime_dir / f"harness_gold_samples_{safe_country}.csv"
+
+    @staticmethod
+    def _read_harness_gold_rows(dataset: Path) -> list[dict[str, str]]:
+        if not dataset.exists():
+            return []
+        with dataset.open("r", encoding="utf-8-sig", newline="") as handle:
+            return [
+                {field: row.get(field, "") for field in EVAL_SAMPLE_CSV_FIELDS}
+                for row in csv.DictReader(handle)
+            ]
+
+    @staticmethod
+    def _write_harness_gold_rows(dataset: Path, rows: list[dict[str, str]]) -> None:
+        dataset.parent.mkdir(parents=True, exist_ok=True)
+        with dataset.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=EVAL_SAMPLE_CSV_FIELDS)
+            writer.writeheader()
+            for row in rows:
+                writer.writerow({field: row.get(field, "") for field in EVAL_SAMPLE_CSV_FIELDS})
 
     def _country(self, country: str) -> dict[str, object]:
         try:
@@ -1069,6 +1195,26 @@ def _parse_harness_override_memory(content: str) -> dict[str, str] | None:
     if not sample_id or not task_type or not note:
         return None
     return {"sample_id": sample_id, "task_type": task_type, "human_override": note}
+
+
+def _missing_gold_fields(sample) -> tuple[str, ...]:
+    missing: list[str] = []
+    if not sample.gold_grade:
+        missing.append("gold_grade")
+    if not sample.gold_subject:
+        missing.append("gold_subject")
+    if not sample.gold_color_mood:
+        missing.append("gold_color_mood")
+    if not sample.gold_composition:
+        missing.append("gold_composition")
+    if not sample.gold_value_labels:
+        missing.append("gold_value_labels")
+    return tuple(missing)
+
+
+def _normalize_label_text(value: str) -> str:
+    labels = [part.strip() for part in re.split(r"[;；、|,，]+", value) if part.strip()]
+    return ";".join(dict.fromkeys(labels))
 
 
 def _annotation_cases(cases, failures, overrides: dict[tuple[str, str], str]):

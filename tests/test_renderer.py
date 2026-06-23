@@ -118,6 +118,34 @@ def test_trial_page_shows_real_generation_provider_status(tmp_path):
     assert "真实生成 provider 已配置：wanx2.1-t2i-plus" in html
 
 
+def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):
+    image_path = tmp_path / "real-sushi.png"
+    image_path.write_bytes(b"fake-png")
+    dataset = tmp_path / "gold_samples.csv"
+    dataset.write_text(
+        "\n".join(
+            (
+                "sample_id,country,local_image_path,operation_tag,subject,js_category,source,position,open_rate,completion_rate,avg_finish_time,gold_grade,gold_subject,gold_color_mood,gold_composition,gold_value_labels,gold_risk_labels,human_note",
+                "real-001,日本,real-sushi.png,试新_日本_寿司0615,寿司,food,real,5,0.31,0.93,42,,,,,,,待补 gold",
+            )
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_HARNESS_DATASET", str(dataset))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+
+    html = render_page(agent, AppState(country="日本", view="eval"))
+
+    assert "Gold Dataset 工作台" in html
+    assert "gold 完成率" in html
+    assert "0%" in html
+    assert 'action="/save_harness_gold_label"' in html
+    assert 'name="gold_subject"' in html
+    assert 'name="gold_color_mood"' in html
+    assert 'name="gold_composition"' in html
+    assert 'action="/export_harness_gold_skeleton"' in html
+
+
 def test_trial_page_has_generation_provider_diagnostic_action(tmp_path):
     agent = agent_without_vlm(tmp_path)
     state = AppState(country="日本", view="trial", trial_mode="derive")
