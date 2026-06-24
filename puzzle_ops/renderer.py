@@ -852,6 +852,7 @@ def render_harness_gold_workbench_rows(samples, state: AppState) -> str:
                 f"<input type=\"checkbox\" name=\"sample_id\" value=\"{escape(sample.sample_id)}\" form=\"approve-silver-form\">确认"
                 "</label>"
             )
+        metric_status = render_harness_metric_status(sample)
         rows.append(
             "<tr>"
             f"<td>{render_harness_sample_cell(sample.sample_id, sample)}<input form=\"gold-{escape(sample.sample_id)}\" type=\"hidden\" name=\"sample_id\" value=\"{escape(sample.sample_id)}\"></td>"
@@ -862,11 +863,24 @@ def render_harness_gold_workbench_rows(samples, state: AppState) -> str:
             f"<td><textarea form=\"gold-{escape(sample.sample_id)}\" name=\"gold_value_labels\" placeholder=\"价值观标签；用分号分隔\">{escape(';'.join(sample.gold_value_labels))}</textarea>"
             f"<textarea form=\"gold-{escape(sample.sample_id)}\" name=\"gold_risk_labels\" placeholder=\"风险标签；可留空\">{escape(';'.join(sample.gold_risk_labels))}</textarea>"
             f"<textarea form=\"gold-{escape(sample.sample_id)}\" name=\"human_note\" placeholder=\"人工备注\">{escape(sample.human_note)}</textarea></td>"
-            f"<td><span class=\"status-pill\">{escape(sample.label_source or 'unknown')}</span><br><small>{escape(sample.label_status or '未记录')}</small>{approval_check}</td>"
+            f"<td><span class=\"status-pill\">{escape(sample.label_source or 'unknown')}</span><br><small>{escape(sample.label_status or '未记录')}</small>{metric_status}{approval_check}</td>"
             f"<td><form id=\"gold-{escape(sample.sample_id)}\" method=\"post\" action=\"/save_harness_gold_label\">{hidden_context(state, view='eval')}<button>保存</button></form></td>"
             "</tr>"
         )
     return "".join(rows)
+
+
+def render_harness_metric_status(sample) -> str:
+    missing = []
+    if not sample.position:
+        missing.append("position")
+    metrics = sample.metrics or {}
+    for field in ("open_rate", "completion_rate", "avg_finish_time"):
+        if not metrics.get(field):
+            missing.append(field)
+    if missing:
+        return f"<small class=\"metric-status metric-missing\">缺业务指标：{escape('、'.join(missing))}</small>"
+    return "<small class=\"metric-status metric-complete\">业务指标齐全</small>"
 
 
 def render_summary_value(value: object) -> str:
@@ -1221,6 +1235,9 @@ nav { display:grid; gap:8px; margin:18px 0; }
 .gold-workbench .tiny-input { width:72px; min-width:72px; }
 .gold-workbench .harness-sample-cell { min-width:230px; }
 .inline-check { display:flex; align-items:center; gap:6px; margin-top:8px; font-size:12px; color:#2f5c4f; }
+.metric-status { display:block; margin-top:6px; font-weight:800; }
+.metric-missing { color:#9b4d00; }
+.metric-complete { color:#17644e; }
 .image-preview-cell { display:grid; grid-template-columns:92px minmax(140px,1fr); align-items:center; gap:10px; min-width:260px; }
 .choice { display:flex; justify-content:space-between; gap:10px; padding:10px; margin-bottom:8px; border:1px solid var(--line); border-radius:8px; background:#fffdf7; }
 .choice.stock-hot { border-color:#e26357; background:#ffe9e5; color:#9b281f; }

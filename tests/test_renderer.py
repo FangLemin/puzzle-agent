@@ -259,6 +259,32 @@ def test_eval_page_uses_checkboxes_for_selected_silver_approval(monkeypatch, tmp
     assert 'type="checkbox" name="sample_id" value="fr-real-002"' in html
 
 
+def test_eval_page_shows_row_level_business_metric_status(monkeypatch, tmp_path):
+    missing_image = tmp_path / "france-lace.png"
+    complete_image = tmp_path / "france-lavender.png"
+    missing_image.write_bytes(b"fake-png")
+    complete_image.write_bytes(b"fake-png")
+    dataset = tmp_path / "gold_samples.csv"
+    dataset.write_text(
+        "\n".join(
+            (
+                "sample_id,country,local_image_path,operation_tag,subject,js_category,source,position,open_rate,completion_rate,avg_finish_time,gold_grade,gold_subject,gold_color_mood,gold_composition,gold_value_labels,gold_risk_labels,human_note,label_source,label_status",
+                "fr-real-001,法国,france-lace.png,试新_法国_蕾丝桌旗0623,蕾丝桌旗,still_life,real,0,0,0,0,C,蕾丝桌旗,暖色,室内桌面,生活艺术,,AI silver label，待人工抽查。,ai_silver,pending_review",
+                "fr-real-002,法国,france-lavender.png,试新_法国_薰衣草风车0623,薰衣草风车,landscape,real,4,0.36,0.91,42,S,薰衣草风车,紫色,普罗旺斯田野,法式乡村,,AI silver label，待人工抽查。,ai_silver,pending_review",
+            )
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_HARNESS_DATASET", str(dataset))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+
+    html = render_page(agent, AppState(country="法国", view="eval"))
+
+    assert "缺业务指标" in html
+    assert "position、open_rate、completion_rate、avg_finish_time" in html
+    assert "业务指标齐全" in html
+
+
 def test_trial_page_has_generation_provider_diagnostic_action(tmp_path):
     agent = agent_without_vlm(tmp_path)
     state = AppState(country="日本", view="trial", trial_mode="derive")
