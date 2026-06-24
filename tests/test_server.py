@@ -612,6 +612,31 @@ def test_check_generation_provider_action_reports_diagnostic_status(tmp_path):
     assert "https://example.test/gen" in APP.state.sync_message
 
 
+def test_generation_provider_diagnostic_includes_dashscope_readiness(tmp_path):
+    class DiagnosticDashScopeProvider(ImageGenerationProvider):
+        provider_name = "dashscope"
+
+        def healthcheck(self):
+            return {
+                "provider": "dashscope",
+                "configured": True,
+                "model": "wan2.6-image",
+                "api_key_source": "QWEN_API_KEY",
+                "sdk_available": False,
+                "base_url": "DashScope SDK ImageGeneration",
+                "message": "DashScope 参考图生成 provider 已配置：wan2.6-image；SDK 未安装",
+            }
+
+    APP.state = AppState(country="法国", view="trial", category="人物", trial_mode="derive")
+    APP.agent.image_generator = DiagnosticDashScopeProvider()
+
+    redirect = handle_action("/check_generation_provider", {"country": ["法国"], "view": ["trial"], "category": ["人物"], "trial_mode": ["derive"]})
+
+    assert redirect is None
+    assert "api_key_source=QWEN_API_KEY" in APP.state.sync_message
+    assert "sdk_available=False" in APP.state.sync_message
+
+
 class FakeGeneratedImageVisionClient:
     provider = "qwen"
 

@@ -2,6 +2,45 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.72 - 通义万相 Provider 诊断增强
+
+日期：2026-06-25
+
+阶段目标：
+
+- 继续推进“真实好图衍生生成”主线，把图像生成 Provider 从“只显示已配置”升级为“可诊断是否真的具备运行条件”。
+- 针对当前 `.env` 允许复用 `QWEN_API_KEY` 调用通义万相的配置，明确展示 key 来源和 DashScope SDK 可用性。
+
+已完成：
+
+- `DashScopeImageGenerationProvider.healthcheck()` 新增：
+  - `ready`：同时具备 API key、模型和 SDK 时才为真。
+  - `api_key_source`：区分使用 `IMAGE_GENERATION_API_KEY` 还是复用 `QWEN_API_KEY`。
+  - `sdk_available`：检查 `dashscope.aigc.image_generation` 是否可导入。
+- `ImageGenerationProviderFactory` 保留现有兼容逻辑：
+  - 优先使用 `IMAGE_GENERATION_API_KEY`。
+  - 没有独立生成 key 时复用 `QWEN_API_KEY`，并把来源写入诊断。
+- 试新页“生成 Provider 诊断”展示：
+  - provider、configured、ready、model、endpoint。
+  - DashScope 专属的 `api_key_source` 与 `sdk_available`。
+- “检查生成 Provider”按钮返回的同步消息也包含 readiness 字段，方便直接定位 SDK、key 或模型配置问题。
+
+验证：
+
+- 新增 TDD 覆盖：
+  - Factory 创建 DashScope Provider 时能报告 `api_key_source=QWEN_API_KEY`。
+  - 当前 Python 环境缺少 DashScope SDK 时，Provider 健康检查不会导致服务启动失败，而是返回 `sdk_available=False`。
+  - 试新页能展示 DashScope readiness。
+  - Server 诊断消息包含 `api_key_source` 和 `sdk_available`。
+- 定向测试：4 passed。
+- 关联测试：`PYTHONPATH=. pytest tests/test_harness.py tests/test_renderer.py tests/test_server.py -q`：107 passed。
+- 全量回归：`PYTHONPATH=. pytest tests -q`：253 passed，用时 16.30s。
+
+当前限制：
+
+- 本版只增强真实生成链路的诊断，不主动发起通义万相扣费生成调用。
+- 真正生成参考图仍需要在试新 `derive` 模式下点击“生成衍生参考图”，并通过二次 VLM 审核与人工确认后才能同步飞书。
+
 ## v0.3.71 - Human Gold 样本进入 RAG
 
 日期：2026-06-25

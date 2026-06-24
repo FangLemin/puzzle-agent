@@ -313,6 +313,25 @@ def test_image_generation_factory_reports_unconfigured_mock_and_cloud(monkeypatc
     assert dashscope.healthcheck()["provider"] == "dashscope"
     assert dashscope.healthcheck()["model"] == "wan2.6-image"
     assert dashscope.api_key == "shared-qwen-key"
+    assert dashscope.healthcheck()["api_key_source"] == "QWEN_API_KEY"
+    assert "sdk_available" in dashscope.healthcheck()
+
+
+def test_dashscope_generation_provider_healthcheck_survives_missing_sdk(monkeypatch, tmp_path):
+    def missing_sdk(_name):
+        raise ModuleNotFoundError("No module named 'dashscope'")
+
+    monkeypatch.setenv("IMAGE_GENERATION_PROVIDER", "dashscope")
+    monkeypatch.setenv("QWEN_API_KEY", "shared-qwen-key")
+    monkeypatch.setattr("puzzle_ops.image_generation.importlib.util.find_spec", missing_sdk)
+
+    provider = ImageGenerationProviderFactory.create(tmp_path, transport=lambda **kwargs: {"images": []})
+
+    status = provider.healthcheck()
+    assert status["provider"] == "dashscope"
+    assert status["configured"] is True
+    assert status["ready"] is False
+    assert status["sdk_available"] is False
 
 
 def test_harness_skips_unconfigured_generation_provider(tmp_path):

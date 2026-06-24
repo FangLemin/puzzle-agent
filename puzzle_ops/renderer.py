@@ -273,12 +273,17 @@ def render_trial(agent: PuzzleOpsAgent, state: AppState) -> str:
 
 
 def render_generation_provider_diagnostic(status: dict[str, object]) -> str:
-    fields = (
+    fields = [
         ("provider", status.get("provider", "not_configured")),
         ("configured", status.get("configured", False)),
+        ("ready", status.get("ready", status.get("configured", False))),
         ("model", status.get("model", "未配置")),
         ("endpoint", status.get("base_url") or status.get("submit_url") or "未配置"),
-    )
+    ]
+    if "api_key_source" in status:
+        fields.append(("api_key_source", status.get("api_key_source", "未配置")))
+    if "sdk_available" in status:
+        fields.append(("sdk_available", status.get("sdk_available", False)))
     rows = "".join(f"<div><dt>{escape(key)}</dt><dd>{escape(str(value))}</dd></div>" for key, value in fields)
     return f"<h3>生成 Provider 诊断</h3><dl class=\"detail compact-detail\">{rows}</dl>"
 

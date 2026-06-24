@@ -6,6 +6,7 @@ from pathlib import Path
 from urllib import request
 import base64
 import hashlib
+import importlib.util
 import json
 import os
 
@@ -165,23 +166,34 @@ class DashScopeImageGenerationProvider(ImageGenerationProvider):
         output_dir: Path | str,
         api_key: str,
         model: str,
+        api_key_source: str = "IMAGE_GENERATION_API_KEY",
+        sdk_available: bool | None = None,
         sdk_generate=None,
         image_downloader=None,
     ):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.api_key = api_key
+        self.api_key_source = api_key_source
         self.model = model
+        self.sdk_available = _dashscope_sdk_available() if sdk_available is None else sdk_available
         self.sdk_generate = sdk_generate or _dashscope_sdk_generate
         self.image_downloader = image_downloader or _download_image
 
     def healthcheck(self) -> dict[str, object]:
+        configured = bool(self.api_key and self.model)
+        message = f"DashScope 参考图生成 provider 已配置：{self.model}"
+        if not self.sdk_available:
+            message += "；SDK 未安装或不可导入"
         return {
             "provider": self.provider_name,
-            "configured": bool(self.api_key and self.model),
-            "message": f"DashScope 参考图生成 provider 已配置：{self.model}",
+            "configured": configured,
+            "ready": configured and self.sdk_available,
+            "message": message,
             "model": self.model,
             "base_url": "DashScope SDK ImageGeneration",
+            "api_key_source": self.api_key_source,
+            "sdk_available": self.sdk_available,
         }
 
     def generate_derivatives(
@@ -254,12 +266,17 @@ class ImageGenerationProviderFactory:
                 transport=transport,
             )
         if provider in {"dashscope", "wanx"}:
-            api_key = os.getenv("IMAGE_GENERATION_API_KEY", "") or os.getenv("QWEN_API_KEY", "")
+            api_key = os.getenv("IMAGE_GENERATION_API_KEY", "")
+            api_key_source = "IMAGE_GENERATION_API_KEY"
+            if not api_key:
+                api_key = os.getenv("QWEN_API_KEY", "")
+                api_key_source = "QWEN_API_KEY"
             if not api_key:
                 return MissingImageGenerationProvider()
             return DashScopeImageGenerationProvider(
                 output_dir=output_dir,
                 api_key=api_key,
+                api_key_source=api_key_source,
                 model=os.getenv("IMAGE_GENERATION_MODEL", "wan2.6-image"),
                 sdk_generate=transport,
             )
@@ -271,6 +288,13 @@ def _tuple_from_constraint(style_constraints: dict[str, str], key: str) -> tuple
     if isinstance(value, tuple):
         return value
     return tuple(part.strip() for part in str(value).split("；") if part.strip())
+
+
+def _dashscope_sdk_available() -> bool:
+    try:
+        return importlib.util.find_spec("dashscope.aigc.image_generation") is not None
+    except ModuleNotFoundError:
+        return False
 
 
 def _placeholder_png_bytes() -> bytes:

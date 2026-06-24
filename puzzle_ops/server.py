@@ -429,10 +429,17 @@ def value(form: dict[str, list[str]], key: str, default: str) -> str:
 def format_generation_provider_diagnostic(status: dict[str, object]) -> str:
     provider = str(status.get("provider", "not_configured"))
     configured = str(status.get("configured", False))
+    ready = str(status.get("ready", status.get("configured", False)))
     message = str(status.get("message", "生成 provider 未配置"))
     model = str(status.get("model", "未配置"))
     endpoint = str(status.get("base_url") or status.get("submit_url") or "未配置")
-    return f"生成 Provider 诊断：provider={provider}；configured={configured}；model={model}；endpoint={endpoint}；{message}"
+    api_key_source = str(status.get("api_key_source", "未配置"))
+    sdk_available = str(status.get("sdk_available", "未记录"))
+    return (
+        f"生成 Provider 诊断：provider={provider}；configured={configured}；ready={ready}；"
+        f"model={model}；endpoint={endpoint}；api_key_source={api_key_source}；"
+        f"sdk_available={sdk_available}；{message}"
+    )
 
 
 def generation_event(

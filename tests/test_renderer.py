@@ -2,7 +2,7 @@ from puzzle_ops.agents import PuzzleOpsAgent
 from puzzle_ops.renderer import AppState, render_page
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.vision_llm import MissingVisionLLMConfig
-from puzzle_ops.image_generation import CloudImageGenerationProvider
+from puzzle_ops.image_generation import CloudImageGenerationProvider, DashScopeImageGenerationProvider
 from puzzle_ops.storage import PuzzleRepository
 
 
@@ -137,6 +137,25 @@ def test_trial_page_shows_real_generation_provider_status(tmp_path):
 
     assert "图像生成 Provider" in html
     assert "真实生成 provider 已配置：wanx2.1-t2i-plus" in html
+
+
+def test_trial_page_shows_dashscope_generation_readiness(tmp_path):
+    agent = agent_without_vlm(tmp_path)
+    agent.image_generator = DashScopeImageGenerationProvider(
+        tmp_path / "generated",
+        api_key="shared-qwen-key",
+        api_key_source="QWEN_API_KEY",
+        model="wan2.6-image",
+        sdk_available=False,
+    )
+    state = AppState(country="法国", view="trial", trial_mode="derive")
+
+    html = render_page(agent, state)
+
+    assert "api_key_source" in html
+    assert "QWEN_API_KEY" in html
+    assert "sdk_available" in html
+    assert "False" in html
 
 
 def test_runtime_page_shows_rag_feedback_summary(tmp_path):
