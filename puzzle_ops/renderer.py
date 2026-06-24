@@ -853,6 +853,7 @@ def render_harness_gold_workbench_rows(samples, state: AppState) -> str:
                 "</label>"
             )
         metric_status = render_harness_metric_status(sample)
+        metric_inputs = render_harness_metric_inputs(sample)
         rows.append(
             "<tr>"
             f"<td>{render_harness_sample_cell(sample.sample_id, sample)}<input form=\"gold-{escape(sample.sample_id)}\" type=\"hidden\" name=\"sample_id\" value=\"{escape(sample.sample_id)}\"></td>"
@@ -863,7 +864,7 @@ def render_harness_gold_workbench_rows(samples, state: AppState) -> str:
             f"<td><textarea form=\"gold-{escape(sample.sample_id)}\" name=\"gold_value_labels\" placeholder=\"价值观标签；用分号分隔\">{escape(';'.join(sample.gold_value_labels))}</textarea>"
             f"<textarea form=\"gold-{escape(sample.sample_id)}\" name=\"gold_risk_labels\" placeholder=\"风险标签；可留空\">{escape(';'.join(sample.gold_risk_labels))}</textarea>"
             f"<textarea form=\"gold-{escape(sample.sample_id)}\" name=\"human_note\" placeholder=\"人工备注\">{escape(sample.human_note)}</textarea></td>"
-            f"<td><span class=\"status-pill\">{escape(sample.label_source or 'unknown')}</span><br><small>{escape(sample.label_status or '未记录')}</small>{metric_status}{approval_check}</td>"
+            f"<td><span class=\"status-pill\">{escape(sample.label_source or 'unknown')}</span><br><small>{escape(sample.label_status or '未记录')}</small>{metric_status}{metric_inputs}{approval_check}</td>"
             f"<td><form id=\"gold-{escape(sample.sample_id)}\" method=\"post\" action=\"/save_harness_gold_label\">{hidden_context(state, view='eval')}<button>保存</button></form></td>"
             "</tr>"
         )
@@ -881,6 +882,29 @@ def render_harness_metric_status(sample) -> str:
     if missing:
         return f"<small class=\"metric-status metric-missing\">缺业务指标：{escape('、'.join(missing))}</small>"
     return "<small class=\"metric-status metric-complete\">业务指标齐全</small>"
+
+
+def render_harness_metric_inputs(sample) -> str:
+    metrics = sample.metrics or {}
+    fields = (
+        ("position", sample.position or ""),
+        ("open_rate", metrics.get("open_rate", "")),
+        ("completion_rate", metrics.get("completion_rate", "")),
+        ("avg_finish_time", metrics.get("avg_finish_time", "")),
+    )
+    inputs = "".join(
+        f"<label><span>{escape(label)}</span><input form=\"gold-{escape(sample.sample_id)}\" name=\"{escape(label)}\" value=\"{escape(_metric_input_value(value))}\"></label>"
+        for label, value in fields
+    )
+    return f"<div class=\"metric-inputs\">{inputs}</div>"
+
+
+def _metric_input_value(value: object) -> str:
+    if value in ("", None):
+        return ""
+    if isinstance(value, float):
+        return f"{value:g}"
+    return str(value)
 
 
 def render_summary_value(value: object) -> str:
@@ -1238,6 +1262,9 @@ nav { display:grid; gap:8px; margin:18px 0; }
 .metric-status { display:block; margin-top:6px; font-weight:800; }
 .metric-missing { color:#9b4d00; }
 .metric-complete { color:#17644e; }
+.metric-inputs { display:grid; grid-template-columns:repeat(2,minmax(82px,1fr)); gap:6px; margin-top:8px; }
+.metric-inputs label { display:grid; gap:3px; font-size:11px; color:var(--muted); font-weight:800; }
+.metric-inputs input { min-width:0; padding:6px; }
 .image-preview-cell { display:grid; grid-template-columns:92px minmax(140px,1fr); align-items:center; gap:10px; min-width:260px; }
 .choice { display:flex; justify-content:space-between; gap:10px; padding:10px; margin-bottom:8px; border:1px solid var(--line); border-radius:8px; background:#fffdf7; }
 .choice.stock-hot { border-color:#e26357; background:#ffe9e5; color:#9b281f; }

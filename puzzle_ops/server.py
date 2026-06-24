@@ -352,6 +352,10 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
                 gold_value_labels=value(form, "gold_value_labels", ""),
                 gold_risk_labels=value(form, "gold_risk_labels", ""),
                 human_note=value(form, "human_note", ""),
+                position=value(form, "position", ""),
+                open_rate=value(form, "open_rate", ""),
+                completion_rate=value(form, "completion_rate", ""),
+                avg_finish_time=value(form, "avg_finish_time", ""),
             )
             state.sync_message = f"Gold Label 已保存：{dataset}"
         except ValueError as exc:

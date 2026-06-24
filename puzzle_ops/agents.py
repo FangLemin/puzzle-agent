@@ -1316,6 +1316,10 @@ class PuzzleOpsAgent:
         gold_value_labels: str,
         gold_risk_labels: str,
         human_note: str,
+        position: str = "",
+        open_rate: str = "",
+        completion_rate: str = "",
+        avg_finish_time: str = "",
     ) -> Path:
         dataset = self.ensure_harness_gold_dataset(country)
         rows = self._read_harness_gold_rows(dataset)
@@ -1340,6 +1344,10 @@ class PuzzleOpsAgent:
                     "gold_value_labels": _normalize_label_text(gold_value_labels),
                     "gold_risk_labels": _normalize_label_text(gold_risk_labels),
                     "human_note": human_note.strip(),
+                    "position": _metric_form_value(position, row.get("position", "")),
+                    "open_rate": _metric_form_value(open_rate, row.get("open_rate", "")),
+                    "completion_rate": _metric_form_value(completion_rate, row.get("completion_rate", "")),
+                    "avg_finish_time": _metric_form_value(avg_finish_time, row.get("avg_finish_time", "")),
                     "label_source": "human_gold",
                     "label_status": "reviewed",
                 }
@@ -1362,6 +1370,10 @@ class PuzzleOpsAgent:
                 "gold_value_labels": _normalize_label_text(gold_value_labels),
                 "gold_risk_labels": _normalize_label_text(gold_risk_labels),
                 "human_note": human_note.strip(),
+                "position": position,
+                "open_rate": open_rate,
+                "completion_rate": completion_rate,
+                "avg_finish_time": avg_finish_time,
             },
         )
         if country in self._history_cache:
@@ -1511,6 +1523,11 @@ def _missing_business_metric_fields(sample) -> tuple[str, ...]:
 def _normalize_label_text(value: str) -> str:
     labels = [part.strip() for part in re.split(r"[;；、|,，]+", value) if part.strip()]
     return ";".join(dict.fromkeys(labels))
+
+
+def _metric_form_value(value: str, current: str) -> str:
+    stripped = str(value or "").strip()
+    return stripped if stripped else str(current or "")
 
 
 def _parse_harness_sample_line(line: str, line_number: int) -> dict[str, object] | None:

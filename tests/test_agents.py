@@ -527,6 +527,45 @@ def test_agent_updates_harness_gold_label_csv_and_records_fact_memory(monkeypatc
     assert any(row["layer"] == "facts" and "寿司拼盘" in row["summary"] for row in facts)
 
 
+def test_agent_updates_harness_business_metrics_from_gold_form(monkeypatch, tmp_path):
+    image_path = tmp_path / "france-picnic.png"
+    image_path.write_bytes(b"fake-png")
+    dataset = tmp_path / "gold_samples.csv"
+    dataset.write_text(
+        "\n".join(
+            (
+                "sample_id,country,local_image_path,operation_tag,subject,js_category,source,position,open_rate,completion_rate,avg_finish_time,gold_grade,gold_subject,gold_color_mood,gold_composition,gold_value_labels,gold_risk_labels,human_note",
+                "fr-real-001,法国,france-picnic.png,试新_法国_海滩野餐0624,海滩野餐,lifestyle,real,0,0,0,0,A,海滩野餐,暖色,海滩场景,生活艺术,,待补指标",
+            )
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_HARNESS_DATASET", str(dataset))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+
+    agent.update_harness_gold_label(
+        "法国",
+        "fr-real-001",
+        gold_grade="A",
+        gold_subject="海滩野餐",
+        gold_color_mood="暖色",
+        gold_composition="海滩场景",
+        gold_value_labels="生活艺术",
+        gold_risk_labels="",
+        human_note="补齐业务指标",
+        position="7",
+        open_rate="0.42",
+        completion_rate="0.91",
+        avg_finish_time="38",
+    )
+
+    sample = agent.harness_samples("法国")[0]
+    assert sample.position == 7
+    assert sample.metrics["open_rate"] == 0.42
+    assert sample.metrics["completion_rate"] == 0.91
+    assert sample.metrics["avg_finish_time"] == 38
+
+
 def test_agent_creates_gold_dataset_skeleton_from_default_real_samples(tmp_path):
     agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
     agent._runtime_dir = tmp_path

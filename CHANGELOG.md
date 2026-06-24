@@ -2,6 +2,41 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.70 - Gold Dataset 行内编辑业务指标
+
+日期：2026-06-24
+
+阶段目标：
+
+- 补齐 v0.3.69 的行级提示闭环，让运营不只能看到缺什么，还能直接在样本行里补齐业务指标。
+- 减少整理真实样本时在批量入口和表格之间来回切换。
+
+已完成：
+
+- Gold Dataset 工作台每行新增业务指标输入：
+  - `position`
+  - `open_rate`
+  - `completion_rate`
+  - `avg_finish_time`
+- 复用原有“保存”按钮：
+  - 保存 Gold Label 时同步写入业务指标。
+  - 旧表单不传指标时保留原指标，不破坏既有流程。
+- Server `/save_harness_gold_label` 透传业务指标字段。
+- Agent `update_harness_gold_label()` 支持更新业务指标，并写入 Harness CSV。
+- 行内输入采用紧凑两列布局，仍放在“标注状态”列内，不新增表格列。
+
+验证：
+
+- 新增 TDD 覆盖：
+  - Agent 保存 Gold Label 时能同步更新业务指标。
+  - Server action 能接收并保存业务指标。
+  - Eval 页渲染业务指标输入框。
+- `PYTHONPATH=. pytest tests -q`：248 passed，用时 15.08s。
+
+当前限制：
+
+- 输入值仍按文本写入 CSV，再由 Harness CSV loader 转成数字；页面暂未做前端格式校验。
+
 ## v0.3.69 - Gold Dataset 行级业务指标状态
 
 日期：2026-06-24

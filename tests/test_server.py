@@ -917,12 +917,17 @@ def test_save_harness_gold_label_action_updates_dataset_and_memory(monkeypatch, 
             "gold_value_labels": ["本土饮食文化;治愈食物"],
             "gold_risk_labels": [""],
             "human_note": ["运营确认"],
+            "position": ["7"],
+            "open_rate": ["0.42"],
+            "completion_rate": ["0.91"],
+            "avg_finish_time": ["38"],
         },
     )
 
     assert APP.state.view == "eval"
     assert "Gold Label 已保存" in APP.state.sync_message
     assert "寿司拼盘" in dataset.read_text(encoding="utf-8")
+    assert ",7,0.42,0.91,38," in dataset.read_text(encoding="utf-8")
     assert any("寿司拼盘" in memory["content"] for memory in APP.agent.hitl_memories("日本"))
 
 
