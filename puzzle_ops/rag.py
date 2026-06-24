@@ -161,6 +161,30 @@ class ConfiguredRerankProvider(LocalRerankProvider):
         self.model = model
 
 
+class FeedbackAwareRerankProvider(LocalRerankProvider):
+    def __init__(self, base_provider: LocalRerankProvider, feedback_scores: dict[str, int], weight: float = 0.35):
+        self.base_provider = base_provider
+        self.feedback_scores = feedback_scores
+        self.weight = weight
+        self.provider_name = f"{base_provider.provider_name}+feedback"
+
+    def rerank(self, query: str, country: str, chunk: RagChunk, bm25_score: float, vector_score: float) -> float:
+        base_score = self.base_provider.rerank(query, country, chunk, bm25_score, vector_score)
+        return base_score + self.feedback_scores.get(chunk.chunk_id, 0) * self.weight
+
+    def rerank_many(
+        self,
+        query: str,
+        country: str,
+        candidates: tuple[tuple[RagChunk, float, float], ...],
+    ) -> tuple[float, ...]:
+        base_scores = self.base_provider.rerank_many(query, country, candidates)
+        return tuple(
+            score + self.feedback_scores.get(chunk.chunk_id, 0) * self.weight
+            for score, (chunk, _, _) in zip(base_scores, candidates)
+        )
+
+
 class DashScopeEmbeddingProvider(LocalEmbeddingProvider):
     def __init__(
         self,

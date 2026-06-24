@@ -1,6 +1,7 @@
 from puzzle_ops.rag import (
     DashScopeEmbeddingProvider,
     DashScopeRerankProvider,
+    FeedbackAwareRerankProvider,
     HybridRagRetriever,
     LocalEmbeddingProvider,
     LocalRerankProvider,
@@ -101,6 +102,28 @@ def test_hybrid_retriever_accepts_pluggable_embedding_and_rerank_providers():
     assert hits[0].rerank_score == 9.9
     assert "fake-embedding" in hits[0].reason
     assert "fake-reranker" in hits[0].reason
+
+
+def test_feedback_aware_rerank_provider_promotes_useful_chunks():
+    class FlatRerankProvider(LocalRerankProvider):
+        provider_name = "flat-rerank"
+
+        def rerank(self, query: str, country: str, chunk, bm25_score: float, vector_score: float) -> float:
+            return 1.0
+
+    documents = (
+        RagDocument("JP_VALUE_001", "日本", "value_rule", "饮食文化", "寿司属于日本本土饮食文化。", {}),
+        RagDocument("JP_VALUE_002", "日本", "value_rule", "季节感", "樱花、红叶和夏祭属于日本季节价值观。", {}),
+    )
+    chunks = tuple(chunk for document in documents for chunk in chunk_document(document, max_chars=80))
+    provider = FeedbackAwareRerankProvider(FlatRerankProvider(), {"JP_VALUE_002#chunk-1": 3})
+    retriever = HybridRagRetriever(chunks, rerank_provider=provider)
+
+    hits = retriever.search("日本价值观", country="日本", top_k=2)
+
+    assert hits[0].chunk.chunk_id == "JP_VALUE_002#chunk-1"
+    assert hits[0].rerank_score > hits[1].rerank_score
+    assert "feedback" in hits[0].reason
 
 
 def test_dashscope_embedding_provider_uses_transport_and_cosine_similarity():

@@ -15,7 +15,7 @@ from puzzle_ops.excel_importer import import_history_workbook
 from puzzle_ops.feishu import FeishuClientFactory, MockFeishuClient
 from puzzle_ops.models import AgentTrace, AnalysisReport, DemandRow, HolidayRecommendation, ImageProfile, ScheduleItem, TagMeta, ValuePredictionCard, ValueRuleCandidate
 from puzzle_ops.multimodal import ImageFeatureExtractor, SimilarImageRetriever, ValueInsightMiner
-from puzzle_ops.rag import HybridRagRetriever, RagChunk, RagDocument, RagPrompt, RagProviderConfig, RagRuntimeStats, build_rag_prompt, chunk_document, providers_from_config
+from puzzle_ops.rag import FeedbackAwareRerankProvider, HybridRagRetriever, RagChunk, RagDocument, RagPrompt, RagProviderConfig, RagRuntimeStats, build_rag_prompt, chunk_document, providers_from_config
 from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.trulens_eval import TruLensRAGEvaluator
 from puzzle_ops.trial_upload import TrialImageUploadService
@@ -415,6 +415,11 @@ class PuzzleOpsAgent:
             cache_get=self.repository.get_rag_embedding_cache,
             cache_set=self.repository.set_rag_embedding_cache,
         )
+        config = provider_config or self.rag_provider_config
+        if not config.remote_calls_enabled:
+            feedback_scores = self.rag_feedback_scores(country)
+            if feedback_scores:
+                rerank_provider = FeedbackAwareRerankProvider(rerank_provider, feedback_scores)
         retriever = HybridRagRetriever(chunks, embedding_provider=embedding_provider, rerank_provider=rerank_provider)
         hits = retriever.search(query, country=country, top_k=top_k)
         if _looks_like_audit_query(query) and not any(hit.chunk.source_type == "audit_policy" for hit in hits):
@@ -529,6 +534,14 @@ class PuzzleOpsAgent:
             "not_useful_count": not_useful_total,
             "top_chunks": top_chunks,
         }
+
+    def rag_feedback_scores(self, country: str) -> dict[str, int]:
+        summary = self.rag_feedback_summary(country)
+        scores: dict[str, int] = {}
+        for item in summary.get("top_chunks", ()):
+            if isinstance(item, dict):
+                scores[str(item.get("chunk_id", ""))] = int(item.get("net_score", 0))
+        return {chunk_id: score for chunk_id, score in scores.items() if chunk_id and score}
 
     def value_match_rag_citation_details(self, row: DemandRow) -> tuple[dict[str, str], ...]:
         citation_ids = _extract_rag_citation_ids(row.value_match)

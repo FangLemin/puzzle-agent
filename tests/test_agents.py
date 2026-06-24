@@ -312,6 +312,21 @@ def test_agent_aggregates_rag_citation_feedback_for_rerank_tuning(tmp_path):
     assert summary["top_chunks"][1]["net_score"] == -1
 
 
+def test_agent_rag_answer_uses_feedback_bias_for_local_rerank(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "rag_feedback_rank.db"))
+    for index in range(12):
+        agent.record_rag_citation_feedback(
+            "日本",
+            chunk_id="JP_VALUE_002#chunk-1",
+            usefulness="useful",
+            note=f"季节感依据有效 {index}",
+        )
+
+    answer = agent.value_audit_rag_answer("日本", "日本柔和自然主色明确价值观", top_k=2)
+
+    assert answer.citations[0] == "JP_VALUE_002#chunk-1"
+
+
 def test_value_master_requires_real_llm_instead_of_rule_fallback():
     agent = PuzzleOpsAgent()
     agent.trial_uploads = TrialImageUploadService(

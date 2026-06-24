@@ -2,6 +2,40 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.64 - RAG 人工反馈接入本地 Rerank
+
+日期：2026-06-24
+
+阶段目标：
+
+- 把 v0.3.63 聚合出来的 RAG feedback `net_score` 真正接入本地 RAG 排序。
+- 让运营标记“有用/无用”的依据，能影响后续相同 chunk 在本地 fallback 检索中的排序。
+- 保持远程 provider 的边界清晰：未开启远程调用时使用 feedback-aware 本地 rerank；开启远程 rerank 时尊重远程结果。
+
+已完成：
+
+- 新增 `FeedbackAwareRerankProvider`：
+  - 包装现有 rerank provider。
+  - 在基础 rerank 分数上叠加 `chunk_id -> net_score` 的人工反馈 bias。
+  - provider 名称带 `+feedback`，方便 trace 中识别。
+- Agent RAG 检索接入 feedback：
+  - `rag_feedback_scores()` 将聚合摘要转成 `chunk_id -> net_score`。
+  - `value_audit_rag_answer()` 在本地/降级 RAG 路径中自动注入 feedback-aware rerank。
+  - feedback 只影响已召回候选的排序，不会把完全无关 chunk 强行拉入候选集。
+
+验证：
+
+- 新增 TDD 覆盖：
+  - feedback-aware rerank 会提升被标记有用的 chunk。
+  - Agent 的 `value_audit_rag_answer()` 会使用人工 feedback 改变本地 RAG citation 顺序。
+  - RAG feedback 聚合和 Runtime 展示继续可用。
+- `PYTHONPATH=. pytest tests -q`：239 passed，用时 21.63s。
+- 浏览器验证：日本 Runtime 页正常加载，`RAG 人工反馈` 与 Rerank 信息存在；页面 `scrollWidth == clientWidth == 1280`，无横向溢出。
+
+当前限制：
+
+- feedback bias 目前只接入本地 rerank/fallback 路径；远程 rerank 开启后不混入本地 bias。后续如果要做线上融合，可以在 Harness 中先比较“远程原始排序 vs feedback 融合排序”的指标。
+
 ## v0.3.63 - RAG 反馈聚合与 Runtime 摘要
 
 日期：2026-06-24
