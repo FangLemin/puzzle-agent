@@ -352,7 +352,9 @@ class PuzzleOpsAgent:
             value_match = _missing_value_llm_message(self.trial_uploads.vision_config_error)
         else:
             try:
-                value_match = client.judge_value_match(_value_row_payload(row), self._rag_rules_for_value_master(row))
+                rag_rules = self._rag_rules_for_value_master(row)
+                value_match = client.judge_value_match(_value_row_payload(row), rag_rules)
+                value_match = _append_system_rag_trace(value_match, rag_rules)
             except Exception as exc:
                 value_match = f"价值观大师：真实视觉 LLM 调用失败，暂不生成匹配结论；请检查模型配置后重试。错误：{exc}"
         return row.edited(value_match=value_match)
@@ -1514,6 +1516,13 @@ def _value_row_payload(row: DemandRow) -> dict[str, object]:
 def _missing_value_llm_message(error) -> str:
     missing = "、".join(error.missing) if error else "QWEN_API_KEY"
     return f"价值观大师：需要配置真实视觉 LLM 后，才能基于当前图片解析结果和已有价值观规则判断匹配度；当前缺少 {missing}。"
+
+
+def _append_system_rag_trace(value_match: str, rag_rules: tuple[tuple[str, str], ...]) -> str:
+    citation_ids = tuple(title for title, _ in rag_rules if "#chunk-" in title)
+    if not citation_ids or "系统RAG召回：" in value_match:
+        return value_match
+    return f"{value_match}；系统RAG召回：{'、'.join(citation_ids)}"
 
 
 def _first_non_empty(items) -> str:

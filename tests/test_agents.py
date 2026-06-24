@@ -235,6 +235,30 @@ def test_value_master_passes_rag_citations_to_llm_prompt():
     assert "引用依据" in prompt or "JP_VALUE" in prompt
 
 
+def test_value_master_appends_system_rag_citations_when_llm_omits_them():
+    agent = PuzzleOpsAgent()
+    agent.trial_uploads = TrialImageUploadService(
+        agent._runtime_dir / "value_master_rag_trace",
+        vision_client=OpenAIVisionLLMClient(
+            api_key="sk-test",
+            transport=lambda payload, api_key: {
+                "output_text": '{"value_match":"LLM判断：寿司符合日本本土饮食文化。","confidence":0.9,"evidence":["主体为寿司"],"risk_tags":[]}'
+            },
+        ),
+    )
+    row = agent.create_trial_demand("日本", "人物", mode="parse").edited(
+        subject="寿司",
+        operation_tag="试新_日本_寿司0616",
+        subject_description="主体内容：寿司；色彩氛围：米白与鲑鱼橙；构图环境：日式料理店铺餐桌近景。",
+    )
+
+    judged = agent.apply_value_master(row)
+
+    assert "系统RAG召回：" in judged.value_match
+    assert "#chunk-" in judged.value_match
+    assert "寿司" in judged.value_match
+
+
 def test_value_master_requires_real_llm_instead_of_rule_fallback():
     agent = PuzzleOpsAgent()
     agent.trial_uploads = TrialImageUploadService(
