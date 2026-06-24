@@ -713,6 +713,28 @@ class PuzzleOpsAgent:
     def record_working_memory(self, country: str, memory_type: str, payload: dict[str, object]) -> int:
         return self.repository.add_layered_memory(country, "working", memory_type, payload, ttl_seconds=24 * 3600)
 
+    def record_rag_citation_feedback(
+        self,
+        country: str,
+        *,
+        chunk_id: str,
+        usefulness: str,
+        note: str = "",
+        task_type: str = "trial_value_match",
+    ) -> int:
+        if usefulness not in {"useful", "not_useful"}:
+            raise ValueError("RAG 依据反馈只能是 useful 或 not_useful")
+        return self.record_working_memory(
+            country,
+            "rag_citation_feedback",
+            {
+                "chunk_id": chunk_id,
+                "usefulness": usefulness,
+                "note": note,
+                "task_type": task_type,
+            },
+        )
+
     def record_long_term_memory(self, country: str, memory_type: str, payload: dict[str, object]) -> int:
         return self.repository.add_layered_memory(country, "long_term", memory_type, payload)
 
@@ -772,6 +794,7 @@ class PuzzleOpsAgent:
                     "memory_id": int(memory.get("memory_id", 0)),
                     "layer": layer,
                     "memory_type": str(memory.get("memory_type", "")),
+                    "payload": payload if isinstance(payload, dict) else {},
                     "rag_source_type": source_types.get(layer, "memory"),
                     "summary": summary,
                     "status": status,

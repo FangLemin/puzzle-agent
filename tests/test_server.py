@@ -1066,3 +1066,29 @@ def test_memory_governance_actions_promote_and_retire_memory():
     )
     assert retired["status"] == "retired"
     assert "不再进入 RAG" in APP.state.sync_message
+
+
+def test_record_rag_feedback_action_writes_working_memory():
+    APP.state = AppState(country="日本", view="trial", trial_mode="parse")
+
+    handle_action(
+        "/record_rag_feedback",
+        {
+            "country": ["日本"],
+            "view": ["trial"],
+            "trial_mode": ["parse"],
+            "chunk_id": ["JP_VALUE_001#chunk-1"],
+            "usefulness": ["useful"],
+            "note": ["这条依据能解释寿司价值观"],
+        },
+    )
+
+    rows = APP.agent.memory_debug("日本", query="寿司价值观", limit=50)
+    assert APP.state.view == "trial"
+    assert "RAG 依据反馈已记录" in APP.state.sync_message
+    assert any(
+        row["memory_type"] == "rag_citation_feedback"
+        and row["payload"]["chunk_id"] == "JP_VALUE_001#chunk-1"
+        and row["payload"]["usefulness"] == "useful"
+        for row in rows
+    )

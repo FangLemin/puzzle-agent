@@ -298,6 +298,20 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             state.sync_message = f"Memory 停用失败：{exc}"
         state.sync_url = ""
         state.view = "runtime"
+    elif path == "/record_rag_feedback":
+        try:
+            memory_id = agent.record_rag_citation_feedback(
+                state.country,
+                chunk_id=value(form, "chunk_id", ""),
+                usefulness=value(form, "usefulness", "useful"),
+                note=value(form, "note", ""),
+                task_type=value(form, "task_type", "trial_value_match"),
+            )
+            state.sync_message = f"RAG 依据反馈已记录：memory_id={memory_id}"
+        except ValueError as exc:
+            state.sync_message = f"RAG 依据反馈记录失败：{exc}"
+        state.sync_url = ""
+        state.view = "trial"
     elif path == "/run_harness":
         execute_models = value(form, "run_real_models", "") == "1"
         execute_generation = value(form, "include_generation", "") == "1"

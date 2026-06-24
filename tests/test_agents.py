@@ -274,6 +274,26 @@ def test_agent_resolves_value_match_rag_citation_details():
     assert any("寿司" in item["text"] or "日本" in item["text"] for item in details)
 
 
+def test_agent_records_rag_citation_feedback_as_working_memory():
+    agent = PuzzleOpsAgent()
+
+    memory_id = agent.record_rag_citation_feedback(
+        "日本",
+        chunk_id="JP_VALUE_001#chunk-1",
+        usefulness="useful",
+        note="这条依据能解释寿司价值观",
+        task_type="trial_value_match",
+    )
+
+    rows = agent.memory_debug("日本", query="寿司价值观", limit=20)
+    feedback = next(row for row in rows if row["memory_id"] == memory_id)
+    assert feedback["layer"] == "working"
+    assert feedback["memory_type"] == "rag_citation_feedback"
+    assert feedback["payload"]["chunk_id"] == "JP_VALUE_001#chunk-1"
+    assert feedback["payload"]["usefulness"] == "useful"
+    assert feedback["payload"]["note"] == "这条依据能解释寿司价值观"
+
+
 def test_value_master_requires_real_llm_instead_of_rule_fallback():
     agent = PuzzleOpsAgent()
     agent.trial_uploads = TrialImageUploadService(

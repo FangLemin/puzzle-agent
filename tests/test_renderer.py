@@ -116,6 +116,10 @@ def test_trial_page_shows_value_match_rag_citation_details(tmp_path):
     assert "JP_VALUE_001#chunk-1" in html
     assert "value_rule" in html
     assert "文化真实性" in html
+    assert 'action="/record_rag_feedback"' in html
+    assert 'name="chunk_id" value="JP_VALUE_001#chunk-1"' in html
+    assert 'name="usefulness" value="useful"' in html
+    assert 'name="usefulness" value="not_useful"' in html
 
 
 def test_trial_page_shows_real_generation_provider_status(tmp_path):

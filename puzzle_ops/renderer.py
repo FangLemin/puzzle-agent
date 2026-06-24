@@ -253,7 +253,7 @@ def render_trial(agent: PuzzleOpsAgent, state: AppState) -> str:
     )
     generation_diagnostic = render_generation_provider_diagnostic(generation_status)
     generation_event = render_generation_event(state.generation_event)
-    rag_details = render_trial_value_rag_details(agent, rows)
+    rag_details = render_trial_value_rag_details(agent, rows, state)
     approval_form = ""
     if any(item.generation_review_status == "passed" and not item.human_approved for item in state.trial_rows):
         approval_form = f'<form method="post" action="/approve_generated_derivatives">{context}<button>确认生成图可同步</button></form>'
@@ -316,7 +316,7 @@ def render_sync_message(state: AppState) -> str:
     return f'<p class="success">{escape(state.sync_message)}</p>'
 
 
-def render_trial_value_rag_details(agent: PuzzleOpsAgent, rows: tuple[DemandRow, ...]) -> str:
+def render_trial_value_rag_details(agent: PuzzleOpsAgent, rows: tuple[DemandRow, ...], state: AppState) -> str:
     details: list[dict[str, str]] = []
     seen: set[str] = set()
     for row in rows:
@@ -334,15 +334,32 @@ def render_trial_value_rag_details(agent: PuzzleOpsAgent, rows: tuple[DemandRow,
         f"<td>{escape(str(item.get('parent_id', '')))}</td>"
         f"<td>{escape(str(item.get('title', '')))}</td>"
         f"<td>{escape(str(item.get('text', '')))}</td>"
+        f"<td>{render_rag_feedback_forms(str(item.get('chunk_id', '')), state)}</td>"
         "</tr>"
         for item in details
     )
     return f"""
 <section class="subpanel rag-detail-panel">
   <h3>价值观 RAG 依据明细</h3>
-  <div class="table-wrap"><table><thead><tr><th>引用ID</th><th>知识来源</th><th>父文档</th><th>标题</th><th>内容</th></tr></thead><tbody>{rows_html}</tbody></table></div>
+  <div class="table-wrap"><table><thead><tr><th>引用ID</th><th>知识来源</th><th>父文档</th><th>标题</th><th>内容</th><th>反馈</th></tr></thead><tbody>{rows_html}</tbody></table></div>
 </section>
 """
+
+
+def render_rag_feedback_forms(chunk_id: str, state: AppState) -> str:
+    if not chunk_id:
+        return ""
+    note = '<input name="note" placeholder="可补充原因">'
+    hidden = hidden_context(state, view="trial") + f'<input type="hidden" name="chunk_id" value="{escape(chunk_id)}"><input type="hidden" name="task_type" value="trial_value_match">'
+    useful = (
+        f'<form class="rag-feedback-form" method="post" action="/record_rag_feedback">'
+        f'{hidden}<input type="hidden" name="usefulness" value="useful">{note}<button>有用</button></form>'
+    )
+    not_useful = (
+        f'<form class="rag-feedback-form" method="post" action="/record_rag_feedback">'
+        f'{hidden}<input type="hidden" name="usefulness" value="not_useful"><button>无用</button></form>'
+    )
+    return f'<div class="rag-feedback-actions">{useful}{not_useful}</div>'
 
 
 def need_colgroup(include_check: bool, include_value: bool) -> str:

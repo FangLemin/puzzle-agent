@@ -2,6 +2,44 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.62 - RAG 依据有用性反馈进入短期记忆
+
+日期：2026-06-24
+
+阶段目标：
+
+- 继续补强 RAG + HITL 闭环，让运营不只是查看 RAG 依据，还能标记依据是否有用。
+- 将 RAG 依据反馈写入四层 Memory 中的短期记忆，为后续 rerank 调优、Harness 失败复盘和人工知识沉淀做准备。
+- 保持反馈动作不调用模型、不产生额外费用。
+
+已完成：
+
+- 新增 `record_rag_citation_feedback()`：
+  - 支持记录 chunk_id、usefulness、note 和 task_type。
+  - feedback 类型限定为 `useful / not_useful`。
+  - 写入 `working` 层，memory_type 为 `rag_citation_feedback`。
+- Runtime memory debug 增强：
+  - `memory_debug()` 现在返回结构化 `payload`，便于直接检查反馈内容。
+- 服务端新增 `/record_rag_feedback`：
+  - 从试新页提交 RAG 依据反馈。
+  - 成功后留在试新页并显示反馈记录消息。
+- 试新页 RAG 明细表新增反馈入口：
+  - 每条依据可标记“有用”或“无用”。
+  - 支持填写简短原因。
+
+验证：
+
+- 新增 TDD 覆盖：
+  - Agent 能把 RAG 依据反馈写入短期 memory。
+  - 服务端 action 能记录反馈并返回试新页。
+  - 试新页 RAG 明细表显示有用/无用反馈按钮。
+- `PYTHONPATH=. pytest tests -q`：235 passed，用时 21.81s。
+- 浏览器验证：日本试新页正常加载，价值观大师入口存在；页面 `scrollWidth == clientWidth == 1280`，无横向溢出。
+
+当前限制：
+
+- 反馈目前只进入短期记忆，还没有参与 rerank 分数；后续可以把多次人工反馈聚合成长期 rerank 偏好或 Harness 指标。
+
 ## v0.3.61 - 试新页价值观 RAG 依据明细
 
 日期：2026-06-24
