@@ -259,6 +259,21 @@ def test_value_master_appends_system_rag_citations_when_llm_omits_them():
     assert "寿司" in judged.value_match
 
 
+def test_agent_resolves_value_match_rag_citation_details():
+    agent = PuzzleOpsAgent()
+    agent.build_value_audit_rag_index("日本")
+    row = agent.create_trial_demand("日本", "人物", mode="parse").edited(
+        value_match="结论：符合；系统RAG召回：JP_VALUE_001#chunk-1、AUDIT_001#chunk-1"
+    )
+
+    details = agent.value_match_rag_citation_details(row)
+
+    assert details
+    assert any(item["chunk_id"] == "JP_VALUE_001#chunk-1" for item in details)
+    assert any(item["source_type"] == "value_rule" for item in details)
+    assert any("寿司" in item["text"] or "日本" in item["text"] for item in details)
+
+
 def test_value_master_requires_real_llm_instead_of_rule_fallback():
     agent = PuzzleOpsAgent()
     agent.trial_uploads = TrialImageUploadService(

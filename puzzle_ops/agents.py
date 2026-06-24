@@ -485,6 +485,23 @@ class PuzzleOpsAgent:
             **self._last_rag_stats.as_dict(),
         }
 
+    def value_match_rag_citation_details(self, row: DemandRow) -> tuple[dict[str, str], ...]:
+        citation_ids = _extract_rag_citation_ids(row.value_match)
+        if not citation_ids:
+            return ()
+        chunk_by_id = {str(chunk["chunk_id"]): chunk for chunk in self.repository.rag_chunks(row.country)}
+        return tuple(
+            {
+                "chunk_id": citation_id,
+                "parent_id": str(chunk_by_id[citation_id]["parent_id"]),
+                "source_type": str(chunk_by_id[citation_id]["source_type"]),
+                "title": str(chunk_by_id[citation_id]["title"]),
+                "text": str(chunk_by_id[citation_id]["text"]),
+            }
+            for citation_id in citation_ids
+            if citation_id in chunk_by_id
+        )
+
     def value_predictions(self, country: str, grade: str) -> tuple[ValuePredictionCard, ...]:
         cards: list[ValuePredictionCard] = []
         for operation_tag, images in self._country(country)["images"].items():
@@ -1523,6 +1540,16 @@ def _append_system_rag_trace(value_match: str, rag_rules: tuple[tuple[str, str],
     if not citation_ids or "系统RAG召回：" in value_match:
         return value_match
     return f"{value_match}；系统RAG召回：{'、'.join(citation_ids)}"
+
+
+def _extract_rag_citation_ids(text: str) -> tuple[str, ...]:
+    seen: set[str] = set()
+    citations: list[str] = []
+    for citation in re.findall(r"[A-Z]+_[A-Z_]*\d*#chunk-\d+", text):
+        if citation not in seen:
+            seen.add(citation)
+            citations.append(citation)
+    return tuple(citations)
 
 
 def _first_non_empty(items) -> str:

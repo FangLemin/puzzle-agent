@@ -101,6 +101,23 @@ def test_trial_page_keeps_core_fields_and_value_match_column(tmp_path):
     assert 'class="small-input"' in html
 
 
+def test_trial_page_shows_value_match_rag_citation_details(tmp_path):
+    agent = agent_without_vlm(tmp_path)
+    agent.build_value_audit_rag_index("日本")
+    state = AppState(country="日本", view="trial", trial_mode="parse")
+    state.trial_row = agent.create_trial_demand("日本", "人物", mode="parse").edited(
+        subject="寿司",
+        value_match="结论：符合日本本土饮食文化；系统RAG召回：JP_VALUE_001#chunk-1",
+    )
+
+    html = render_page(agent, state)
+
+    assert "价值观 RAG 依据明细" in html
+    assert "JP_VALUE_001#chunk-1" in html
+    assert "value_rule" in html
+    assert "文化真实性" in html
+
+
 def test_trial_page_shows_real_generation_provider_status(tmp_path):
     agent = agent_without_vlm(tmp_path)
     agent.image_generator = CloudImageGenerationProvider(
