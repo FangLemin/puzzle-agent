@@ -2,6 +2,41 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.63 - RAG 反馈聚合与 Runtime 摘要
+
+日期：2026-06-24
+
+阶段目标：
+
+- 延续 v0.3.62 的 RAG 依据反馈能力，把分散的短期反馈聚合成可读的调优信号。
+- 让 Runtime 的“价值观与审核 RAG”区域展示反馈概况，说明哪些 chunk 更常被运营认为有用或无用。
+- 为后续 rerank 偏好、Harness 失败复盘和长期记忆沉淀做数据基础。
+
+已完成：
+
+- 新增 `rag_feedback_summary()`：
+  - 统计当前国家 active 的 `rag_citation_feedback` 短期记忆。
+  - 输出总反馈数、有用数、无用数。
+  - 按 chunk 聚合 `useful_count / not_useful_count / net_score`。
+  - 保留最近的人工备注摘要。
+- `value_audit_rag_summary()` 接入 feedback summary：
+  - Runtime 页读取同一份 RAG 摘要时可同时获得反馈聚合信号。
+- Runtime 页面新增“RAG 人工反馈”卡片：
+  - 无反馈时显示“暂无反馈”。
+  - 有反馈时展示 useful / not_useful 总数与 top chunk 净分。
+
+验证：
+
+- 新增 TDD 覆盖：
+  - 多条 RAG feedback 会按 chunk 聚合。
+  - Runtime 页面能展示 RAG 人工反馈摘要。
+- `PYTHONPATH=. pytest tests -q`：237 passed，用时 24.51s。
+- 浏览器验证：日本 Runtime 页正常加载，`RAG 人工反馈` 卡片存在；页面 `scrollWidth == clientWidth == 1280`，无横向溢出。
+
+当前限制：
+
+- 聚合结果目前只展示，不直接改变 rerank 分数；下一步可以把 `net_score` 接入本地 rerank provider，作为人工反馈权重。
+
 ## v0.3.62 - RAG 依据有用性反馈进入短期记忆
 
 日期：2026-06-24

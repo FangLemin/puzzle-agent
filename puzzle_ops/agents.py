@@ -482,7 +482,52 @@ class PuzzleOpsAgent:
             "provider_remote_ready": self.rag_provider_config.remote_ready,
             "provider_remote_calls_enabled": self.rag_provider_config.remote_calls_enabled,
             "provider_status": self.rag_provider_config.status_text,
+            "feedback_summary": self.rag_feedback_summary(country),
             **self._last_rag_stats.as_dict(),
+        }
+
+    def rag_feedback_summary(self, country: str) -> dict[str, object]:
+        by_chunk: dict[str, dict[str, object]] = {}
+        total = useful_total = not_useful_total = 0
+        for memory in self.repository.layered_memories(country, layer="working", include_inactive=True):
+            if memory.get("memory_type") != "rag_citation_feedback" or memory.get("status") != "active":
+                continue
+            payload = memory.get("payload", {})
+            if not isinstance(payload, dict):
+                continue
+            chunk_id = str(payload.get("chunk_id", "")).strip()
+            usefulness = str(payload.get("usefulness", "")).strip()
+            if not chunk_id or usefulness not in {"useful", "not_useful"}:
+                continue
+            bucket = by_chunk.setdefault(
+                chunk_id,
+                {"chunk_id": chunk_id, "useful_count": 0, "not_useful_count": 0, "net_score": 0, "notes": []},
+            )
+            total += 1
+            if usefulness == "useful":
+                useful_total += 1
+                bucket["useful_count"] = int(bucket["useful_count"]) + 1
+            else:
+                not_useful_total += 1
+                bucket["not_useful_count"] = int(bucket["not_useful_count"]) + 1
+            note = str(payload.get("note", "")).strip()
+            if note:
+                notes = bucket["notes"] if isinstance(bucket["notes"], list) else []
+                notes.append(note)
+                bucket["notes"] = notes[-3:]
+            bucket["net_score"] = int(bucket["useful_count"]) - int(bucket["not_useful_count"])
+        top_chunks = tuple(
+            sorted(
+                by_chunk.values(),
+                key=lambda item: (int(item["net_score"]), int(item["useful_count"]), str(item["chunk_id"])),
+                reverse=True,
+            )
+        )
+        return {
+            "total_feedback": total,
+            "useful_count": useful_total,
+            "not_useful_count": not_useful_total,
+            "top_chunks": top_chunks,
         }
 
     def value_match_rag_citation_details(self, row: DemandRow) -> tuple[dict[str, str], ...]:

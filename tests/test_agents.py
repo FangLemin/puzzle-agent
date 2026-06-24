@@ -294,6 +294,24 @@ def test_agent_records_rag_citation_feedback_as_working_memory():
     assert feedback["payload"]["note"] == "这条依据能解释寿司价值观"
 
 
+def test_agent_aggregates_rag_citation_feedback_for_rerank_tuning(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "rag_feedback.db"))
+    agent.record_rag_citation_feedback("日本", chunk_id="JP_VALUE_001#chunk-1", usefulness="useful", note="解释寿司价值观")
+    agent.record_rag_citation_feedback("日本", chunk_id="JP_VALUE_001#chunk-1", usefulness="useful", note="能支撑本土饮食文化")
+    agent.record_rag_citation_feedback("日本", chunk_id="AUDIT_001#chunk-1", usefulness="not_useful", note="和本图风险无关")
+
+    summary = agent.rag_feedback_summary("日本")
+
+    assert summary["total_feedback"] == 3
+    assert summary["useful_count"] == 2
+    assert summary["not_useful_count"] == 1
+    assert summary["top_chunks"][0]["chunk_id"] == "JP_VALUE_001#chunk-1"
+    assert summary["top_chunks"][0]["useful_count"] == 2
+    assert summary["top_chunks"][0]["net_score"] == 2
+    assert summary["top_chunks"][1]["chunk_id"] == "AUDIT_001#chunk-1"
+    assert summary["top_chunks"][1]["net_score"] == -1
+
+
 def test_value_master_requires_real_llm_instead_of_rule_fallback():
     agent = PuzzleOpsAgent()
     agent.trial_uploads = TrialImageUploadService(

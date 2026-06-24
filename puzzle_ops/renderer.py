@@ -614,15 +614,37 @@ def render_rag_summary(summary: dict[str, object]) -> str:
         f"rerank fallback {summary.get('rerank_fallbacks', 0)}"
     )
     citation_rows = render_rag_citation_details(summary.get("citation_details", ()))
+    feedback = summary.get("feedback_summary", {})
+    feedback_card = render_rag_feedback_summary(feedback if isinstance(feedback, dict) else {})
     return f"""
 <div class="rag-grid">
   <article><strong>父子知识块</strong><span>{escape(str(summary.get("chunk_count", 0)))} 个 chunk</span><small>{escape(source_text)}</small></article>
   <article><strong>多路召回</strong><span>BM25 + Embedding + Rerank</span><small>Embedding：{escape(embedding)}；Rerank：{escape(rerank)}。{escape(provider_status)}</small></article>
   <article><strong>引用依据</strong><span>{escape(citation_text or "暂无引用")}</span><small>{escape(context[:140] or "暂无召回上下文")}；{escape(stats)}</small></article>
+  {feedback_card}
 </div>
 <h3>引用明细</h3>
 <div class="table-wrap"><table><thead><tr><th>引用ID</th><th>知识来源</th><th>父文档</th><th>标题</th><th>内容</th></tr></thead><tbody>{citation_rows}</tbody></table></div>
 """
+
+
+def render_rag_feedback_summary(summary: dict[str, object]) -> str:
+    top_chunks = summary.get("top_chunks", ())
+    if not isinstance(top_chunks, (list, tuple)) or not top_chunks:
+        return "<article><strong>RAG 人工反馈</strong><span>暂无反馈</span><small>运营在试新页标记依据有用/无用后，会在这里汇总。</small></article>"
+    lines = []
+    for item in top_chunks[:3]:
+        if not isinstance(item, dict):
+            continue
+        lines.append(
+            f"{item.get('chunk_id', '')}: useful={item.get('useful_count', 0)}, "
+            f"not_useful={item.get('not_useful_count', 0)}, net={item.get('net_score', 0)}"
+        )
+    return (
+        "<article><strong>RAG 人工反馈</strong>"
+        f"<span>useful={escape(str(summary.get('useful_count', 0)))} / not_useful={escape(str(summary.get('not_useful_count', 0)))}</span>"
+        f"<small>{escape('；'.join(lines))}</small></article>"
+    )
 
 
 def render_rag_citation_details(details: object) -> str:

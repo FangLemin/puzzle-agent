@@ -139,6 +139,20 @@ def test_trial_page_shows_real_generation_provider_status(tmp_path):
     assert "真实生成 provider 已配置：wanx2.1-t2i-plus" in html
 
 
+def test_runtime_page_shows_rag_feedback_summary(tmp_path):
+    agent = agent_without_vlm(tmp_path)
+    agent.record_rag_citation_feedback("日本", chunk_id="JP_VALUE_001#chunk-1", usefulness="useful", note="解释寿司价值观")
+    agent.record_rag_citation_feedback("日本", chunk_id="AUDIT_001#chunk-1", usefulness="not_useful", note="和本图风险无关")
+
+    html = render_page(agent, AppState(country="日本", view="runtime"))
+
+    assert "RAG 人工反馈" in html
+    assert "JP_VALUE_001#chunk-1" in html
+    assert "AUDIT_001#chunk-1" in html
+    assert "useful=1" in html
+    assert "not_useful=1" in html
+
+
 def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):
     image_path = tmp_path / "real-sushi.png"
     image_path.write_bytes(b"fake-png")
