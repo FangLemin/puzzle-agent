@@ -728,6 +728,8 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
     <article><span>真实样本</span><strong>{escape(str(gold_coverage.get("真实样本数", 0)))}</strong></article>
     <article><span>完整 gold</span><strong>{escape(str(gold_coverage.get("完整 gold 样本数", 0)))}</strong></article>
     <article><span>缺失字段</span><strong>{escape(str(gold_coverage.get("缺失字段摘要", "无")))}</strong></article>
+    <article><span>业务指标完成率</span><strong>{escape(str(gold_coverage.get("业务指标完成率", "0%")))}</strong></article>
+    <article><span>缺失业务指标</span><strong>{escape(str(gold_coverage.get("缺失业务指标摘要", "无")))}</strong></article>
   </div>
   <form class="harness-run-form" method="post" action="/auto_prelabeled_harness_gold">{context}<button>AI 自动预标注</button><small>调用真实视觉 LLM，为已有人工作等级的真实样本补主体、色彩、构图、价值观候选和风险候选；结果标记为 ai_silver，待人工抽查。</small></form>
   <form class="harness-run-form bulk-sample-form" method="post" action="/register_harness_real_samples">{context}<textarea name="samples_text" placeholder="A /Users/you/Desktop/france picnic.png&#10;/Users/you/Desktop/lavender.png,S,landscape,4,0.36,0.91,42,试新_法国_薰衣草风车0624,薰衣草风车"></textarea><button>批量登记真实样本</button><label><input type="checkbox" name="auto_prelabeled" value="1">登记后立即 AI 预标注</label><small>每行一张图；支持“等级 图片绝对路径”或“图片绝对路径,等级,分类,位置,开图率,完成率,平均完成时长,运营tag,主体”。图片只保存本机路径，不提交进 Git。</small></form>
@@ -1206,7 +1208,7 @@ nav { display:grid; gap:8px; margin:18px 0; }
 .harness-sample-cell .mini-thumb, .harness-sample-cell .visual-thumb { grid-row:1 / 4; width:92px; min-height:64px; }
 .harness-sample-cell strong, .harness-sample-cell span, .harness-sample-cell small { overflow-wrap:anywhere; }
 .status-pill { display:inline-flex; align-items:center; min-height:34px; padding:6px 10px; border:1px solid var(--brand); border-radius:999px; background:#e7f4ee; color:#17644e; font-weight:900; }
-.gold-coverage { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:8px 0 12px; }
+.gold-coverage { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; margin:8px 0 12px; }
 .gold-coverage article { display:grid; gap:4px; padding:10px; border:1px solid var(--line); border-radius:8px; background:#f6faf8; }
 .gold-coverage span { color:var(--muted); font-size:13px; font-weight:800; }
 .gold-coverage strong { overflow-wrap:anywhere; }

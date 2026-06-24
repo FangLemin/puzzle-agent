@@ -1095,7 +1095,10 @@ class PuzzleOpsAgent:
             "gold_value_labels",
         )
         missing_counts = {field: 0 for field in required_fields}
+        metric_fields = ("position", "open_rate", "completion_rate", "avg_finish_time")
+        metric_missing_counts = {field: 0 for field in metric_fields}
         complete = 0
+        metric_complete = 0
         for sample in samples:
             missing = _missing_gold_fields(sample)
             for field in missing:
@@ -1103,12 +1106,21 @@ class PuzzleOpsAgent:
                     missing_counts[field] += 1
             if not missing:
                 complete += 1
+            metric_missing = _missing_business_metric_fields(sample)
+            for field in metric_missing:
+                metric_missing_counts[field] += 1
+            if not metric_missing:
+                metric_complete += 1
         missing_summary = "；".join(f"{field}:{count}" for field, count in missing_counts.items() if count) or "无"
+        metric_missing_summary = "；".join(f"{field}:{count}" for field, count in metric_missing_counts.items() if count) or "无"
         return {
             "真实样本数": len(samples),
             "完整 gold 样本数": complete,
             "gold 完成率": _pct(complete / len(samples)) if samples else "0%",
             "缺失字段摘要": missing_summary,
+            "完整业务指标样本数": metric_complete,
+            "业务指标完成率": _pct(metric_complete / len(samples)) if samples else "0%",
+            "缺失业务指标摘要": metric_missing_summary,
             "数据集文件": str(self._active_harness_dataset_path(country)),
         }
 
@@ -1482,6 +1494,17 @@ def _missing_gold_fields(sample) -> tuple[str, ...]:
         missing.append("gold_composition")
     if not sample.gold_value_labels:
         missing.append("gold_value_labels")
+    return tuple(missing)
+
+
+def _missing_business_metric_fields(sample) -> tuple[str, ...]:
+    missing: list[str] = []
+    if not sample.position:
+        missing.append("position")
+    metrics = sample.metrics or {}
+    for field in ("open_rate", "completion_rate", "avg_finish_time"):
+        if not metrics.get(field):
+            missing.append(field)
     return tuple(missing)
 
 

@@ -654,6 +654,27 @@ def test_agent_registers_real_samples_from_text_with_business_metrics(tmp_path):
     assert sample.subject == "海滩野餐"
 
 
+def test_agent_harness_gold_coverage_reports_business_metric_coverage(tmp_path):
+    picnic = tmp_path / "france-picnic.png"
+    lace = tmp_path / "france-lace.png"
+    Image.new("RGB", (80, 60), (220, 180, 120)).save(picnic)
+    Image.new("RGB", (80, 60), (240, 230, 210)).save(lace)
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent._runtime_dir = tmp_path
+
+    agent.register_harness_real_samples_from_text(
+        "法国",
+        f"{picnic},A,lifestyle,7,0.42,0.91,38,试新_法国_海滩野餐0624,海滩野餐\nC {lace}",
+    )
+
+    coverage = agent.harness_gold_coverage("法国")
+    assert coverage["完整业务指标样本数"] == 1
+    assert coverage["业务指标完成率"] == "50%"
+    assert "open_rate:1" in coverage["缺失业务指标摘要"]
+    assert "completion_rate:1" in coverage["缺失业务指标摘要"]
+    assert "avg_finish_time:1" in coverage["缺失业务指标摘要"]
+
+
 def test_agent_ai_prelabeled_real_samples_as_silver_labels(tmp_path):
     image_path = tmp_path / "france-picnic.png"
     Image.new("RGB", (80, 60), (220, 180, 120)).save(image_path)

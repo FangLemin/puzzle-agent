@@ -173,6 +173,7 @@ def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):
 
     assert "Gold Dataset 工作台" in html
     assert "gold 完成率" in html
+    assert "业务指标完成率" in html
     assert "0%" in html
     assert 'action="/save_harness_gold_label"' in html
     assert 'name="gold_subject"' in html
