@@ -5,6 +5,7 @@ import base64
 import json
 import os
 from pathlib import Path
+import ssl
 from typing import Callable
 from urllib import request
 
@@ -222,7 +223,7 @@ def _openai_transport(payload: dict[str, object], api_key: str) -> dict[str, obj
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
         method="POST",
     )
-    with request.urlopen(req, timeout=30) as response:
+    with request.urlopen(req, timeout=30, context=_https_context()) as response:
         raw = json.loads(response.read().decode("utf-8"))
     output_text = raw.get("output_text")
     if output_text is None:
@@ -238,8 +239,17 @@ def _qwen_transport(payload: dict[str, object], api_key: str, base_url: str) -> 
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
         method="POST",
     )
-    with request.urlopen(req, timeout=_qwen_timeout_seconds()) as response:
+    with request.urlopen(req, timeout=_qwen_timeout_seconds(), context=_https_context()) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def _https_context() -> ssl.SSLContext:
+    try:
+        import certifi
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return ssl.create_default_context()
 
 
 def _qwen_timeout_seconds() -> float:

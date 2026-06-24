@@ -18,7 +18,7 @@ from puzzle_ops.multimodal import ImageFeatureExtractor, SimilarImageRetriever, 
 from puzzle_ops.rag import FeedbackAwareRerankProvider, HybridRagRetriever, RagChunk, RagDocument, RagPrompt, RagProviderConfig, RagRuntimeStats, build_rag_prompt, chunk_document, providers_from_config
 from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.trulens_eval import TruLensRAGEvaluator
-from puzzle_ops.trial_upload import TrialImageUploadService
+from puzzle_ops.trial_upload import TrialImageUploadService, _compact_tag_subject
 from puzzle_ops.eval_suite import AgentEvalSuite
 from puzzle_ops.harness import AgentHarness, EVAL_SAMPLE_CSV_FIELDS, load_eval_samples_csv
 from puzzle_ops.image_generation import DerivativeImage, ImageGenerationProviderFactory
@@ -1125,6 +1125,7 @@ class PuzzleOpsAgent:
         dataset = self.ensure_harness_gold_dataset(country)
         rows = self._read_harness_gold_rows(dataset)
         by_id = {row.get("sample_id", ""): row for row in rows}
+        by_path = {str(Path(row.get("local_image_path", "")).expanduser()): row for row in rows if row.get("local_image_path")}
         for index, record in enumerate(records, 1):
             image_path = str(record.get("local_image_path", "")).strip()
             if not image_path:
@@ -1133,10 +1134,12 @@ class PuzzleOpsAgent:
             if not path.exists():
                 raise ValueError(f"图片路径不存在：{path}")
             sample_id = str(record.get("sample_id", "")).strip() or f"{country}-real-{index:03d}"
-            row = by_id.get(sample_id, {field: "" for field in EVAL_SAMPLE_CSV_FIELDS})
+            existing_by_path = by_path.get(str(path))
+            row = by_id.get(sample_id) or existing_by_path or {field: "" for field in EVAL_SAMPLE_CSV_FIELDS}
+            effective_sample_id = row.get("sample_id", "") if existing_by_path and sample_id not in by_id else sample_id
             row.update(
                 {
-                    "sample_id": sample_id,
+                    "sample_id": effective_sample_id,
                     "country": country,
                     "local_image_path": str(path),
                     "operation_tag": str(record.get("operation_tag", "") or f"试新_{country}_真实样本{self.today.strftime('%m%d')}"),
@@ -1153,9 +1156,10 @@ class PuzzleOpsAgent:
                     "human_note": str(record.get("human_note", "") or "人工已提供真实图片与等级；待 AI 预标注主体/色彩/构图。"),
                 }
             )
-            if sample_id not in by_id:
+            if effective_sample_id not in by_id:
                 rows.append(row)
-                by_id[sample_id] = row
+                by_id[effective_sample_id] = row
+            by_path[str(path)] = row
         self._write_harness_gold_rows(dataset, rows)
         return dataset
 
@@ -1196,10 +1200,11 @@ class PuzzleOpsAgent:
                 row.get("js_category", "") or "real_sample",
                 visual,
             )
+            compact_subject = _compact_tag_subject(semantic.subject or row.get("subject", ""))
             row.update(
                 {
-                    "subject": semantic.subject or row.get("subject", ""),
-                    "gold_subject": semantic.subject,
+                    "subject": compact_subject,
+                    "gold_subject": compact_subject,
                     "gold_color_mood": semantic.style or visual.palette_summary,
                     "gold_composition": semantic.scene or visual.composition_summary,
                     "gold_value_labels": _silver_value_labels(country, semantic),

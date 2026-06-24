@@ -123,6 +123,13 @@ def _compact_tag_subject(subject: str) -> str:
         "3D渲染动物拟人化",
         "传统浴袍美女",
         "日式火车店铺少女",
+        "薰衣草风车",
+        "鲜花手推车",
+        "海滩野餐",
+        "蕾丝桌旗",
+        "宫廷礼服",
+        "古典喷泉",
+        "法式花园",
         "火车店铺少女",
         "游客塔楼",
         "多层塔楼",
@@ -140,6 +147,15 @@ def _compact_tag_subject(subject: str) -> str:
     hits = [word for word in priority if word in cleaned]
     if "游客" in hits and "塔楼" in hits:
         return "游客塔楼"
+    flower_terms = ("鲜花", "花", "玫瑰", "百合", "雏菊")
+    if any(term in cleaned for term in flower_terms) and "手推车" in cleaned:
+        return "鲜花手推车"
+    if "薰衣草" in cleaned and "风车" in cleaned:
+        return "薰衣草风车"
+    if "海滩" in cleaned and "野餐" in cleaned:
+        return "海滩野餐"
+    if "蕾丝" in cleaned and ("桌旗" in cleaned or "桌布" in cleaned):
+        return "蕾丝桌旗"
     for word in hits:
         if len(word) <= 8:
             return word

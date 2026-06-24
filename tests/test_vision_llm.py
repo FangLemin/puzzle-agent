@@ -247,7 +247,7 @@ def test_value_match_formats_structured_conclusion_evidence_citations_and_review
     assert "人工复核：确认食材呈现与来源授权" in result
 
 
-def test_qwen_transport_uses_configurable_long_timeout(monkeypatch):
+def test_qwen_transport_uses_configurable_long_timeout_and_ssl_context(monkeypatch):
     captured = {}
 
     class FakeResponse:
@@ -260,8 +260,9 @@ def test_qwen_transport_uses_configurable_long_timeout(monkeypatch):
         def read(self):
             return b'{"choices": []}'
 
-    def fake_urlopen(req, timeout):
+    def fake_urlopen(req, timeout, context=None):
         captured["timeout"] = timeout
+        captured["context"] = context
         return FakeResponse()
 
     monkeypatch.setenv("QWEN_TIMEOUT_SECONDS", "75")
@@ -271,6 +272,7 @@ def test_qwen_transport_uses_configurable_long_timeout(monkeypatch):
 
     assert result == {"choices": []}
     assert captured["timeout"] == 75.0
+    assert captured["context"] is not None
 
 
 def test_value_match_keeps_scalar_visual_evidence_and_citation_fields():

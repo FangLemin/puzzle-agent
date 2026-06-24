@@ -2,6 +2,49 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.65 - 真实样本接入与视觉调用证书修复
+
+日期：2026-06-24
+
+阶段目标：
+
+- 接收用户提供的 5 张法国真实拼图候选图及人工等级，进入 Harness 真实样本工作流。
+- 修复本机 Python 调用 Qwen/OpenAI 视觉接口时可能出现的 SSL 证书校验失败。
+- 让 Harness AI silver label 的主体字段也遵守运营短名习惯，避免长句主体进入 Gold Dataset 工作台。
+
+已完成：
+
+- 已将 5 条法国真实样本登记到本机 Harness gold dataset：
+  - `fr-real-20260623-01`：海滩野餐，A。
+  - `fr-real-20260623-02`：鲜花手推车，A。
+  - `fr-real-20260623-03`：宫廷礼服，B。
+  - `fr-real-20260623-04`：薰衣草风车，S。
+  - `fr-real-20260623-05`：蕾丝桌旗，C。
+- 已调用真实 Qwen 视觉链路为这 5 条样本补充 `ai_silver / pending_review` 的主体、色彩氛围和构图环境，等待人工抽查确认。
+- 真实样本登记新增图片路径去重：
+  - 同一 `local_image_path` 重复登记时更新原样本，不再新增重复记录。
+  - 本机 CSV 已清理重复行，避免 Harness 指标被同一张图重复计算。
+- `vision_llm.py` 的 OpenAI/Qwen urllib 调用新增 HTTPS context：
+  - 优先使用 `certifi` 证书包。
+  - 不存在 `certifi` 时回退系统默认 SSL context。
+- Harness 预标注接入主体短名规则：
+  - 模型输出长句时，写入 `subject/gold_subject` 前先压缩为运营可读短名。
+  - 新增法国常见短名：薰衣草风车、鲜花手推车、海滩野餐、蕾丝桌旗、宫廷礼服、古典喷泉、法式花园。
+
+验证：
+
+- 新增 TDD 覆盖：
+  - Qwen 视觉传输会带可用 SSL context，并保持长超时配置。
+  - 同一真实图片路径重复登记时不会产生重复样本。
+  - Harness AI silver label 会把长视觉主体压缩为不超过 8 字的运营短名。
+- 针对性测试：`PYTHONPATH=. pytest tests/test_agents.py::test_agent_ai_silver_label_compacts_long_visual_subject tests/test_agents.py::test_agent_ai_prelabeled_real_samples_as_silver_labels tests/test_vision_llm.py::test_qwen_transport_uses_configurable_long_timeout_and_ssl_context -q`：3 passed。
+
+当前限制：
+
+- 这 5 张真实图目前只存在本机 Harness CSV，图片仍引用用户桌面路径，没有提交进 Git。
+- AI 预标注仍是 silver label；需要运营在 Eval 页抽查后确认，才能进入 `human_gold` facts memory。
+- 本机 CSV 已按图片路径去重；后续新增样本会自动避免同一路径重复登记。
+
 ## v0.3.64 - RAG 人工反馈接入本地 Rerank
 
 日期：2026-06-24

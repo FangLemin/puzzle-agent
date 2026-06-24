@@ -590,6 +590,27 @@ def test_agent_registers_real_samples_with_manual_grade_only(tmp_path):
     assert sample.label_status == "needs_ai_prelabeled"
 
 
+def test_agent_registers_real_samples_dedupes_by_image_path(tmp_path):
+    image_path = tmp_path / "france-picnic.png"
+    Image.new("RGB", (80, 60), (220, 180, 120)).save(image_path)
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent._runtime_dir = tmp_path
+
+    agent.register_harness_real_samples(
+        "法国",
+        [{"sample_id": "fr-real-existing", "local_image_path": str(image_path), "gold_grade": "A"}],
+    )
+    agent.register_harness_real_samples(
+        "法国",
+        [{"sample_id": "fr-real-new", "local_image_path": str(image_path), "gold_grade": "S"}],
+    )
+
+    samples = agent.harness_samples("法国")
+    assert len(samples) == 1
+    assert samples[0].sample_id == "fr-real-existing"
+    assert samples[0].gold_grade == "S"
+
+
 def test_agent_ai_prelabeled_real_samples_as_silver_labels(tmp_path):
     image_path = tmp_path / "france-picnic.png"
     Image.new("RGB", (80, 60), (220, 180, 120)).save(image_path)
@@ -633,6 +654,43 @@ def test_agent_ai_prelabeled_real_samples_as_silver_labels(tmp_path):
     assert any(row["layer"] == "perception" and "法式海滩野餐" in row["summary"] for row in rows)
 
 
+def test_agent_ai_silver_label_compacts_long_visual_subject(tmp_path):
+    image_path = tmp_path / "flower-cart.png"
+    Image.new("RGB", (80, 60), (230, 200, 120)).save(image_path)
+
+    class FakeVisionClient:
+        provider = "qwen"
+
+        def analyze(self, images, country, category, local_summary):
+            return VisionLLMResult(
+                subject="一位穿着浅蓝色复古连衣裙的年轻金发女性正在推着一辆装满红玫瑰粉色百合和白色雏菊的木制独轮手推车",
+                scene="阳光明媚的法式花园小径，鲜花手推车位于前景",
+                culture_elements=("法式花园", "田园生活"),
+                style="温暖明亮的油画风格",
+                risk_tags=(),
+                prompt_keywords=("花园", "手推车", "鲜花"),
+                confidence=0.9,
+                provider="qwen",
+                raw_text="fake long subject",
+            )
+
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent._runtime_dir = tmp_path
+    agent.trial_uploads = TrialImageUploadService(tmp_path / "uploads", vision_client=FakeVisionClient())
+    agent.register_harness_real_samples(
+        "法国",
+        [{"sample_id": "fr-real-002", "local_image_path": str(image_path), "gold_grade": "A", "js_category": "character"}],
+    )
+
+    agent.auto_prelabeled_harness_samples("法国")
+
+    sample = agent.harness_samples("法国")[0]
+    assert len(sample.gold_subject) <= 8
+    assert sample.gold_subject == "鲜花手推车"
+    assert sample.subject == sample.gold_subject
+    assert "法式花园小径" in sample.gold_composition
+
+
 def test_agent_promotes_ai_silver_labels_to_human_gold_facts(tmp_path):
     image_path = tmp_path / "france-picnic.png"
     Image.new("RGB", (80, 60), (220, 180, 120)).save(image_path)
@@ -670,14 +728,16 @@ def test_agent_promotes_ai_silver_labels_to_human_gold_facts(tmp_path):
 
 def test_agent_approves_only_selected_ai_silver_samples(tmp_path):
     image_path = tmp_path / "france-picnic.png"
+    second_image_path = tmp_path / "france-lavender.png"
     Image.new("RGB", (80, 60), (220, 180, 120)).save(image_path)
+    Image.new("RGB", (80, 60), (120, 90, 200)).save(second_image_path)
     agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
     agent._runtime_dir = tmp_path
     dataset = agent.register_harness_real_samples(
         "法国",
         [
             {"sample_id": "fr-real-001", "local_image_path": str(image_path), "gold_grade": "A", "js_category": "lifestyle"},
-            {"sample_id": "fr-real-002", "local_image_path": str(image_path), "gold_grade": "S", "js_category": "landscape"},
+            {"sample_id": "fr-real-002", "local_image_path": str(second_image_path), "gold_grade": "S", "js_category": "landscape"},
         ],
     )
     rows = agent._read_harness_gold_rows(dataset)
