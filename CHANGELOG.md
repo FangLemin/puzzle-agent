@@ -2,6 +2,40 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.71 - Human Gold 样本进入 RAG
+
+日期：2026-06-25
+
+阶段目标：
+
+- 把 Eval 页确认过的 `human_gold / reviewed` 真实样本直接沉淀为 RAG 文档。
+- 让价值观判断、审核解释和内容发散能检索到真实业务样本，而不是只依赖静态价值观、历史样本或某次保存动作写入的 facts memory。
+
+已完成：
+
+- 新增 `_harness_gold_rag_documents()`：
+  - 扫描当前国家 Harness Gold Dataset。
+  - 只收录 `source=real`、`label_source=human_gold`、`label_status=reviewed` 的样本。
+  - 不把 `ai_silver / pending_review` 当作可信事实。
+- Human Gold RAG 文档包含：
+  - 主体、运营 tag、JS 分类、等级。
+  - 位置、开图率、完成率、平均完成时长。
+  - 色彩氛围、构图环境、价值观标签、风险标签、人工备注。
+- 文档 source_type 为 `harness_gold_sample`，document_id 形如 `FR_HARNESS_GOLD_fr-real-001`，chunk citation 可追溯到具体样本。
+- `_rag_documents()` 自动纳入 human gold 样本文档，与四层 memory、静态价值观、历史样本和审核规则共同参与召回。
+
+验证：
+
+- 新增 TDD 覆盖：
+  - `human_gold / reviewed` CSV 样本会生成 `harness_gold_sample` RAG 文档。
+  - 文档文本包含等级、开图率、完成率、价值观标签等业务证据。
+  - RAG answer 能引用 `FR_HARNESS_GOLD_fr-real-001#chunk-1`。
+- `PYTHONPATH=. pytest tests -q`：250 passed，用时 15.61s。
+
+当前限制：
+
+- 只有人工确认后的 `human_gold` 样本进入 RAG；当前法国 5 条样本仍是 `ai_silver / pending_review`，需要你抽查确认后才会成为 RAG 可信事实。
+
 ## v0.3.70 - Gold Dataset 行内编辑业务指标
 
 日期：2026-06-24

@@ -566,6 +566,55 @@ def test_agent_updates_harness_business_metrics_from_gold_form(monkeypatch, tmp_
     assert sample.metrics["avg_finish_time"] == 38
 
 
+def test_agent_rag_documents_include_human_gold_harness_samples(monkeypatch, tmp_path):
+    image_path = tmp_path / "france-picnic.png"
+    image_path.write_bytes(b"fake-png")
+    dataset = tmp_path / "gold_samples.csv"
+    dataset.write_text(
+        "\n".join(
+            (
+                "sample_id,country,local_image_path,operation_tag,subject,js_category,source,position,open_rate,completion_rate,avg_finish_time,gold_grade,gold_subject,gold_color_mood,gold_composition,gold_value_labels,gold_risk_labels,human_note,label_source,label_status",
+                "fr-real-001,法国,france-picnic.png,试新_法国_海滩野餐0624,海滩野餐,lifestyle,real,7,0.42,0.91,38,A,海滩野餐,暖色,海滩场景,生活艺术,,人工确认,human_gold,reviewed",
+            )
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_HARNESS_DATASET", str(dataset))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+
+    documents = agent._rag_documents("法国")
+    gold_docs = [document for document in documents if document.source_type == "harness_gold_sample"]
+
+    assert gold_docs
+    assert gold_docs[0].document_id == "FR_HARNESS_GOLD_fr-real-001"
+    assert "主体=海滩野餐" in gold_docs[0].text
+    assert "等级=A" in gold_docs[0].text
+    assert "开图率=0.42" in gold_docs[0].text
+    assert "完成率=0.91" in gold_docs[0].text
+    assert "价值观标签=生活艺术" in gold_docs[0].text
+
+
+def test_agent_rag_answer_can_cite_human_gold_harness_sample(monkeypatch, tmp_path):
+    image_path = tmp_path / "france-picnic.png"
+    image_path.write_bytes(b"fake-png")
+    dataset = tmp_path / "gold_samples.csv"
+    dataset.write_text(
+        "\n".join(
+            (
+                "sample_id,country,local_image_path,operation_tag,subject,js_category,source,position,open_rate,completion_rate,avg_finish_time,gold_grade,gold_subject,gold_color_mood,gold_composition,gold_value_labels,gold_risk_labels,human_note,label_source,label_status",
+                "fr-real-001,法国,france-picnic.png,试新_法国_海滩野餐0624,海滩野餐,lifestyle,real,7,0.42,0.91,38,A,海滩野餐,暖色,海滩场景,生活艺术,,人工确认,human_gold,reviewed",
+            )
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_HARNESS_DATASET", str(dataset))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+
+    answer = agent.value_audit_rag_answer("法国", "海滩野餐 生活艺术 开图率 0.42", top_k=3)
+
+    assert "FR_HARNESS_GOLD_fr-real-001#chunk-1" in answer.citations
+
+
 def test_agent_creates_gold_dataset_skeleton_from_default_real_samples(tmp_path):
     agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
     agent._runtime_dir = tmp_path

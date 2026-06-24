@@ -696,6 +696,7 @@ class PuzzleOpsAgent:
                 )
             )
         documents.extend(self._layered_memory_rag_documents(country))
+        documents.extend(self._harness_gold_rag_documents(country))
         for record in self._history_records(country):
             documents.append(
                 RagDocument(
@@ -720,6 +721,28 @@ class PuzzleOpsAgent:
                     title=f"审核规则 {hit.risk_level}风险",
                     text=hit.text,
                     metadata={"source": "audit_manual", "risk_level": hit.risk_level},
+                )
+            )
+        return tuple(documents)
+
+    def _harness_gold_rag_documents(self, country: str) -> tuple[RagDocument, ...]:
+        documents: list[RagDocument] = []
+        for sample in self.harness_samples(country):
+            if not sample.is_real or sample.label_source != "human_gold" or sample.label_status != "reviewed":
+                continue
+            documents.append(
+                RagDocument(
+                    document_id=f"{_country_code(country)}_HARNESS_GOLD_{sample.sample_id}",
+                    country=country,
+                    source_type="harness_gold_sample",
+                    title=f"Harness Gold 样本 {sample.operation_tag}",
+                    text=_harness_gold_sample_rag_text(sample),
+                    metadata={
+                        "source": "harness_gold_dataset",
+                        "sample_id": sample.sample_id,
+                        "local_image_path": sample.local_image_path,
+                        "human_verified": True,
+                    },
                 )
             )
         return tuple(documents)
@@ -1518,6 +1541,26 @@ def _missing_business_metric_fields(sample) -> tuple[str, ...]:
         if not metrics.get(field):
             missing.append(field)
     return tuple(missing)
+
+
+def _harness_gold_sample_rag_text(sample) -> str:
+    metrics = sample.metrics or {}
+    parts = (
+        f"主体={sample.gold_subject or sample.subject}",
+        f"运营tag={sample.operation_tag}",
+        f"JS分类={sample.js_category}",
+        f"等级={sample.gold_grade}",
+        f"位置={sample.position}",
+        f"开图率={metrics.get('open_rate', 0.0):g}",
+        f"完成率={metrics.get('completion_rate', 0.0):g}",
+        f"平均完成时长={metrics.get('avg_finish_time', 0.0):g}",
+        f"色彩氛围={sample.gold_color_mood}",
+        f"构图环境={sample.gold_composition}",
+        f"价值观标签={';'.join(sample.gold_value_labels)}",
+        f"风险标签={';'.join(sample.gold_risk_labels) or '无'}",
+        f"人工备注={sample.human_note}",
+    )
+    return "；".join(part for part in parts if not part.endswith("="))
 
 
 def _normalize_label_text(value: str) -> str:
