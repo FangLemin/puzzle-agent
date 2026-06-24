@@ -2,6 +2,39 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.73 - DashScope 生成响应解析兼容增强
+
+日期：2026-06-25
+
+阶段目标：
+
+- 继续推进“真实好图衍生生成”主线，减少通义万相真实调用后因为响应结构差异导致的落图失败。
+- 在不触发扣费调用的前提下，用本地 TDD 固化 DashScope SDK 返回结果的解析契约。
+
+已完成：
+
+- 新增 `_dashscope_images_from_response()`：
+  - 兼容 `output.results[*].url`。
+  - 兼容 `output.images[*].url/image/image_url`。
+  - 保留原有 `choices[*].message.content[*].image` 解析。
+  - 如果响应包含 `task_id`，生成图记录会保留 task_id，方便后续定位生成任务。
+- `_dashscope_sdk_generate()` 改为复用统一解析 helper。
+- 新增轻量 `_object_get()`，兼容 dict、DashScope `DictMixin` 对象和普通对象属性。
+
+验证：
+
+- 新增 TDD 覆盖：
+  - DashScope 响应为 `output.results` URL 结构时能正确解析 2 张图。
+  - 既有 DashScope Provider fake SDK 出图测试继续通过。
+  - 生成失败仍返回清晰错误。
+- 关联测试：`PYTHONPATH=. pytest tests/test_harness.py tests/test_server.py tests/test_renderer.py -q`：109 passed。
+- 全量回归：`PYTHONPATH=. pytest tests -q`：254 passed，用时 16.13s。
+
+当前限制：
+
+- 本版仍未主动发起真实通义万相生成请求；它先把返回结构兼容性做稳。
+- 下一步可以在页面上用一张参考图做一次真实生成 smoke test，验证账号额度、模型权限和实际图片下载链路。
+
 ## v0.3.72 - 通义万相 Provider 诊断增强
 
 日期：2026-06-25

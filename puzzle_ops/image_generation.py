@@ -353,16 +353,52 @@ def _dashscope_sdk_generate(
     response = ImageGeneration.call(model=model, api_key=api_key, messages=[message], n=count, seed=seed)
     if int(getattr(response, "status_code", 500)) != 200:
         raise RuntimeError(f"{getattr(response, 'code', 'unknown')}：{getattr(response, 'message', '调用失败')}")
-    output = getattr(response, "output", {}) or {}
-    choices = output.get("choices", []) if hasattr(output, "get") else []
+    return {"images": list(_dashscope_images_from_response(response, prompt))}
+
+
+def _dashscope_images_from_response(response: object, prompt: str) -> tuple[dict[str, object], ...]:
+    output = _object_get(response, "output", {}) or {}
+    task_id = str(_object_get(output, "task_id", "") or "")
     images: list[dict[str, object]] = []
-    for choice in choices or []:
-        message_value = choice.get("message", {}) if hasattr(choice, "get") else {}
-        content = message_value.get("content", []) if hasattr(message_value, "get") else []
-        for item in content or []:
-            if isinstance(item, dict) and item.get("image"):
-                images.append({"url": item["image"], "prompt": prompt})
-    return {"images": images}
+    for key in ("results", "images"):
+        for item in _object_get(output, key, ()) or ():
+            image = _image_url_from_dashscope_item(item)
+            if image:
+                record: dict[str, object] = {"url": image, "prompt": prompt}
+                if task_id:
+                    record["task_id"] = task_id
+                images.append(record)
+    for choice in _object_get(output, "choices", ()) or ():
+        message_value = _object_get(choice, "message", {}) or {}
+        content = _object_get(message_value, "content", ()) or ()
+        if isinstance(content, dict):
+            content = (content,)
+        for item in content:
+            image = _image_url_from_dashscope_item(item)
+            if image:
+                record = {"url": image, "prompt": prompt}
+                if task_id:
+                    record["task_id"] = task_id
+                images.append(record)
+    return tuple(images)
+
+
+def _image_url_from_dashscope_item(item: object) -> str:
+    if not isinstance(item, dict):
+        return ""
+    image = item.get("image") or item.get("url") or item.get("image_url")
+    return str(image) if image else ""
+
+
+def _object_get(value: object, key: str, default: object = None) -> object:
+    if isinstance(value, dict):
+        return value.get(key, default)
+    if hasattr(value, "get"):
+        try:
+            return value.get(key, default)  # type: ignore[attr-defined]
+        except TypeError:
+            pass
+    return getattr(value, key, default)
 
 
 def _cloud_transport(payload: dict[str, object], api_key: str, base_url: str) -> dict[str, object]:

@@ -4,7 +4,13 @@ import base64
 from puzzle_ops.agents import PuzzleOpsAgent
 from puzzle_ops.adapters import ArgillaExporter, DeepEvalAdapter, PhoenixExporter, PromptfooExporter
 from puzzle_ops.harness import EvalSample, AgentHarness, load_eval_samples_csv
-from puzzle_ops.image_generation import ImageGenerationProviderFactory, MockImageGenerationProvider, CloudImageGenerationProvider, DashScopeImageGenerationProvider
+from puzzle_ops.image_generation import (
+    ImageGenerationProviderFactory,
+    MockImageGenerationProvider,
+    CloudImageGenerationProvider,
+    DashScopeImageGenerationProvider,
+    _dashscope_images_from_response,
+)
 from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.vision_llm import VisionLLMResult
@@ -526,6 +532,25 @@ def test_dashscope_generation_provider_uses_reference_image_and_downloads_sdk_re
     assert images[0].provider == "dashscope"
     assert images[0].source_sample_id == "sample-1"
     assert Path(images[0].local_image_path).exists()
+
+
+def test_dashscope_response_parser_accepts_output_results_url_shape():
+    class FakeResponse:
+        status_code = 200
+        output = {
+            "task_id": "task-123",
+            "results": [
+                {"url": "https://example.test/generated-1.png"},
+                {"url": "https://example.test/generated-2.png"},
+            ],
+        }
+
+    images = _dashscope_images_from_response(FakeResponse(), prompt="法式海滩野餐")
+
+    assert images == (
+        {"url": "https://example.test/generated-1.png", "prompt": "法式海滩野餐", "task_id": "task-123"},
+        {"url": "https://example.test/generated-2.png", "prompt": "法式海滩野餐", "task_id": "task-123"},
+    )
 
 
 def test_dashscope_generation_provider_raises_clear_error_on_failed_task(tmp_path):
