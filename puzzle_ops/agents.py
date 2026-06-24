@@ -1518,10 +1518,18 @@ def _parse_delimited_harness_sample_line(line: str, line_number: int) -> dict[st
     if grade_index == 0:
         image_path = parts[1]
         js_category = parts[2] if len(parts) > 2 else ""
+        extra = parts[3:]
     else:
         image_path = parts[0]
         js_category = parts[2] if len(parts) > 2 and grade_index != 2 else ""
-    return {"local_image_path": image_path, "gold_grade": grade, "js_category": js_category}
+        extra = parts[3:]
+    record: dict[str, object] = {"local_image_path": image_path, "gold_grade": grade, "js_category": js_category}
+    for field, value in zip(
+        ("position", "open_rate", "completion_rate", "avg_finish_time", "operation_tag", "subject"),
+        extra,
+    ):
+        record[field] = value
+    return record
 
 
 def _is_grade(value: str) -> bool:

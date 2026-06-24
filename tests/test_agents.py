@@ -632,6 +632,28 @@ def test_agent_registers_real_samples_from_pasted_lines(tmp_path):
     assert all(sample.label_status == "needs_ai_prelabeled" for sample in samples)
 
 
+def test_agent_registers_real_samples_from_text_with_business_metrics(tmp_path):
+    image_path = tmp_path / "france-picnic.png"
+    Image.new("RGB", (80, 60), (220, 180, 120)).save(image_path)
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent._runtime_dir = tmp_path
+
+    agent.register_harness_real_samples_from_text(
+        "法国",
+        f"{image_path},A,lifestyle,7,0.42,0.91,38,试新_法国_海滩野餐0624,海滩野餐",
+    )
+
+    sample = agent.harness_samples("法国")[0]
+    assert sample.gold_grade == "A"
+    assert sample.js_category == "lifestyle"
+    assert sample.position == 7
+    assert sample.metrics["open_rate"] == 0.42
+    assert sample.metrics["completion_rate"] == 0.91
+    assert sample.metrics["avg_finish_time"] == 38
+    assert sample.operation_tag == "试新_法国_海滩野餐0624"
+    assert sample.subject == "海滩野餐"
+
+
 def test_agent_ai_prelabeled_real_samples_as_silver_labels(tmp_path):
     image_path = tmp_path / "france-picnic.png"
     Image.new("RGB", (80, 60), (220, 180, 120)).save(image_path)
