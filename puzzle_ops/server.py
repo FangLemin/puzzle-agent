@@ -201,7 +201,8 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         except Exception as exc:
             provider_status = agent.generation_provider_status()
             error_type = classify_generation_error(str(exc))
-            message = f"生成衍生参考图失败：{exc}；错误类型={error_type}"
+            recovery_hint = generation_error_recovery_hint(error_type)
+            message = f"生成衍生参考图失败：{exc}；错误类型={error_type}；处理建议：{recovery_hint}"
             state.generation_event = generation_event(
                 status="failed",
                 provider_status=provider_status,
@@ -464,6 +465,7 @@ def generation_event(
         "second_review_status": second_review_status,
         "feishu_attachment_status": feishu_attachment_status,
         "error_type": error_type,
+        "recovery_hint": generation_error_recovery_hint(error_type),
         "message": message,
     }
 
@@ -501,6 +503,19 @@ def classify_generation_error(message: str) -> str:
     if any(token in text for token in ("task_id", "results", "b64_json", "image_base64", "返回结构", "schema")):
         return "response_schema"
     return "unknown"
+
+
+def generation_error_recovery_hint(error_type: str) -> str:
+    return {
+        "billing_arrearage": "请到阿里云控制台处理账号欠费、余额或资源包状态，确认模型服务可用后再重试真实生成。",
+        "quota_exceeded": "请检查 DashScope/通义万相额度、资源包余量或调用频控，必要时降低生成张数后重试。",
+        "model_deprecated": "请把 IMAGE_GENERATION_MODEL 迁移到当前可用的通义万相模型，并完成一次 smoke test。",
+        "timeout": "请稍后重试；如果频繁超时，建议记录 task_id 并降低单次生成数量。",
+        "auth_error": "请检查 QWEN_API_KEY 或 IMAGE_GENERATION_API_KEY 是否有效，并确认账号有模型调用权限。",
+        "config_missing": "请补齐 IMAGE_GENERATION_PROVIDER、生成模型和 API key 配置后再重试。",
+        "response_schema": "请保留原始响应并更新 DashScope 响应解析适配层。",
+        "none": "生成任务已完成，等待二次 VLM 审核和人工确认。",
+    }.get(error_type, "请查看生成任务原始错误，必要时保留 task_id 与 provider 日志后排查。")
 
 
 def parse_post_body(content_type: str, body: bytes) -> tuple[dict[str, list[str]], dict[str, list[dict[str, object]]]]:

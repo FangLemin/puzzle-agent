@@ -2,6 +2,45 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.75 - 生成失败处理建议沉淀
+
+日期：2026-06-25
+
+阶段目标：
+
+- 继续推进“真实好图衍生生成”主线，把真实 provider 错误从“分类”升级为“可行动处理建议”。
+- 让 Trial 页、同步记录和生成事件回放都能展示同一份恢复建议，方便运营和技术排障。
+
+已完成：
+
+- 新增 `generation_error_recovery_hint()`：
+  - `billing_arrearage`：提示到阿里云控制台处理欠费、余额或资源包状态。
+  - `quota_exceeded`：提示检查额度、资源包余量或频控。
+  - `model_deprecated`：提示迁移 `IMAGE_GENERATION_MODEL` 并 smoke test。
+  - `timeout`：提示稍后重试、保留 task_id、降低单次生成数量。
+  - `auth_error`：提示检查 API key 和模型权限。
+  - `config_missing`：提示补齐生成 provider、模型和 key。
+  - `response_schema`：提示保留原始响应并更新解析适配。
+- 生成失败时：
+  - `sync_message` 追加“处理建议”。
+  - `generation_event` 持久化 `recovery_hint`。
+  - 生成任务回放可继续复用该字段。
+- Trial 页“最近一次生成任务”新增“处理建议”字段。
+
+验证：
+
+- 新增 TDD 覆盖：
+  - `billing_arrearage` 能返回含“阿里云 / 欠费 / 资源包”的处理建议。
+  - 生成失败为账务错误时，页面消息和事件都包含处理建议。
+  - Trial 页最近一次生成任务展示“处理建议”。
+- 关联测试：`PYTHONPATH=. pytest tests/test_server.py tests/test_renderer.py tests/test_agents.py -q`：144 passed。
+- 全量回归：`PYTHONPATH=. pytest tests -q`：257 passed，用时 16.37s。
+
+当前限制：
+
+- 真实通义万相生成仍被阿里云账号账务状态阻塞；需要先处理控制台账务/资源包状态。
+- 本版不再次触发真实扣费调用，只增强错误可解释性和回放质量。
+
 ## v0.3.74 - 真实生成 Smoke Test 账务错误分类
 
 日期：2026-06-25

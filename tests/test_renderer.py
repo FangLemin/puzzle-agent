@@ -331,6 +331,7 @@ def test_trial_page_shows_recent_generation_event():
         "second_review_status": "not_started",
         "feishu_attachment_status": "blocked",
         "error_type": "model_deprecated",
+        "recovery_hint": "请迁移到当前可用模型后重试。",
         "message": "模型 qwen3-vl-flash 已下线，请迁移。",
     }
 
@@ -340,6 +341,8 @@ def test_trial_page_shows_recent_generation_event():
     assert "failed" in html
     assert "dashscope" in html
     assert "model_deprecated" in html
+    assert "处理建议" in html
+    assert "请迁移到当前可用模型后重试" in html
     assert "模型 qwen3-vl-flash 已下线" in html
     assert "task-123" in html
     assert "试新_日本_寿司0615" in html

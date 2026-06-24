@@ -1,5 +1,5 @@
 from puzzle_ops.renderer import AppState
-from puzzle_ops.server import APP, classify_generation_error, handle_action, redirect_location, update_state_from_query
+from puzzle_ops.server import APP, classify_generation_error, generation_error_recovery_hint, handle_action, redirect_location, update_state_from_query
 from puzzle_ops.feishu import MockFeishuClient
 from puzzle_ops.image_generation import DerivativeImage, ImageGenerationProvider, MockImageGenerationProvider
 from puzzle_ops.trial_upload import TrialImageUploadService
@@ -28,6 +28,14 @@ TODAY_SUFFIX = date.today().strftime("%m%d")
 )
 def test_classify_generation_error_for_common_provider_failures(message, expected):
     assert classify_generation_error(message) == expected
+
+
+def test_generation_error_recovery_hint_explains_billing_arrearage():
+    hint = generation_error_recovery_hint("billing_arrearage")
+
+    assert "阿里云" in hint
+    assert "欠费" in hint
+    assert "资源包" in hint
 
 
 @pytest.fixture(autouse=True)
@@ -562,6 +570,16 @@ class FailingGenerationProvider(ImageGenerationProvider):
         raise RuntimeError("DashScope 图像生成失败：quota exceeded")
 
 
+class BillingArrearageGenerationProvider(ImageGenerationProvider):
+    provider_name = "dashscope"
+
+    def healthcheck(self):
+        return {"provider": "dashscope", "configured": True, "ready": True, "message": "DashScope 图像生成 provider 已配置"}
+
+    def generate_derivatives(self, reference_image, prompt, negative_prompt, count, seed, style_constraints):
+        raise RuntimeError("DashScope 图像生成失败：Arrearage：Access denied, please make sure your account is in good standing")
+
+
 def test_generate_trial_derivatives_failure_keeps_row_and_shows_message(tmp_path):
     APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="derive")
     APP.agent.image_generator = FailingGenerationProvider()
@@ -596,6 +614,23 @@ def test_generate_trial_derivatives_failure_keeps_row_and_shows_message(tmp_path
     assert events[-1]["provider"] == "dashscope"
     overview = APP.agent.memory_overview("日本")
     assert overview["短期记忆"]["count"] >= 1
+
+
+def test_generate_trial_derivatives_billing_arrearage_shows_recovery_hint(tmp_path):
+    APP.state = AppState(country="法国", view="trial", category="花卉", trial_mode="derive")
+    APP.agent.image_generator = BillingArrearageGenerationProvider()
+    APP.state.trial_row = APP.agent.simulate_trial_upload("法国", "花卉", "derive").edited(
+        reference_image_path=str(tmp_path / "good.png"),
+        subject="海滩野餐",
+    )
+
+    redirect = handle_action("/generate_trial_derivatives", {"country": ["法国"], "view": ["trial"], "category": ["花卉"], "trial_mode": ["derive"]})
+
+    assert redirect is None
+    assert APP.state.generation_event["error_type"] == "billing_arrearage"
+    assert "阿里云" in APP.state.generation_event["recovery_hint"]
+    assert "欠费" in APP.state.sync_message
+    assert "资源包" in APP.state.sync_message
 
 
 def test_check_generation_provider_action_reports_diagnostic_status(tmp_path):

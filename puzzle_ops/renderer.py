@@ -301,6 +301,7 @@ def render_generation_event(event: dict[str, str]) -> str:
         ("二次审核", event.get("second_review_status", "unknown")),
         ("飞书附件", event.get("feishu_attachment_status", "unknown")),
         ("错误类型", event.get("error_type", "无")),
+        ("处理建议", event.get("recovery_hint", "")),
         ("说明", event.get("message", "")),
     )
     rows = "".join(f"<div><dt>{escape(key)}</dt><dd>{escape(str(value))}</dd></div>" for key, value in fields)
