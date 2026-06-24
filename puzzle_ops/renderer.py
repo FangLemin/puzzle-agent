@@ -730,6 +730,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
     <article><span>缺失字段</span><strong>{escape(str(gold_coverage.get("缺失字段摘要", "无")))}</strong></article>
   </div>
   <form class="harness-run-form" method="post" action="/auto_prelabeled_harness_gold">{context}<button>AI 自动预标注</button><small>调用真实视觉 LLM，为已有人工作等级的真实样本补主体、色彩、构图、价值观候选和风险候选；结果标记为 ai_silver，待人工抽查。</small></form>
+  <form class="harness-run-form bulk-sample-form" method="post" action="/register_harness_real_samples">{context}<textarea name="samples_text" placeholder="A /Users/you/Desktop/france picnic.png&#10;/Users/you/Desktop/lavender.png,S,landscape"></textarea><button>批量登记真实样本</button><label><input type="checkbox" name="auto_prelabeled" value="1">登记后立即 AI 预标注</label><small>每行一张图；支持“等级 图片绝对路径”或“图片绝对路径,等级,分类”。图片只保存本机路径，不提交进 Git。</small></form>
   <form id="approve-silver-form" class="harness-run-form" method="post" action="/approve_harness_silver_labels">{context}<input name="reviewer_note" value="人工抽查通过"><button>确认 AI 预标注为 human_gold</button><small>请先在表格中勾选已抽查的 silver label；确认后写入 facts memory，作为可信评测标准答案。</small></form>
   <small>Gold label 是 Harness 的人工标准答案；AI 预标注只是 silver label。运营保存确认后才会作为人工确认事实进入 memory/RAG。</small>
   <div class="table-wrap"><table class="gold-workbench"><thead><tr><th>样本</th><th>等级</th><th>主体</th><th>色彩氛围</th><th>构图环境</th><th>价值观/风险</th><th>标注状态</th><th>操作</th></tr></thead><tbody>{gold_rows}</tbody></table></div>
@@ -1209,6 +1210,10 @@ nav { display:grid; gap:8px; margin:18px 0; }
 .gold-coverage article { display:grid; gap:4px; padding:10px; border:1px solid var(--line); border-radius:8px; background:#f6faf8; }
 .gold-coverage span { color:var(--muted); font-size:13px; font-weight:800; }
 .gold-coverage strong { overflow-wrap:anywhere; }
+.harness-run-form { margin:10px 0; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.harness-run-form small { color:var(--muted); }
+.bulk-sample-form { align-items:flex-start; }
+.bulk-sample-form textarea { min-height:86px; flex:1 1 520px; }
 .gold-workbench th, .gold-workbench td { vertical-align:top; }
 .gold-workbench textarea { min-height:74px; min-width:160px; resize:vertical; }
 .gold-workbench .tiny-input { width:72px; min-width:72px; }

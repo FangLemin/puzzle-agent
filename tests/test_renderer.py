@@ -179,6 +179,8 @@ def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):
     assert 'name="gold_color_mood"' in html
     assert 'name="gold_composition"' in html
     assert 'action="/export_harness_gold_skeleton"' in html
+    assert 'action="/register_harness_real_samples"' in html
+    assert 'name="samples_text"' in html
 
 
 def test_eval_page_exposes_ai_silver_label_action(monkeypatch, tmp_path):

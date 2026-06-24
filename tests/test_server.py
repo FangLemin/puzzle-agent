@@ -958,6 +958,59 @@ def test_auto_prelabeled_harness_gold_action_runs_agent(monkeypatch):
     assert "AI 预标注完成：5 条" in APP.state.sync_message
 
 
+def test_register_harness_real_samples_text_action_runs_agent(monkeypatch):
+    APP.state = AppState(country="法国", view="eval")
+    calls = []
+
+    def fake_register(country, text):
+        calls.append((country, text))
+        return {"registered_count": 2, "dataset": "/tmp/harness_gold_samples_法国.csv"}
+
+    monkeypatch.setattr(APP.agent, "register_harness_real_samples_from_text", fake_register)
+
+    handle_action(
+        "/register_harness_real_samples",
+        {
+            "country": ["法国"],
+            "view": ["eval"],
+            "samples_text": ["A /tmp/france-picnic.png\n/tmp/lavender.png,S"],
+        },
+    )
+
+    assert calls == [("法国", "A /tmp/france-picnic.png\n/tmp/lavender.png,S")]
+    assert APP.state.view == "eval"
+    assert "真实样本已登记：2 条" in APP.state.sync_message
+
+
+def test_register_harness_real_samples_text_action_can_auto_prelabeled(monkeypatch):
+    APP.state = AppState(country="法国", view="eval")
+    calls = []
+
+    def fake_register(country, text):
+        calls.append(("register", country, text))
+        return {"registered_count": 1, "dataset": "/tmp/harness_gold_samples_法国.csv"}
+
+    def fake_auto(country):
+        calls.append(("auto", country))
+        return {"updated_count": 1, "skipped_count": 0, "dataset": "/tmp/harness_gold_samples_法国.csv"}
+
+    monkeypatch.setattr(APP.agent, "register_harness_real_samples_from_text", fake_register)
+    monkeypatch.setattr(APP.agent, "auto_prelabeled_harness_samples", fake_auto)
+
+    handle_action(
+        "/register_harness_real_samples",
+        {
+            "country": ["法国"],
+            "view": ["eval"],
+            "samples_text": ["S /tmp/lavender.png"],
+            "auto_prelabeled": ["1"],
+        },
+    )
+
+    assert calls == [("register", "法国", "S /tmp/lavender.png"), ("auto", "法国")]
+    assert "AI 预标注 1 条" in APP.state.sync_message
+
+
 def test_approve_harness_silver_labels_action_runs_agent(monkeypatch):
     APP.state = AppState(country="法国", view="eval")
     calls = []

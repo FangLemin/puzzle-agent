@@ -611,6 +611,27 @@ def test_agent_registers_real_samples_dedupes_by_image_path(tmp_path):
     assert samples[0].gold_grade == "S"
 
 
+def test_agent_registers_real_samples_from_pasted_lines(tmp_path):
+    picnic = tmp_path / "france picnic.png"
+    lavender = tmp_path / "france-lavender.png"
+    Image.new("RGB", (80, 60), (220, 180, 120)).save(picnic)
+    Image.new("RGB", (80, 60), (120, 90, 200)).save(lavender)
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent._runtime_dir = tmp_path
+
+    result = agent.register_harness_real_samples_from_text(
+        "法国",
+        f"A {picnic}\n{lavender},S,landscape",
+    )
+
+    assert result["registered_count"] == 2
+    assert result["dataset"].endswith("harness_gold_samples_法国.csv")
+    samples = agent.harness_samples("法国")
+    assert [sample.gold_grade for sample in samples] == ["A", "S"]
+    assert [sample.js_category for sample in samples] == ["real_sample", "landscape"]
+    assert all(sample.label_status == "needs_ai_prelabeled" for sample in samples)
+
+
 def test_agent_ai_prelabeled_real_samples_as_silver_labels(tmp_path):
     image_path = tmp_path / "france-picnic.png"
     Image.new("RGB", (80, 60), (220, 180, 120)).save(image_path)

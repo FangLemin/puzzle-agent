@@ -363,6 +363,20 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         state.sync_message = f"已生成 Gold Dataset 骨架：{dataset}"
         state.sync_url = ""
         state.view = "eval"
+    elif path == "/register_harness_real_samples":
+        try:
+            result = agent.register_harness_real_samples_from_text(state.country, value(form, "samples_text", ""))
+            state.sync_message = f"真实样本已登记：{result['registered_count']} 条；数据集：{result['dataset']}"
+            if value(form, "auto_prelabeled", "") == "1":
+                try:
+                    prelabel = agent.auto_prelabeled_harness_samples(state.country)
+                    state.sync_message += f"；AI 预标注 {prelabel['updated_count']} 条，跳过 {prelabel['skipped_count']} 条"
+                except ValueError as exc:
+                    state.sync_message += f"；AI 预标注失败：{exc}"
+        except ValueError as exc:
+            state.sync_message = f"真实样本登记失败：{exc}"
+        state.sync_url = ""
+        state.view = "eval"
     elif path == "/auto_prelabeled_harness_gold":
         try:
             result = agent.auto_prelabeled_harness_samples(state.country)

@@ -1163,6 +1163,17 @@ class PuzzleOpsAgent:
         self._write_harness_gold_rows(dataset, rows)
         return dataset
 
+    def register_harness_real_samples_from_text(self, country: str, text: str) -> dict[str, object]:
+        records = []
+        for line_number, line in enumerate(text.splitlines(), 1):
+            record = _parse_harness_sample_line(line, line_number)
+            if record:
+                records.append(record)
+        if not records:
+            raise ValueError("未解析到真实样本；请按“等级 图片绝对路径”或“图片绝对路径,等级,分类”填写。")
+        dataset = self.register_harness_real_samples(country, records)
+        return {"registered_count": len(records), "dataset": str(dataset)}
+
     def auto_prelabeled_harness_samples(self, country: str, sample_ids: tuple[str, ...] = ()) -> dict[str, object]:
         dataset = self.ensure_harness_gold_dataset(country)
         rows = self._read_harness_gold_rows(dataset)
@@ -1477,6 +1488,44 @@ def _missing_gold_fields(sample) -> tuple[str, ...]:
 def _normalize_label_text(value: str) -> str:
     labels = [part.strip() for part in re.split(r"[;；、|,，]+", value) if part.strip()]
     return ";".join(dict.fromkeys(labels))
+
+
+def _parse_harness_sample_line(line: str, line_number: int) -> dict[str, object] | None:
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#"):
+        return None
+    if any(delimiter in stripped for delimiter in ("\t", "|", ",")):
+        return _parse_delimited_harness_sample_line(stripped, line_number)
+    match = re.match(r"^(?P<grade>[SABCDsabcd])\s+(?P<path>.+)$", stripped)
+    if match:
+        return {"local_image_path": match.group("path").strip(), "gold_grade": match.group("grade").upper()}
+    match = re.match(r"^(?P<path>.+)\s+(?P<grade>[SABCDsabcd])$", stripped)
+    if match:
+        return {"local_image_path": match.group("path").strip(), "gold_grade": match.group("grade").upper()}
+    raise ValueError(f"第 {line_number} 行无法解析：请提供等级 S/A/B/C/D 和图片绝对路径。")
+
+
+def _parse_delimited_harness_sample_line(line: str, line_number: int) -> dict[str, object]:
+    delimiter = "\t" if "\t" in line else "|" if "|" in line else ","
+    parts = [part.strip() for part in next(csv.reader([line], delimiter=delimiter)) if part.strip()]
+    if len(parts) < 2:
+        raise ValueError(f"第 {line_number} 行无法解析：至少需要图片路径和等级。")
+    grades = [index for index, part in enumerate(parts) if _is_grade(part)]
+    if not grades:
+        raise ValueError(f"第 {line_number} 行缺少等级：请使用 S/A/B/C/D。")
+    grade_index = grades[0]
+    grade = parts[grade_index].upper()
+    if grade_index == 0:
+        image_path = parts[1]
+        js_category = parts[2] if len(parts) > 2 else ""
+    else:
+        image_path = parts[0]
+        js_category = parts[2] if len(parts) > 2 and grade_index != 2 else ""
+    return {"local_image_path": image_path, "gold_grade": grade, "js_category": js_category}
+
+
+def _is_grade(value: str) -> bool:
+    return value.strip().upper() in {"S", "A", "B", "C", "D"}
 
 
 def _image_content_type_for_path(path: Path) -> str:
