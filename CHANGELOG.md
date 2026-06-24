@@ -2,6 +2,42 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.74 - 真实生成 Smoke Test 账务错误分类
+
+日期：2026-06-25
+
+阶段目标：
+
+- 继续推进“真实好图衍生生成”主线，验证通义万相真实调用链路是否能触达云端。
+- 把真实 smoke test 暴露出的阿里云账务阻塞沉淀为明确错误类型，方便后续排障和面试说明。
+
+已完成：
+
+- 执行 1 张图的真实 DashScope smoke test：
+  - Provider 状态为 `provider=dashscope`、`ready=True`、`api_key_source=QWEN_API_KEY`、`sdk_available=True`。
+  - 请求已触达 DashScope 云端。
+  - 云端返回 `Arrearage：Access denied, please make sure your account is in good standing`。
+- `classify_generation_error()` 新增 `billing_arrearage`：
+  - 命中 `Arrearage`。
+  - 命中 `overdue-payment`。
+  - 命中 `good standing`。
+  - 命中中文 `欠费 / 逾期`。
+- 保留原有 `quota_exceeded` 分类，用于余额/额度不足等非欠费类场景。
+
+验证：
+
+- 新增 TDD 覆盖：
+  - DashScope 返回 `Arrearage` 时分类为 `billing_arrearage`。
+  - 既有 quota、模型下线、超时、鉴权、配置缺失、响应结构错误分类保持不变。
+- 分类与生成失败测试：8 passed。
+- 关联测试：`PYTHONPATH=. pytest tests/test_server.py tests/test_renderer.py tests/test_harness.py -q`：110 passed。
+- 全量回归：`PYTHONPATH=. pytest tests -q`：255 passed，用时 18.27s。
+
+当前限制：
+
+- 当前真实生成被阿里云账号账务状态阻塞，需要你在阿里云控制台处理欠费/余额/资源包状态后，才能完成真实图片生成。
+- 这不是代码、SDK 或 API key 问题；当前链路已经能触达 DashScope 并拿到云端业务错误。
+
 ## v0.3.73 - DashScope 生成响应解析兼容增强
 
 日期：2026-06-25

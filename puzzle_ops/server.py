@@ -486,6 +486,8 @@ def _feishu_attachment_status(rows) -> str:
 
 def classify_generation_error(message: str) -> str:
     text = message.lower()
+    if any(token in text for token in ("arrearage", "overdue-payment", "good standing", "欠费", "逾期")):
+        return "billing_arrearage"
     if any(token in text for token in ("quota", "insufficient", "balance", "余额", "额度", "欠费")):
         return "quota_exceeded"
     if any(token in text for token in ("下线", "deprecated", "retired", "model not found", "模型不存在", "模型已")):

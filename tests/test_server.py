@@ -18,6 +18,7 @@ TODAY_SUFFIX = date.today().strftime("%m%d")
     ("message", "expected"),
     (
         ("DashScope 图像生成失败：quota exceeded", "quota_exceeded"),
+        ("DashScope 图像生成失败：Arrearage：Access denied, please make sure your account is in good standing", "billing_arrearage"),
         ("模型 qwen3-vl-flash 已下线，请迁移", "model_deprecated"),
         ("DashScope 图像生成超时：task_id=abc", "timeout"),
         ("HTTP 401 Unauthorized invalid api key", "auth_error"),
