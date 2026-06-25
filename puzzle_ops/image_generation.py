@@ -9,6 +9,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import ssl
 
 
 @dataclass(frozen=True)
@@ -325,8 +326,17 @@ def _image_bytes_from_response_item(item: object, image_downloader=None) -> byte
 
 
 def _download_image(url: str) -> bytes:
-    with request.urlopen(url, timeout=90) as response:
+    with request.urlopen(url, timeout=90, context=_https_context()) as response:
         return response.read()
+
+
+def _https_context() -> ssl.SSLContext:
+    try:
+        import certifi
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return ssl.create_default_context()
 
 
 def _dashscope_sdk_generate(
@@ -409,5 +419,5 @@ def _cloud_transport(payload: dict[str, object], api_key: str, base_url: str) ->
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
         method="POST",
     )
-    with request.urlopen(req, timeout=90) as response:
+    with request.urlopen(req, timeout=90, context=_https_context()) as response:
         return json.loads(response.read().decode("utf-8"))

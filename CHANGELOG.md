@@ -2,6 +2,40 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.77 - 通义万相生成图下载证书修复
+
+日期：2026-06-25
+
+阶段目标：
+
+- 继续推进真实好图衍生生成主线，修复 DashScope/通义万相已生成图片但本地下载失败的问题。
+- 在阿里云账号充值恢复后，用真实 provider smoke test 验证链路能走到“生成并保存图片”。
+
+已完成：
+
+- 图像生成结果下载 `_download_image()` 接入 HTTPS SSL context。
+- 生成云接口 `_cloud_transport()` 复用同一套证书上下文。
+- 证书策略与现有 VLM 调用保持一致：
+  - 优先使用 `certifi` 证书包。
+  - `certifi` 不可用时回退到系统默认证书。
+- 新增回归测试，确保 HTTPS 图片下载时不会退回裸 `urlopen`。
+
+验证：
+
+- TDD 红灯：`test_image_download_uses_https_certificate_context` 在旧实现下失败，原因是 `context is None`。
+- 修复后关联测试：`PYTHONPATH=. pytest tests/test_harness.py::test_image_download_uses_https_certificate_context tests/test_harness.py::test_dashscope_generation_provider_uses_reference_image_and_downloads_sdk_result tests/test_harness.py::test_cloud_generation_provider_writes_returned_images_with_generation_metadata -q`：3 passed。
+- 全量回归：`PYTHONPATH=. pytest tests -q`：258 passed，用时 15.26s。
+- 真实通义万相 smoke test：
+  - provider：`dashscope`
+  - model：`wan2.6-image`
+  - 参考图：`/Users/fanglemin/Desktop/图片/截屏2026-06-23 22.18.33.png`
+  - 结果：生成 1 张图片并成功保存到本地临时目录，文件大小 2,811,010 bytes。
+
+当前限制：
+
+- 真实生成结果仍需要二次 VLM 解析、审核和人工确认后，才能进入试新提需和飞书同步。
+- 生成图片保存在运行时临时目录，不作为仓库资产提交。
+
 ## v0.3.76 - Harness 生成失败外部阻塞归因
 
 日期：2026-06-25

@@ -10,7 +10,9 @@ from puzzle_ops.image_generation import (
     CloudImageGenerationProvider,
     DashScopeImageGenerationProvider,
     _dashscope_images_from_response,
+    _download_image,
 )
+from puzzle_ops import image_generation
 from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.vision_llm import VisionLLMResult
@@ -551,6 +553,33 @@ def test_dashscope_generation_provider_uses_reference_image_and_downloads_sdk_re
     assert images[0].provider == "dashscope"
     assert images[0].source_sample_id == "sample-1"
     assert Path(images[0].local_image_path).exists()
+
+
+def test_image_download_uses_https_certificate_context(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def read(self):
+            return b"generated-image-bytes"
+
+    def fake_urlopen(url, timeout, context=None):
+        captured["url"] = url
+        captured["timeout"] = timeout
+        captured["context"] = context
+        return FakeResponse()
+
+    monkeypatch.setattr(image_generation.request, "urlopen", fake_urlopen)
+
+    assert _download_image("https://dashscope-result.test/generated.png") == b"generated-image-bytes"
+    assert captured["url"] == "https://dashscope-result.test/generated.png"
+    assert captured["timeout"] == 90
+    assert captured["context"] is not None
 
 
 def test_dashscope_response_parser_accepts_output_results_url_shape():
