@@ -1077,6 +1077,32 @@ def test_register_harness_real_samples_text_action_can_auto_prelabeled(monkeypat
     assert "AI 预标注 1 条" in APP.state.sync_message
 
 
+def test_register_harness_real_samples_directory_action_runs_agent(monkeypatch):
+    APP.state = AppState(country="法国", view="eval")
+    calls = []
+
+    def fake_register_directory(country, directory, grade_text, js_category="real_sample"):
+        calls.append((country, directory, grade_text, js_category))
+        return {"registered_count": 5, "image_count": 5, "dataset": "/tmp/harness_gold_samples_法国.csv"}
+
+    monkeypatch.setattr(APP.agent, "register_harness_real_samples_from_directory", fake_register_directory)
+
+    handle_action(
+        "/register_harness_real_samples",
+        {
+            "country": ["法国"],
+            "view": ["eval"],
+            "image_dir": ["/Users/fanglemin/Desktop/图片"],
+            "directory_grade_text": ["1A 2A 3B 4S 5C"],
+            "directory_js_category": ["lifestyle"],
+        },
+    )
+
+    assert calls == [("法国", "/Users/fanglemin/Desktop/图片", "1A 2A 3B 4S 5C", "lifestyle")]
+    assert APP.state.view == "eval"
+    assert "真实样本目录已登记：5/5 张" in APP.state.sync_message
+
+
 def test_approve_harness_silver_labels_action_runs_agent(monkeypatch):
     APP.state = AppState(country="法国", view="eval")
     calls = []

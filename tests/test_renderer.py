@@ -585,6 +585,16 @@ def test_eval_page_shows_clear_agent_evaluation_workflow():
     assert html.index("工具调用链路") < html.index("指标与结论")
 
 
+def test_eval_page_has_directory_real_sample_registration_form():
+    html = render_page(PuzzleOpsAgent(), AppState(country="法国", view="eval"))
+
+    assert 'name="image_dir"' in html
+    assert 'name="directory_grade_text"' in html
+    assert 'name="directory_js_category"' in html
+    assert "1A 2A 3B 4S 5C" in html
+    assert "按目录登记真实样本" in html
+
+
 def test_eval_failure_samples_show_image_gold_label_and_hitl_form(monkeypatch, tmp_path):
     image_path = tmp_path / "real-sushi.png"
     image_path.write_bytes(b"fake-png")

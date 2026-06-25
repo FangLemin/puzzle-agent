@@ -6,6 +6,7 @@ from puzzle_ops.audit import AuditPolicyRetriever
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.vision_llm import VisionLLMResult
 from datetime import date
+from pathlib import Path
 import json
 from PIL import Image
 
@@ -740,6 +741,47 @@ def test_agent_registers_real_samples_from_text_with_business_metrics(tmp_path):
     assert sample.metrics["avg_finish_time"] == 38
     assert sample.operation_tag == "试新_法国_海滩野餐0624"
     assert sample.subject == "海滩野餐"
+
+
+def test_agent_registers_real_samples_from_directory_with_index_grades(tmp_path):
+    image_dir = tmp_path / "real_puzzles"
+    image_dir.mkdir()
+    for name in ("01-picnic.png", "02-garden.png", "03-lavender.jpg"):
+        Image.new("RGB", (80, 60), (220, 180, 120)).save(image_dir / name)
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent._runtime_dir = tmp_path
+
+    result = agent.register_harness_real_samples_from_directory("法国", image_dir, "1A 2S 3C", js_category="lifestyle")
+
+    samples = agent.harness_samples("法国")
+    assert result["registered_count"] == 3
+    assert result["image_count"] == 3
+    assert [Path(sample.local_image_path).name for sample in samples] == ["01-picnic.png", "02-garden.png", "03-lavender.jpg"]
+    assert [sample.gold_grade for sample in samples] == ["A", "S", "C"]
+    assert all(sample.js_category == "lifestyle" for sample in samples)
+    assert all(sample.label_status == "needs_ai_prelabeled" for sample in samples)
+
+
+def test_agent_registers_real_samples_from_directory_with_filename_grades(tmp_path):
+    image_dir = tmp_path / "real_puzzles"
+    image_dir.mkdir()
+    for name in ("截屏2026-06-23 22.18.33.png", "截屏2026-06-23 22.12.09.png", "未标注旧图.png"):
+        Image.new("RGB", (80, 60), (220, 180, 120)).save(image_dir / name)
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent._runtime_dir = tmp_path
+
+    result = agent.register_harness_real_samples_from_directory(
+        "法国",
+        image_dir,
+        "截屏2026-06-23 22.18.33.png=A\n截屏2026-06-23 22.12.09.png=S",
+    )
+
+    by_name = {Path(sample.local_image_path).name: sample.gold_grade for sample in agent.harness_samples("法国")}
+    assert result["registered_count"] == 2
+    assert result["image_count"] == 3
+    assert by_name["截屏2026-06-23 22.18.33.png"] == "A"
+    assert by_name["截屏2026-06-23 22.12.09.png"] == "S"
+    assert "未标注旧图.png" not in by_name
 
 
 def test_agent_harness_gold_coverage_reports_business_metric_coverage(tmp_path):

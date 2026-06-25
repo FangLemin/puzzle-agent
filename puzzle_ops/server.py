@@ -370,8 +370,21 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         state.view = "eval"
     elif path == "/register_harness_real_samples":
         try:
-            result = agent.register_harness_real_samples_from_text(state.country, value(form, "samples_text", ""))
-            state.sync_message = f"真实样本已登记：{result['registered_count']} 条；数据集：{result['dataset']}"
+            image_dir = value(form, "image_dir", "").strip()
+            if image_dir:
+                result = agent.register_harness_real_samples_from_directory(
+                    state.country,
+                    image_dir,
+                    value(form, "directory_grade_text", ""),
+                    js_category=value(form, "directory_js_category", "real_sample"),
+                )
+                state.sync_message = (
+                    f"真实样本目录已登记：{result['registered_count']}/{result['image_count']} 张；"
+                    f"数据集：{result['dataset']}"
+                )
+            else:
+                result = agent.register_harness_real_samples_from_text(state.country, value(form, "samples_text", ""))
+                state.sync_message = f"真实样本已登记：{result['registered_count']} 条；数据集：{result['dataset']}"
             if value(form, "auto_prelabeled", "") == "1":
                 try:
                     prelabel = agent.auto_prelabeled_harness_samples(state.country)

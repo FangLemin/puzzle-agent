@@ -1210,6 +1210,45 @@ class PuzzleOpsAgent:
         dataset = self.register_harness_real_samples(country, records)
         return {"registered_count": len(records), "dataset": str(dataset)}
 
+    def register_harness_real_samples_from_directory(
+        self,
+        country: str,
+        directory: Path | str,
+        grade_text: str,
+        *,
+        js_category: str = "real_sample",
+    ) -> dict[str, object]:
+        image_dir = Path(directory).expanduser()
+        if not image_dir.is_dir():
+            raise ValueError(f"图片目录不存在：{image_dir}")
+        images = tuple(sorted((path for path in image_dir.iterdir() if _is_supported_image_file(path)), key=lambda path: path.name))
+        if not images:
+            raise ValueError(f"图片目录中没有可登记的图片：{image_dir}")
+        grade_map, filename_grades = _parse_directory_grade_text(grade_text)
+        selected_images = images
+        if filename_grades and not grade_map:
+            selected_images = tuple(path for path in images if path.name in filename_grades or path.stem in filename_grades)
+            if not selected_images:
+                raise ValueError("未找到与文件名等级映射匹配的图片。")
+        records: list[dict[str, object]] = []
+        for index, path in enumerate(selected_images, 1):
+            grade = filename_grades.get(path.name) or filename_grades.get(path.stem) or grade_map.get(index, "")
+            records.append(
+                {
+                    "sample_id": f"{country}-dir-{index:03d}",
+                    "local_image_path": str(path),
+                    "gold_grade": grade,
+                    "js_category": js_category or "real_sample",
+                    "human_note": "按本机图片目录批量登记；人工已提供等级，待 AI 预标注主体/色彩/构图。",
+                }
+            )
+        dataset = self.register_harness_real_samples(country, records)
+        return {
+            "registered_count": len(records),
+            "image_count": len(images),
+            "dataset": str(dataset),
+        }
+
     def auto_prelabeled_harness_samples(self, country: str, sample_ids: tuple[str, ...] = ()) -> dict[str, object]:
         dataset = self.ensure_harness_gold_dataset(country)
         rows = self._read_harness_gold_rows(dataset)
@@ -1614,6 +1653,31 @@ def _parse_delimited_harness_sample_line(line: str, line_number: int) -> dict[st
     ):
         record[field] = value
     return record
+
+
+def _is_supported_image_file(path: Path) -> bool:
+    return path.is_file() and path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
+
+
+def _parse_directory_grade_text(text: str) -> tuple[dict[int, str], dict[str, str]]:
+    index_grades: dict[int, str] = {}
+    filename_grades: dict[str, str] = {}
+    normalized = text.replace("，", ",").replace("；", ";")
+    for line in normalized.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        filename_match = re.match(r"^(?P<name>.+?\.(?:png|jpe?g|webp)|[^=,:;\s]+)\s*[=,:;]\s*(?P<grade>[SABCDsabcd])$", stripped)
+        if filename_match and not filename_match.group("name").strip().isdigit():
+            filename_grades[Path(filename_match.group("name").strip()).name] = filename_match.group("grade").upper()
+            continue
+        for index, grade in re.findall(r"(?<!\d)(\d+)\s*[:=,-]?\s*([SABCDsabcd])\b", stripped):
+            index_grades[int(index)] = grade.upper()
+        if not re.search(r"\d+\s*[:=,-]?\s*[SABCDsabcd]\b", stripped):
+            grades = re.findall(r"\b[SABCDsabcd]\b", stripped)
+            for offset, grade in enumerate(grades, 1):
+                index_grades.setdefault(offset, grade.upper())
+    return index_grades, filename_grades
 
 
 def _is_grade(value: str) -> bool:
