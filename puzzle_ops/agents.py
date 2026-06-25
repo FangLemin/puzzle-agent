@@ -902,6 +902,7 @@ class PuzzleOpsAgent:
             "second_review_status": str(event.get("second_review_status", "unknown")),
             "feishu_attachment_status": str(event.get("feishu_attachment_status", "unknown")),
             "error_type": str(event.get("error_type", "unknown")),
+            "recovery_hint": str(event.get("recovery_hint", "")),
             "message": str(event.get("message", "")),
         }
         self.repository.add_memory(country, "generation_event", json.dumps(payload, ensure_ascii=False))

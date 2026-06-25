@@ -34,6 +34,17 @@ EVAL_SAMPLE_CSV_FIELDS = (
     "label_status",
 )
 
+EXTERNAL_GENERATION_ERROR_TYPES = frozenset(
+    {
+        "billing_arrearage",
+        "quota_exceeded",
+        "model_deprecated",
+        "auth_error",
+        "config_missing",
+        "timeout",
+    }
+)
+
 
 @dataclass(frozen=True)
 class EvalSample:
@@ -655,17 +666,26 @@ class AgentHarness:
                 "二次审核通过率": 0.0,
                 "飞书附件Ready率": 0.0,
                 "生成失败可分类率": 0.0,
+                "生成外部阻塞率": 0.0,
+                "生成Agent失败率": 0.0,
+                "生成恢复建议覆盖率": 0.0,
             }
         complete = sum(1 for event in events if _complete_generation_trace(event))
         second_review_passed = sum(1 for event in events if event.get("second_review_status") == "passed")
         attachment_ready = sum(1 for event in events if event.get("feishu_attachment_status") == "ready")
         failed = [event for event in events if event.get("status") == "failed"]
         classified = sum(1 for event in failed if event.get("error_type") not in {"", "unknown", "none"})
+        external_blocked = sum(1 for event in failed if event.get("error_type") in EXTERNAL_GENERATION_ERROR_TYPES)
+        agent_failures = sum(1 for event in failed if event.get("error_type") not in {"", "unknown", "none"} and event.get("error_type") not in EXTERNAL_GENERATION_ERROR_TYPES)
+        hinted = sum(1 for event in failed if str(event.get("recovery_hint", "")).strip())
         return {
             "生成Trace完整率": _safe_ratio(complete, len(events)),
             "二次审核通过率": _safe_ratio(second_review_passed, len(events)),
             "飞书附件Ready率": _safe_ratio(attachment_ready, len(events)),
             "生成失败可分类率": _safe_ratio(classified, len(failed)),
+            "生成外部阻塞率": _safe_ratio(external_blocked, len(failed)),
+            "生成Agent失败率": _safe_ratio(agent_failures, len(failed)),
+            "生成恢复建议覆盖率": _safe_ratio(hinted, len(failed)),
         }
 
     def _rag_runtime_metrics(self) -> dict[str, float]:

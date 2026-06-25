@@ -537,7 +537,8 @@ def test_eval_page_shows_clear_agent_evaluation_workflow():
             "generated_image_paths": "",
             "second_review_status": "not_started",
             "feishu_attachment_status": "blocked",
-            "error_type": "quota_exceeded",
+            "error_type": "billing_arrearage",
+            "recovery_hint": "请到阿里云控制台处理账号欠费、余额或资源包状态。",
             "message": "DashScope 图像生成失败：quota exceeded",
         },
     )
@@ -558,10 +559,14 @@ def test_eval_page_shows_clear_agent_evaluation_workflow():
     assert "RAG缓存命中率" in html
     assert "RAG远程调用率" in html
     assert "RAG降级率" in html
+    assert "生成外部阻塞率" in html
+    assert "生成Agent失败率" in html
+    assert "生成恢复建议覆盖率" in html
     assert "二次审核通过率" in html
     assert "飞书附件Ready率" in html
     assert "生成失败类型分布" in html
-    assert "quota_exceeded" in html
+    assert "billing_arrearage" in html
+    assert "请到阿里云控制台处理账号欠费" in html
     assert "derive_generation_eval" in html
     assert "任务目标" in html
     assert "输入与上下文" in html

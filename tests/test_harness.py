@@ -404,7 +404,23 @@ def test_harness_metrics_include_generation_trace_replay_events():
             "second_review_status": "not_started",
             "feishu_attachment_status": "blocked",
             "error_type": "quota_exceeded",
+            "recovery_hint": "请检查额度。",
             "message": "DashScope 图像生成失败：quota exceeded",
+        },
+    )
+    agent.record_generation_event(
+        "测试国",
+        {
+            "status": "failed",
+            "provider": "dashscope",
+            "model": "wanx-test",
+            "task_id": "",
+            "source_operation_tag": "试新_日本_返回结构0615",
+            "generated_image_paths": "",
+            "second_review_status": "not_started",
+            "feishu_attachment_status": "blocked",
+            "error_type": "response_schema",
+            "message": "返回结构缺少图片 URL",
         },
     )
     sample = EvalSample.synthetic_demo(
@@ -418,8 +434,11 @@ def test_harness_metrics_include_generation_trace_replay_events():
     run = AgentHarness(agent).run((sample,), dataset_name="generation-trace", version="0.3.43")
 
     assert run.metrics["生成Trace完整率"] == 1.0
-    assert run.metrics["二次审核通过率"] == 0.5
-    assert run.metrics["飞书附件Ready率"] == 0.5
+    assert run.metrics["生成外部阻塞率"] == 0.5
+    assert run.metrics["生成Agent失败率"] == 0.5
+    assert run.metrics["生成恢复建议覆盖率"] == 0.5
+    assert run.metrics["二次审核通过率"] == 0.333
+    assert run.metrics["飞书附件Ready率"] == 0.333
     assert run.metrics["生成失败可分类率"] == 1.0
 
 

@@ -2,6 +2,48 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.76 - Harness 生成失败外部阻塞归因
+
+日期：2026-06-25
+
+阶段目标：
+
+- 继续推进 Agent Harness 主线，把图像生成失败拆成“外部前置条件阻塞”和“Agent/适配层失败”。
+- 避免把账务、额度、模型下线、鉴权、配置缺失等问题错误计入 Agent 能力缺陷。
+
+已完成：
+
+- 新增 `EXTERNAL_GENERATION_ERROR_TYPES`：
+  - `billing_arrearage`
+  - `quota_exceeded`
+  - `model_deprecated`
+  - `auth_error`
+  - `config_missing`
+  - `timeout`
+- Harness 指标新增：
+  - `生成外部阻塞率`
+  - `生成Agent失败率`
+  - `生成恢复建议覆盖率`
+- `record_generation_event()` 持久化 `recovery_hint`，避免生成任务回放和 Harness 指标丢失处理建议。
+- Eval 页“生成失败类型分布”从两列升级为三列：
+  - 错误类型
+  - 次数
+  - 处理建议
+
+验证：
+
+- 新增 TDD 覆盖：
+  - 同时存在外部阻塞和响应结构失败时，Harness 能分别统计外部阻塞率与 Agent 失败率。
+  - Eval 页展示 `生成外部阻塞率 / 生成Agent失败率 / 生成恢复建议覆盖率`。
+  - 生成失败类型分布展示账务错误的处理建议。
+- 关联测试：`PYTHONPATH=. pytest tests/test_harness.py tests/test_renderer.py tests/test_agents.py -q`：109 passed。
+- 全量回归：`PYTHONPATH=. pytest tests -q`：257 passed，用时 15.02s。
+
+当前限制：
+
+- 外部阻塞类型由当前错误分类规则维护；如果未来接入更多图像生成平台，需要补充平台专属错误码映射。
+- 阿里云账务状态仍需你在控制台处理后才能继续真实生成 smoke test。
+
 ## v0.3.75 - 生成失败处理建议沉淀
 
 日期：2026-06-25
