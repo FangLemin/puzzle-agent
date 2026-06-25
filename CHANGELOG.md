@@ -2,6 +2,40 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.79 - Harness 真实样本缩略图轻量化
+
+日期：2026-06-25
+
+阶段目标：
+
+- 修复 Eval 页真实样本越来越多后 HTML 过大的问题。
+- 避免把本机真实图片原图 base64 内嵌进 Harness Dashboard，保障 30-50 张真实样本进入后页面仍能正常打开和滚动。
+
+已完成：
+
+- Harness 样本缩略图从内联 `data:image/...;base64` 改为轻量 URL：
+  - `/local_image?path=...`
+- Server 新增 `/local_image` 本地图片读取路由：
+  - 按需读取本机图片路径。
+  - 按 `.png / .jpg / .jpeg / .webp` 返回对应 `Content-Type`。
+- 保留常规素材卡、价值观卡的原有内联示意图，不影响既有页面展示。
+
+验证：
+
+- TDD 红灯：
+  - 大尺寸真实样本图导致 Eval HTML 内嵌 base64 且页面超过阈值时，新增测试失败。
+- 修复后关联测试：`PYTHONPATH=. pytest tests/test_renderer.py tests/test_server.py -q`：95 passed。
+- 全量回归：`PYTHONPATH=. pytest tests -q`：263 passed，用时 14.09s。
+- 页面验证：
+  - `http://127.0.0.1:5199/?view=eval&country=法国` HTML 约 56KB。
+  - 页面包含 `/local_image?path=`，不再包含真实样本 `data:image/png;base64`。
+  - `/local_image` 返回 200，`Content-Type=image/png`，PNG 头正常。
+
+当前限制：
+
+- `/local_image` 只服务本机已有图片路径，用于本地 demo 和 Harness 工作台；部署到多人环境时需要增加访问控制或改为受控对象存储。
+- 图片文件仍不进入 Git，只保存路径引用。
+
 ## v0.3.78 - Harness 真实样本目录批量登记
 
 日期：2026-06-25

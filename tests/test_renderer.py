@@ -595,6 +595,28 @@ def test_eval_page_has_directory_real_sample_registration_form():
     assert "按目录登记真实样本" in html
 
 
+def test_harness_sample_thumb_uses_local_image_route_instead_of_inline_base64(tmp_path, monkeypatch):
+    image_path = tmp_path / "large-real-sample.png"
+    image_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"x" * 200_000)
+    dataset = tmp_path / "gold_samples.csv"
+    dataset.write_text(
+        "\n".join(
+            (
+                "sample_id,country,local_image_path,operation_tag,subject,js_category,source,position,open_rate,completion_rate,avg_finish_time,gold_grade,gold_subject,gold_color_mood,gold_composition,gold_value_labels,gold_risk_labels,human_note,label_source,label_status",
+                f"real-001,法国,{image_path},试新_法国_真实样本0625,海滩野餐,lifestyle,real,0,0,0,0,A,海滩野餐,暖色,海滩构图,生活艺术,,AI silver,ai_silver,pending_review",
+            )
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_HARNESS_DATASET", str(dataset))
+
+    html = render_page(PuzzleOpsAgent(), AppState(country="法国", view="eval"))
+
+    assert "/local_image?path=" in html
+    assert "data:image/png;base64" not in html
+    assert len(html) < 120_000
+
+
 def test_eval_failure_samples_show_image_gold_label_and_hitl_form(monkeypatch, tmp_path):
     image_path = tmp_path / "real-sushi.png"
     image_path.write_bytes(b"fake-png")

@@ -2,7 +2,6 @@ from dataclasses import dataclass, field
 from html import escape
 from pathlib import Path
 from urllib.parse import urlencode
-import base64
 
 from puzzle_ops.agents import PuzzleOpsAgent
 from puzzle_ops.models import DemandRow
@@ -981,15 +980,13 @@ def render_harness_gold_label(sample) -> str:
 def harness_sample_thumb(sample) -> str:
     path = Path(sample.local_image_path) if sample and sample.local_image_path else None
     if path and path.exists():
-        src = local_image_data_uri(path)
+        src = local_image_url(path)
         return f'<div class="mini-thumb"><img src="{escape(src)}" class="mini-thumb-img" alt="{escape(path.name)}"></div>'
     return visual_thumb(sample.subject if sample else "missing", sample.subject if sample else "missing")
 
 
-def local_image_data_uri(path: Path) -> str:
-    content_type = "image/jpeg" if path.suffix.lower() in {".jpg", ".jpeg"} else "image/png"
-    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
-    return f"data:{content_type};base64,{encoded}"
+def local_image_url(path: Path) -> str:
+    return "/local_image?" + urlencode({"path": str(path)})
 
 
 def _pct_text(value: object) -> str:

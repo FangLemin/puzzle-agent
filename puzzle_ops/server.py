@@ -24,6 +24,9 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path.startswith("/uploads/"):
             self.respond_upload(parsed.path.removeprefix("/uploads/"))
             return
+        if parsed.path == "/local_image":
+            self.respond_local_image(parse_qs(parsed.query).get("path", [""])[0])
+            return
         query = parse_qs(parsed.query)
         update_state_from_query(APP.state, query)
         self.respond(render_page(APP.agent, APP.state))
@@ -55,6 +58,19 @@ class Handler(BaseHTTPRequestHandler):
         data = path.read_bytes()
         self.send_response(200)
         self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def respond_local_image(self, image_path: str) -> None:
+        path = Path(image_path).expanduser()
+        if not path.is_file():
+            self.send_response(404)
+            self.end_headers()
+            return
+        data = path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", image_content_type(path))
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -438,6 +454,15 @@ def redirect_location(state: AppState) -> str:
 
 def value(form: dict[str, list[str]], key: str, default: str) -> str:
     return form.get(key, [default])[0]
+
+
+def image_content_type(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix in {".jpg", ".jpeg"}:
+        return "image/jpeg"
+    if suffix == ".webp":
+        return "image/webp"
+    return "image/png"
 
 
 def format_generation_provider_diagnostic(status: dict[str, object]) -> str:
