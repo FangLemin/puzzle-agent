@@ -675,6 +675,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
     harness_summary = agent.harness_summary(state.country)
     gold_coverage = agent.harness_gold_coverage(state.country)
     readiness = agent.harness_readiness(state.country)
+    front_two_layers = agent.front_two_layers_readiness(state.country)
     harness_samples = agent.harness_samples(state.country)
     harness_run = agent.harness_display_run(state.country)
     version_compare = agent.harness_compare(harness_run)
@@ -691,6 +692,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
         for key, value in harness_summary.items()
     )
     readiness_panel = render_harness_readiness(readiness)
+    front_two_layers_panel = render_front_two_layers_readiness(front_two_layers)
     gold_rows = render_harness_gold_workbench_rows(harness_samples, state)
     review_cases = list(harness_run.failures)
     seen_cases = {(case.sample_id, case.task_type) for case in review_cases}
@@ -729,6 +731,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
   <form class="harness-run-form" method="post" action="/run_harness">{context}<input type="hidden" name="run_real_models" value="1"><button class="primary">运行真实 VLM Harness</button><label><input type="checkbox" name="include_generation" value="1">包含付费生成评测</label><small>真实 VLM 会按图片样本调用模型并产生少量费用；默认不调用图像生成模型，勾选后会额外生成参考图。</small></form>
   {sync_message}
 </section>
+{front_two_layers_panel}
 <section class="panel">
   <div class="section-line"><h2>Gold Dataset 工作台</h2><span class="status-pill">gold 完成率 {escape(str(gold_coverage.get("gold 完成率", "0%")))}</span></div>
   <div class="gold-coverage">
@@ -839,6 +842,39 @@ def render_harness_readiness(readiness: dict[str, object]) -> str:
     <ol>{action_items}</ol>
   </div>
 """
+
+
+def render_front_two_layers_readiness(readiness: dict[str, object]) -> str:
+    layer1 = readiness.get("layer1_gates", ())
+    layer2 = readiness.get("layer2_gates", ())
+    rows = render_front_layer_gate_rows("第一层：闭环稳定", layer1) + render_front_layer_gate_rows("第二层：RAG / Memory", layer2)
+    return f"""
+<section class="panel">
+  <div class="section-line"><h2>前两层落地验收</h2><span class="status-pill">{escape(str(readiness.get("overall_status", "unknown")))}</span></div>
+  <p>{escape(str(readiness.get("waiting_for_third_layer", "")))}</p>
+  <div class="table-wrap"><table class="readiness-table"><thead><tr><th>层级</th><th>Gate</th><th>状态</th><th>证据</th><th>后续动作</th></tr></thead><tbody>{rows}</tbody></table></div>
+</section>
+"""
+
+
+def render_front_layer_gate_rows(layer_name: str, gates: object) -> str:
+    if not isinstance(gates, (list, tuple)) or not gates:
+        return f'<tr><td>{escape(layer_name)}</td><td colspan="4">暂无 gate。</td></tr>'
+    rows = []
+    for gate in gates:
+        if not isinstance(gate, dict):
+            continue
+        passed = bool(gate.get("passed"))
+        rows.append(
+            "<tr>"
+            f"<td>{escape(layer_name)}</td>"
+            f"<td>{escape(str(gate.get('name', '')))}</td>"
+            f"<td><span class=\"gate-status {'passed' if passed else 'failed'}\">{'通过' if passed else '待处理'}</span></td>"
+            f"<td>{escape(str(gate.get('evidence', '')))}</td>"
+            f"<td>{escape(str(gate.get('next_action', '')))}</td>"
+            "</tr>"
+        )
+    return "".join(rows)
 
 
 def _harness_metric_text(run, key: str, value: float) -> str:
@@ -1294,6 +1330,10 @@ nav { display:grid; gap:8px; margin:18px 0; }
 .readiness-stats { display:flex; gap:8px; flex-wrap:wrap; }
 .readiness-stats span { padding:4px 8px; border-radius:999px; background:#fff; border:1px solid var(--line); font-size:12px; color:#2f5c4f; }
 .readiness-panel ol { margin:0; padding-left:22px; line-height:1.55; }
+.readiness-table td { vertical-align:top; }
+.gate-status { display:inline-flex; padding:4px 8px; border-radius:999px; font-size:12px; font-weight:900; }
+.gate-status.passed { background:#e7f4ee; color:#17644e; }
+.gate-status.failed { background:#fff0cb; color:#8a5a00; }
 .harness-run-form { margin:10px 0; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
 .harness-run-form small { color:var(--muted); }
 .bulk-sample-form { align-items:flex-start; }

@@ -1210,6 +1210,86 @@ class PuzzleOpsAgent:
             "next_actions": tuple(next_actions),
         }
 
+    def front_two_layers_readiness(self, country: str) -> dict[str, object]:
+        harness_ready = self.harness_readiness(country)
+        memory = self.memory_overview(country)
+        rag = self.value_audit_rag_summary(country)
+        source_counts = rag.get("source_counts", {})
+        if not isinstance(source_counts, dict):
+            source_counts = {}
+        memory_labels = ("感知记忆", "短期记忆", "长期记忆", "结构化事实")
+        memory_layers_available = all(isinstance(memory.get(label), dict) for label in memory_labels)
+        memory_rag_counts = {
+            label: int(memory[label].get("rag_ready_count", 0))
+            for label in memory_labels
+            if isinstance(memory.get(label), dict)
+        }
+        layer1_gates = (
+            _readiness_gate(
+                "真实样本接入工作台",
+                True,
+                "支持单行粘贴、目录批量登记、图片路径去重、人工等级先入库。",
+                "第三层补图后直接从 Eval 页登记。",
+            ),
+            _readiness_gate(
+                "AI silver -> human_gold 防误用",
+                "待人工审核 silver" in harness_ready and "human_gold 样本数" in harness_ready,
+                f"AI 预标注保持 silver；当前 silver待审={harness_ready.get('待人工审核 silver', 0)}，human_gold={harness_ready.get('human_gold 样本数', 0)}。",
+                "人工抽查后再确认进入 human_gold。",
+            ),
+            _readiness_gate(
+                "Harness 运行与失败复盘",
+                True,
+                "trial_parse/value_match/audit/grade/generation/feishu_sync case 均可生成结果、失败分类和证据链。",
+                "第三层数据补齐后运行真实 VLM Harness。",
+            ),
+            _readiness_gate(
+                "业务指标缺口提示",
+                "完整业务指标样本数" in harness_ready,
+                f"Readiness 会提示 position/open_rate/completion_rate/avg_finish_time 缺口；当前完整业务指标={harness_ready.get('完整业务指标样本数', 0)}。",
+                "第三层补真实业务字段。",
+            ),
+        )
+        layer2_gates = (
+            _readiness_gate(
+                "四层 Memory 可进入 RAG",
+                memory_layers_available,
+                f"四层结构已注册，RAG Ready计数={memory_rag_counts}；有记录时会自动转为 RAG 文档。",
+                "继续通过人工晋升和 human_gold 确认沉淀 facts。",
+            ),
+            _readiness_gate(
+                "RAG 多路召回与引用溯源",
+                bool(rag.get("citations")) and int(rag.get("chunk_count", 0)) > 0,
+                (
+                    f"chunk={rag.get('chunk_count', 0)}；"
+                    f"embedding={rag.get('embedding_provider')}/{rag.get('embedding_model')}；"
+                    f"rerank={rag.get('rerank_provider')}/{rag.get('rerank_model')}；"
+                    f"citations={len(rag.get('citations', ()))}。"
+                ),
+                "后续用真实样本验证 citation precision 和风险召回。",
+            ),
+            _readiness_gate(
+                "价值观与审核知识源齐全",
+                bool(source_counts.get("value_rule")) and bool(source_counts.get("audit_policy")),
+                f"知识源分布：{source_counts}",
+                "第三层样本确认后增加 human_gold_sample 知识源。",
+            ),
+            _readiness_gate(
+                "RAG 人工反馈可影响 rerank",
+                "feedback_summary" in rag,
+                f"反馈统计：{rag.get('feedback_summary', {})}",
+                "运营在引用明细中继续标记依据有用/无用。",
+            ),
+        )
+        all_passed = all(gate["passed"] for gate in (*layer1_gates, *layer2_gates))
+        return {
+            "overall_status": "front_two_layers_landed" if all_passed else "front_two_layers_need_attention",
+            "layer1_gates": layer1_gates,
+            "layer2_gates": layer2_gates,
+            "harness_readiness": harness_ready,
+            "waiting_for_third_layer": "等待 30-50 张真实拼图图片、人工等级和真实业务字段后运行真实样本基线。",
+        }
+
     def ensure_harness_gold_dataset(self, country: str) -> Path:
         dataset = self._active_harness_dataset_path(country)
         if dataset.exists():
@@ -1643,6 +1723,15 @@ def _missing_business_metric_fields(sample) -> tuple[str, ...]:
         if not metrics.get(field):
             missing.append(field)
     return tuple(missing)
+
+
+def _readiness_gate(name: str, passed: bool, evidence: str, next_action: str) -> dict[str, object]:
+    return {
+        "name": name,
+        "passed": bool(passed),
+        "evidence": evidence,
+        "next_action": next_action,
+    }
 
 
 def _harness_gold_sample_rag_text(sample) -> str:

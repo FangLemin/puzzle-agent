@@ -904,6 +904,26 @@ def test_agent_harness_readiness_turns_ready_after_human_gold_and_fact_rag_depos
     assert readiness["next_actions"] == ("可以运行真实 VLM Harness，并把结果作为小样本基线。",)
 
 
+def test_agent_front_two_layers_readiness_proves_landed_infrastructure(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent._runtime_dir = tmp_path
+    agent.record_perception_memory("日本", "trial_image_parse", {"subject": "寿司", "color_mood": "清爽"})
+    agent.record_working_memory("日本", "trial_state", {"operation_tag": "试新_日本_寿司0626", "status": "parsed"})
+    agent.record_long_term_memory("日本", "value_rule_approval", {"rule_text": "寿司提需需保留日式餐桌语境。"})
+    agent.record_extracted_fact("日本", "image_semantic_fact", {"subject": "寿司", "value_labels": ["本土饮食文化"]})
+    agent.record_rag_citation_feedback("日本", chunk_id="JP_VALUE_001#chunk-1", usefulness="useful", note="能支撑本土饮食文化")
+
+    readiness = agent.front_two_layers_readiness("日本")
+
+    assert readiness["overall_status"] == "front_two_layers_landed"
+    assert readiness["waiting_for_third_layer"] == "等待 30-50 张真实拼图图片、人工等级和真实业务字段后运行真实样本基线。"
+    assert all(gate["passed"] for gate in readiness["layer1_gates"])
+    assert all(gate["passed"] for gate in readiness["layer2_gates"])
+    assert any(gate["name"] == "AI silver -> human_gold 防误用" for gate in readiness["layer1_gates"])
+    assert any(gate["name"] == "四层 Memory 可进入 RAG" for gate in readiness["layer2_gates"])
+    assert any(gate["name"] == "RAG 多路召回与引用溯源" for gate in readiness["layer2_gates"])
+
+
 def test_agent_ai_prelabeled_real_samples_as_silver_labels(tmp_path):
     image_path = tmp_path / "france-picnic.png"
     Image.new("RGB", (80, 60), (220, 180, 120)).save(image_path)

@@ -2,6 +2,55 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.81 - 前两层落地验收闭环
+
+日期：2026-06-26
+
+阶段目标：
+
+- 将“前两层已落地”从口头说明变成系统内可验证的验收清单。
+- 明确区分：
+  - 前两层：闭环稳定、RAG、Memory、Harness、HITL、可溯源评估基础设施。
+  - 第三层：等待你补齐 30-50 张真实拼图图片、人工等级和真实业务字段后运行真实样本基线。
+
+已完成：
+
+- 新增 `front_two_layers_readiness(country)`：
+  - 第一层 gate：
+    - 真实样本接入工作台。
+    - AI silver -> human_gold 防误用。
+    - Harness 运行与失败复盘。
+    - 业务指标缺口提示。
+  - 第二层 gate：
+    - 四层 Memory 可进入 RAG。
+    - RAG 多路召回与引用溯源。
+    - 价值观与审核知识源齐全。
+    - RAG 人工反馈可影响 rerank。
+  - 每个 gate 都输出 `passed / evidence / next_action`。
+- Eval 页新增“前两层落地验收”面板：
+  - 展示总体状态 `front_two_layers_landed` 或 `front_two_layers_need_attention`。
+  - 逐项展示第一层、第二层 gate 的状态、证据和后续动作。
+  - 明确提示第三层仍等待真实业务样本输入。
+- 保留 v0.3.80 的 Harness Readiness：
+  - 继续用于判断真实样本是否已经可以运行真实 VLM Harness 基线。
+  - AI silver 仍不能直接当作 human_gold。
+
+验证：
+
+- TDD 红灯：
+  - `front_two_layers_readiness` 不存在时，后端验收测试失败。
+  - Eval 页缺少“前两层落地验收”面板时，页面测试失败。
+- 关联测试：`PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py -q -k "harness_readiness or front_two_layers or gold_dataset_workbench"`：5 passed。
+- 全量回归：`PYTHONPATH=. pytest tests -q`：267 passed，用时 21.37s。
+- 页面验证：
+  - 临时服务 `http://127.0.0.1:5201/?view=eval` 可看到“前两层落地验收”。
+  - 默认页面状态显示 `front_two_layers_landed`，第三层提示为等待真实样本输入。
+
+当前限制：
+
+- 本版本证明的是前两层基础设施已可自检和可验收，不声称真实业务效果已经被验证。
+- 真实效果证明仍依赖第三层：你补齐 30-50 张真实拼图、人工等级、真实业务指标后，再运行真实 VLM Harness。
+
 ## v0.3.80 - Harness Readiness 与真实评测准备度
 
 日期：2026-06-25

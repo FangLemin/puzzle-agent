@@ -212,6 +212,23 @@ def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):
     assert "平均完成时长" in html
 
 
+def test_eval_page_shows_front_two_layers_landing_audit(tmp_path):
+    agent = agent_without_vlm(tmp_path)
+    agent.record_perception_memory("日本", "trial_image_parse", {"subject": "寿司", "color_mood": "清爽"})
+    agent.record_working_memory("日本", "trial_state", {"operation_tag": "试新_日本_寿司0626", "status": "parsed"})
+    agent.record_long_term_memory("日本", "value_rule_approval", {"rule_text": "寿司提需需保留日式餐桌语境。"})
+    agent.record_extracted_fact("日本", "image_semantic_fact", {"subject": "寿司", "value_labels": ["本土饮食文化"]})
+
+    html = render_page(agent, AppState(country="日本", view="eval"))
+
+    assert "前两层落地验收" in html
+    assert "front_two_layers_landed" in html
+    assert "真实样本接入工作台" in html
+    assert "四层 Memory 可进入 RAG" in html
+    assert "RAG 多路召回与引用溯源" in html
+    assert "等待 30-50 张真实拼图图片" in html
+
+
 def test_eval_page_exposes_ai_silver_label_action(monkeypatch, tmp_path):
     image_path = tmp_path / "france-picnic.png"
     image_path.write_bytes(b"fake-png")
