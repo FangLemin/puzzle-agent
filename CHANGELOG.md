@@ -2,6 +2,44 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.80 - Harness Readiness 与真实评测准备度
+
+日期：2026-06-25
+
+阶段目标：
+
+- 按“前两层优先”的方向，把现有闭环做稳：真实样本进入后，系统要清楚告诉运营还缺什么，不能把 AI silver label 误当成可证明业务效果的 gold。
+- 继续增强 RAG/Memory 可见性：human_gold 是否已经进入 facts memory 和 RAG 文档，需要在 Harness 工作台可检查。
+
+已完成：
+
+- 新增 `harness_readiness(country)`：
+  - 统计真实样本数、完整 gold 样本数、完整业务指标样本数。
+  - 统计 `ai_silver/pending_review` 待人工审核数量。
+  - 统计 `human_gold/reviewed` 样本数量。
+  - 统计 human_gold 是否已经沉淀为 RAG 文档和 facts memory。
+  - 输出 `ready_for_real_eval` 和下一步动作建议。
+- Eval 页 Gold Dataset 工作台新增 Harness Readiness 状态条：
+  - 显示“尚不能证明真实业务效果”或“可作为真实评测基线”。
+  - 展示 human_gold、silver待审、待AI预标注、RAG gold文档、Facts 数量。
+  - 展示下一步动作：AI预标注、人工确认 silver、补 gold 字段、补业务指标、刷新 RAG/Memory。
+- 保持现有保护逻辑：
+  - AI 预标注仍只是 `ai_silver`。
+  - 只有人工确认后才进入 `human_gold`、facts memory 和 RAG 引用文档。
+
+验证：
+
+- TDD 红灯：
+  - `harness_readiness` 不存在时，新增 readiness 测试失败。
+  - Eval 页缺少 readiness 展示时，页面测试会失败。
+- 关联测试：`PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py -q -k "harness_readiness or gold_dataset_workbench"`：3 passed。
+- 全量回归：`PYTHONPATH=. pytest tests -q`：265 passed，用时 22.58s。
+
+当前限制：
+
+- Readiness 只判断当前本地 CSV、Memory 和 RAG 文档状态，不替代真实业务指标质量判断。
+- 你后续补 30-50 张真实拼图和业务字段后，才能把 Harness 指标作为面试叙事中的真实小样本证据。
+
 ## v0.3.79 - Harness 真实样本缩略图轻量化
 
 日期：2026-06-25

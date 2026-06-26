@@ -191,6 +191,9 @@ def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):
     html = render_page(agent, AppState(country="日本", view="eval"))
 
     assert "Gold Dataset 工作台" in html
+    assert "Harness Readiness" in html
+    assert "尚不能证明真实业务效果" in html
+    assert "补齐 1 张样本的主体、色彩、构图、价值观标签" in html
     assert "gold 完成率" in html
     assert "业务指标完成率" in html
     assert "0%" in html

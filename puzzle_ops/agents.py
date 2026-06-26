@@ -1148,6 +1148,68 @@ class PuzzleOpsAgent:
             "数据集文件": str(self._active_harness_dataset_path(country)),
         }
 
+    def harness_readiness(self, country: str) -> dict[str, object]:
+        samples = tuple(sample for sample in self.harness_samples(country) if sample.is_real)
+        gold_complete_samples = tuple(sample for sample in samples if not _missing_gold_fields(sample))
+        metric_complete_samples = tuple(sample for sample in samples if not _missing_business_metric_fields(sample))
+        human_gold_samples = tuple(
+            sample
+            for sample in samples
+            if sample.label_source == "human_gold" and sample.label_status == "reviewed"
+        )
+        ai_silver_pending = tuple(
+            sample
+            for sample in samples
+            if sample.label_source == "ai_silver" and sample.label_status == "pending_review"
+        )
+        manual_grade_needs_ai = tuple(
+            sample
+            for sample in samples
+            if sample.label_source == "manual_grade" and sample.label_status == "needs_ai_prelabeled"
+        )
+        rag_gold_docs = tuple(
+            document
+            for document in self._harness_gold_rag_documents(country)
+            if document.source_type == "harness_gold_sample"
+        )
+        fact_gold_count = sum(
+            1
+            for memory in self.repository.layered_memories(country, layer="facts")
+            if memory.get("memory_type") == "harness_gold_label"
+        )
+        readiness = bool(samples) and len(human_gold_samples) == len(samples) and len(metric_complete_samples) == len(samples)
+        next_actions: list[str] = []
+        if not samples:
+            next_actions.append("先登记 30-50 张真实拼图样本，并至少提供人工等级。")
+        if manual_grade_needs_ai:
+            next_actions.append(f"对 {len(manual_grade_needs_ai)} 张已有人工作等级的真实图运行 AI 自动预标注。")
+        if ai_silver_pending:
+            next_actions.append(f"抽查并确认 AI silver：{len(ai_silver_pending)} 张待转 human_gold。")
+        missing_gold = len(samples) - len(gold_complete_samples)
+        if missing_gold:
+            next_actions.append(f"补齐 {missing_gold} 张样本的主体、色彩、构图、价值观标签。")
+        missing_metrics = len(samples) - len(metric_complete_samples)
+        if missing_metrics:
+            next_actions.append(f"补齐业务指标：{missing_metrics} 张缺 position/open_rate/completion_rate/avg_finish_time。")
+        if human_gold_samples and len(rag_gold_docs) < len(human_gold_samples):
+            next_actions.append("刷新价值观与审核 RAG，让 human_gold 样本进入可引用知识库。")
+        if human_gold_samples and fact_gold_count < len(human_gold_samples):
+            next_actions.append("检查 facts memory 沉淀，确保人工确认样本可被后续任务复用。")
+        if readiness:
+            next_actions.append("可以运行真实 VLM Harness，并把结果作为小样本基线。")
+        return {
+            "ready_for_real_eval": readiness,
+            "真实样本数": len(samples),
+            "完整 gold 样本数": len(gold_complete_samples),
+            "完整业务指标样本数": len(metric_complete_samples),
+            "human_gold 样本数": len(human_gold_samples),
+            "待人工审核 silver": len(ai_silver_pending),
+            "待 AI 预标注": len(manual_grade_needs_ai),
+            "RAG human_gold 文档数": len(rag_gold_docs),
+            "Facts memory gold 数": fact_gold_count,
+            "next_actions": tuple(next_actions),
+        }
+
     def ensure_harness_gold_dataset(self, country: str) -> Path:
         dataset = self._active_harness_dataset_path(country)
         if dataset.exists():

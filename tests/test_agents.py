@@ -805,6 +805,105 @@ def test_agent_harness_gold_coverage_reports_business_metric_coverage(tmp_path):
     assert "avg_finish_time:1" in coverage["缺失业务指标摘要"]
 
 
+def test_agent_harness_readiness_guides_next_steps_for_silver_and_missing_metrics(tmp_path):
+    picnic = tmp_path / "france-picnic.png"
+    lace = tmp_path / "france-lace.png"
+    Image.new("RGB", (80, 60), (220, 180, 120)).save(picnic)
+    Image.new("RGB", (80, 60), (240, 230, 210)).save(lace)
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent._runtime_dir = tmp_path
+    dataset = agent.register_harness_real_samples(
+        "法国",
+        [
+            {
+                "sample_id": "fr-real-001",
+                "local_image_path": str(picnic),
+                "gold_grade": "A",
+                "js_category": "lifestyle",
+                "position": 7,
+                "open_rate": 0.42,
+                "completion_rate": 0.91,
+                "avg_finish_time": 38,
+            },
+            {
+                "sample_id": "fr-real-002",
+                "local_image_path": str(lace),
+                "gold_grade": "C",
+                "js_category": "object",
+            },
+        ],
+    )
+    rows = agent._read_harness_gold_rows(dataset)
+    rows[0].update(
+        {
+            "gold_subject": "海滩野餐",
+            "gold_color_mood": "暖金色夕阳",
+            "gold_composition": "海边沙滩静物近景",
+            "gold_value_labels": "生活艺术",
+            "label_source": "ai_silver",
+            "label_status": "pending_review",
+        }
+    )
+    agent._write_harness_gold_rows(dataset, rows)
+
+    readiness = agent.harness_readiness("法国")
+
+    assert readiness["ready_for_real_eval"] is False
+    assert readiness["真实样本数"] == 2
+    assert readiness["待人工审核 silver"] == 1
+    assert readiness["human_gold 样本数"] == 0
+    assert readiness["RAG human_gold 文档数"] == 0
+    assert readiness["Facts memory gold 数"] == 0
+    assert any("抽查并确认 AI silver" in action for action in readiness["next_actions"])
+    assert any("补齐业务指标" in action for action in readiness["next_actions"])
+
+
+def test_agent_harness_readiness_turns_ready_after_human_gold_and_fact_rag_deposit(tmp_path):
+    picnic = tmp_path / "france-picnic.png"
+    Image.new("RGB", (80, 60), (220, 180, 120)).save(picnic)
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent._runtime_dir = tmp_path
+    agent.register_harness_real_samples(
+        "法国",
+        [
+            {
+                "sample_id": "fr-real-001",
+                "local_image_path": str(picnic),
+                "gold_grade": "A",
+                "js_category": "lifestyle",
+                "position": 7,
+                "open_rate": 0.42,
+                "completion_rate": 0.91,
+                "avg_finish_time": 38,
+            }
+        ],
+    )
+
+    agent.update_harness_gold_label(
+        "法国",
+        "fr-real-001",
+        gold_grade="A",
+        gold_subject="海滩野餐",
+        gold_color_mood="暖金色夕阳",
+        gold_composition="海边沙滩静物近景",
+        gold_value_labels="生活艺术",
+        gold_risk_labels="",
+        human_note="人工确认可作为 gold",
+        position="7",
+        open_rate="0.42",
+        completion_rate="0.91",
+        avg_finish_time="38",
+    )
+
+    readiness = agent.harness_readiness("法国")
+
+    assert readiness["ready_for_real_eval"] is True
+    assert readiness["human_gold 样本数"] == 1
+    assert readiness["RAG human_gold 文档数"] == 1
+    assert readiness["Facts memory gold 数"] == 1
+    assert readiness["next_actions"] == ("可以运行真实 VLM Harness，并把结果作为小样本基线。",)
+
+
 def test_agent_ai_prelabeled_real_samples_as_silver_labels(tmp_path):
     image_path = tmp_path / "france-picnic.png"
     Image.new("RGB", (80, 60), (220, 180, 120)).save(image_path)

@@ -674,6 +674,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
     report = agent.eval_report(state.country)
     harness_summary = agent.harness_summary(state.country)
     gold_coverage = agent.harness_gold_coverage(state.country)
+    readiness = agent.harness_readiness(state.country)
     harness_samples = agent.harness_samples(state.country)
     harness_run = agent.harness_display_run(state.country)
     version_compare = agent.harness_compare(harness_run)
@@ -689,6 +690,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
         f"<tr><td>{escape(key)}</td><td>{render_summary_value(value)}</td></tr>"
         for key, value in harness_summary.items()
     )
+    readiness_panel = render_harness_readiness(readiness)
     gold_rows = render_harness_gold_workbench_rows(harness_samples, state)
     review_cases = list(harness_run.failures)
     seen_cases = {(case.sample_id, case.task_type) for case in review_cases}
@@ -736,6 +738,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
     <article><span>业务指标完成率</span><strong>{escape(str(gold_coverage.get("业务指标完成率", "0%")))}</strong></article>
     <article><span>缺失业务指标</span><strong>{escape(str(gold_coverage.get("缺失业务指标摘要", "无")))}</strong></article>
   </div>
+  {readiness_panel}
   <form class="harness-run-form" method="post" action="/auto_prelabeled_harness_gold">{context}<button>AI 自动预标注</button><small>调用真实视觉 LLM，为已有人工作等级的真实样本补主体、色彩、构图、价值观候选和风险候选；结果标记为 ai_silver，待人工抽查。</small></form>
   <form class="harness-run-form bulk-sample-form" method="post" action="/register_harness_real_samples">{context}<textarea name="samples_text" placeholder="A /Users/you/Desktop/france picnic.png&#10;/Users/you/Desktop/lavender.png,S,landscape,4,0.36,0.91,42,试新_法国_薰衣草风车0624,薰衣草风车"></textarea><button>批量登记真实样本</button><label><input type="checkbox" name="auto_prelabeled" value="1">登记后立即 AI 预标注</label><small>每行一张图；支持“等级 图片绝对路径”或“图片绝对路径,等级,分类,位置,开图率,完成率,平均完成时长,运营tag,主体”。图片只保存本机路径，不提交进 Git。</small></form>
   <form class="harness-run-form bulk-sample-form" method="post" action="/register_harness_real_samples">{context}<input name="image_dir" placeholder="/Users/fanglemin/Desktop/图片"><input name="directory_grade_text" placeholder="1A 2A 3B 4S 5C 或 文件名=A"><input name="directory_js_category" value="real_sample"><button>按目录登记真实样本</button><label><input type="checkbox" name="auto_prelabeled" value="1">登记后立即 AI 预标注</label><small>适合一批图片已放在同一文件夹的情况；序号按文件名排序，也可用“文件名=A”精确指定等级。只登记本机路径和人工等级，图片文件不提交进 Git。</small></form>
@@ -814,6 +817,28 @@ def render_generation_failure_distribution(events: tuple[dict[str, str], ...]) -
         f"<tr><td>{escape(error_type)}</td><td>{count}</td><td>{escape(hints.get(error_type, ''))}</td></tr>"
         for error_type, count in sorted(counts.items())
     )
+
+
+def render_harness_readiness(readiness: dict[str, object]) -> str:
+    ready = bool(readiness.get("ready_for_real_eval"))
+    status = "可作为真实评测基线" if ready else "尚不能证明真实业务效果"
+    next_actions = readiness.get("next_actions", ())
+    if not isinstance(next_actions, (list, tuple)):
+        next_actions = (str(next_actions),)
+    action_items = "".join(f"<li>{escape(str(action))}</li>" for action in next_actions)
+    return f"""
+  <div class="readiness-panel {'ready' if ready else 'not-ready'}">
+    <div><span>Harness Readiness</span><strong>{escape(status)}</strong></div>
+    <div class="readiness-stats">
+      <span>human_gold {escape(str(readiness.get("human_gold 样本数", 0)))}</span>
+      <span>silver待审 {escape(str(readiness.get("待人工审核 silver", 0)))}</span>
+      <span>待AI预标注 {escape(str(readiness.get("待 AI 预标注", 0)))}</span>
+      <span>RAG gold文档 {escape(str(readiness.get("RAG human_gold 文档数", 0)))}</span>
+      <span>Facts {escape(str(readiness.get("Facts memory gold 数", 0)))}</span>
+    </div>
+    <ol>{action_items}</ol>
+  </div>
+"""
 
 
 def _harness_metric_text(run, key: str, value: float) -> str:
@@ -1260,6 +1285,15 @@ nav { display:grid; gap:8px; margin:18px 0; }
 .gold-coverage article { display:grid; gap:4px; padding:10px; border:1px solid var(--line); border-radius:8px; background:#f6faf8; }
 .gold-coverage span { color:var(--muted); font-size:13px; font-weight:800; }
 .gold-coverage strong { overflow-wrap:anywhere; }
+.readiness-panel { display:grid; gap:10px; margin:10px 0 14px; padding:12px; border:1px solid var(--line); border-radius:8px; background:#fffdf7; }
+.readiness-panel.ready { border-color:#4d8f72; background:#f1faf5; }
+.readiness-panel.not-ready { border-color:#d6b45c; background:#fff8de; }
+.readiness-panel > div:first-child { display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; }
+.readiness-panel span { color:var(--muted); font-weight:800; }
+.readiness-panel strong { color:var(--text); font-size:18px; overflow-wrap:anywhere; }
+.readiness-stats { display:flex; gap:8px; flex-wrap:wrap; }
+.readiness-stats span { padding:4px 8px; border-radius:999px; background:#fff; border:1px solid var(--line); font-size:12px; color:#2f5c4f; }
+.readiness-panel ol { margin:0; padding-left:22px; line-height:1.55; }
 .harness-run-form { margin:10px 0; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
 .harness-run-form small { color:var(--muted); }
 .bulk-sample-form { align-items:flex-start; }
