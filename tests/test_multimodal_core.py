@@ -8,7 +8,7 @@ from puzzle_ops.models import HistoricalRecord
 from puzzle_ops.multimodal import ImageFeatureExtractor, SimilarImageRetriever, ValueInsightMiner
 
 
-FIXTURE = Path("/Users/fanglemin/Desktop/日本数据示例.xlsx")
+FIXTURE = Path("/Users/fanglemin/Desktop/数据示例.xlsx")
 AUDIT_DOC = Path("/Users/fanglemin/Desktop/拼图审核手册.docx")
 
 

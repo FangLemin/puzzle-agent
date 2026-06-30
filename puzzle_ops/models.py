@@ -5,6 +5,7 @@ JS_CATEGORIES = {
     "houses",
     "home",
     "food",
+    "drawing",
     "flowers",
     "pets",
     "animal",

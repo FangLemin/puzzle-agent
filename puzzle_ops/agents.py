@@ -13,7 +13,7 @@ from puzzle_ops.audit import AuditPolicyRetriever, AuditRuleEngine
 from puzzle_ops.cms import MockCMSClient
 from puzzle_ops.excel_importer import import_history_workbook
 from puzzle_ops.feishu import FeishuClientFactory, MockFeishuClient
-from puzzle_ops.models import AgentTrace, AnalysisReport, DemandRow, HolidayRecommendation, ImageProfile, ScheduleItem, TagMeta, ValuePredictionCard, ValueRuleCandidate
+from puzzle_ops.models import AgentTrace, AnalysisReport, AnalysisRow, DemandRow, HolidayRecommendation, ImageProfile, ScheduleItem, TagMeta, ValuePredictionCard, ValueRuleCandidate
 from puzzle_ops.multimodal import ImageFeatureExtractor, SimilarImageRetriever, ValueInsightMiner
 from puzzle_ops.rag import FeedbackAwareRerankProvider, HybridRagRetriever, RagChunk, RagDocument, RagPrompt, RagProviderConfig, RagRuntimeStats, build_rag_prompt, chunk_document, providers_from_config
 from puzzle_ops.storage import PuzzleRepository
@@ -364,12 +364,23 @@ class PuzzleOpsAgent:
 
     def analysis_report(self, country: str) -> AnalysisReport:
         data = self._country(country)["analysis"]
+        records = self._history_records(country)
+        rows = tuple(_analysis_row_from_record(record) for record in records) if records else data["rows"]
+        total = len(records)
+        sa_ratio = _pct(sum(1 for record in records if record.grade in {"S", "A"}) / total) if total else data["sa_ratio"]
+        cd_ratio = _pct(sum(1 for record in records if record.grade in {"C", "D"}) / total) if total else data["cd_ratio"]
+        ai_ratio = _pct(sum(1 for record in records if record.source == "AI") / total) if total else data["ai_ratio"]
         visual_recap = self._visual_analysis_recap(country)
+        sample_summary = (
+            f"本周期已接入真实样本{total}张，SA {sa_ratio}，CD {cd_ratio}，AI {ai_ratio}。"
+            if total
+            else ""
+        )
         return AnalysisReport(
             country=country,
-            sa_ratio=data["sa_ratio"],
-            cd_ratio=data["cd_ratio"],
-            ai_ratio=data["ai_ratio"],
+            sa_ratio=sa_ratio,
+            cd_ratio=cd_ratio,
+            ai_ratio=ai_ratio,
             sa_delta=data["sa_delta"],
             cd_delta=data["cd_delta"],
             ai_delta=data["ai_delta"],
@@ -378,9 +389,9 @@ class PuzzleOpsAgent:
             cd_history_avg=data["cd_history_avg"],
             ai_history_avg=data["ai_history_avg"],
             ai_okr=data["ai_okr"],
-            cycle_summary=f"{data['cycle_summary']} 视觉维度复盘：{visual_recap}",
+            cycle_summary=f"{sample_summary}{data['cycle_summary']} 视觉维度复盘：{visual_recap}",
             next_todo=f"{data['next_todo']} 多模态建议：优先补充主体清晰、文化语境准确、质量风险低的试新参考图。",
-            rows=data["rows"],
+            rows=rows,
         )
 
     def value_rules(self, country: str):
@@ -1282,25 +1293,29 @@ class PuzzleOpsAgent:
             ),
         )
         all_passed = all(gate["passed"] for gate in (*layer1_gates, *layer2_gates))
+        total_real_samples = sum(len(self.harness_samples(name)) for name in self.countries())
         return {
             "overall_status": "front_two_layers_landed" if all_passed else "front_two_layers_need_attention",
             "layer1_gates": layer1_gates,
             "layer2_gates": layer2_gates,
             "harness_readiness": harness_ready,
-            "waiting_for_third_layer": "等待 30-50 张真实拼图图片、人工等级和真实业务字段后运行真实样本基线。",
+            "waiting_for_third_layer": _third_layer_status_text(total_real_samples),
         }
 
-    def ensure_harness_gold_dataset(self, country: str) -> Path:
+    def ensure_harness_gold_dataset(self, country: str, *, seed_defaults: bool = True) -> Path:
         dataset = self._active_harness_dataset_path(country)
         if dataset.exists():
             return dataset
         dataset.parent.mkdir(parents=True, exist_ok=True)
-        samples = tuple(sample for sample in AgentHarness(self, self.image_generator).default_samples(country) if sample.is_real)
-        self._write_harness_gold_rows(dataset, [sample.csv_row() for sample in samples])
+        rows = []
+        if seed_defaults:
+            samples = tuple(sample for sample in AgentHarness(self, self.image_generator).default_samples(country) if sample.is_real)
+            rows = [sample.csv_row() for sample in samples]
+        self._write_harness_gold_rows(dataset, rows)
         return dataset
 
     def register_harness_real_samples(self, country: str, records: list[dict[str, object]]) -> Path:
-        dataset = self.ensure_harness_gold_dataset(country)
+        dataset = self.ensure_harness_gold_dataset(country, seed_defaults=False)
         rows = self._read_harness_gold_rows(dataset)
         by_id = {row.get("sample_id", ""): row for row in rows}
         by_path = {str(Path(row.get("local_image_path", "")).expanduser()): row for row in rows if row.get("local_image_path")}
@@ -1644,9 +1659,12 @@ class PuzzleOpsAgent:
     def _history_records(self, country: str):
         if country in self._history_cache:
             return self._history_cache[country]
-        fixture = Path("/Users/fanglemin/Desktop/日本数据示例.xlsx")
-        if country == "日本" and fixture.exists():
-            records = import_history_workbook(fixture, country, self._runtime_dir / "images")
+        mixed_fixture = Path("/Users/fanglemin/Desktop/数据示例.xlsx")
+        legacy_fixture = Path("/Users/fanglemin/Desktop/日本数据示例.xlsx")
+        if mixed_fixture.exists() and country in {"日本", "法国"}:
+            records = import_history_workbook(mixed_fixture, country, self._runtime_dir / "images" / country)
+        elif country == "日本" and legacy_fixture.exists():
+            records = import_history_workbook(legacy_fixture, country, self._runtime_dir / "images" / country)
         else:
             records = _records_from_static_country(country)
         self.repository.save_history_records(records)
@@ -1669,6 +1687,36 @@ class PuzzleOpsAgent:
 
 def _pct(value: float) -> str:
     return f"{round(value * 100)}%"
+
+
+def _analysis_row_from_record(record) -> AnalysisRow:
+    title = record.subject_tag or record.operation_tag
+    remark_parts = [part for part in (record.dimension_grade, record.remark) if part]
+    remark = "；".join(remark_parts) or record.operation_tag
+    return AnalysisRow(
+        image_name=title,
+        source=record.source,
+        grade=record.grade,
+        open_rate=_rate_text(record.open_rate),
+        finish_rate=_rate_text(record.completion_rate),
+        finish_time=_minutes_text(record.avg_finish_time),
+        position=record.position,
+        remark=remark,
+    )
+
+
+def _rate_text(value: float) -> str:
+    return f"{value * 100:.2f}%"
+
+
+def _minutes_text(value: float) -> str:
+    return f"{value:.2f}min"
+
+
+def _third_layer_status_text(real_sample_count: int) -> str:
+    if real_sample_count >= 30:
+        return f"已接入 {real_sample_count} 张真实拼图样本；下一步运行真实 VLM Harness，并抽查 AI silver 后晋升 human_gold。"
+    return "等待 30-50 张真实拼图图片、人工等级和真实业务字段后运行真实样本基线。"
 
 
 def _replace_tag_date_suffix(operation_tag: str, today: date) -> str:

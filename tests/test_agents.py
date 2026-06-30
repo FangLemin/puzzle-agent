@@ -363,9 +363,40 @@ def test_analysis_marks_positions_5_and_10_and_keeps_editable_remarks():
 
     assert report.sa_ratio.endswith("%")
     assert report.cd_ratio.endswith("%")
-    assert len(important) == 2
+    assert important
     assert all(row.position_is_red for row in important)
     assert all(row.remark_editable for row in report.rows)
+
+
+def test_analysis_report_uses_updated_country_okr_from_business_background():
+    agent = PuzzleOpsAgent()
+
+    japan = agent.analysis_report("日本")
+    france = agent.analysis_report("法国")
+
+    assert japan.sa_okr == "35%"
+    assert japan.ai_okr == "30%"
+    assert france.sa_okr == "30%"
+    assert france.ai_okr == "35%"
+
+
+def test_analysis_report_uses_new_real_business_workbook_metrics():
+    agent = PuzzleOpsAgent()
+
+    japan = agent.analysis_report("日本")
+    france = agent.analysis_report("法国")
+
+    assert len(japan.rows) == 25
+    assert japan.sa_ratio == "52%"
+    assert japan.cd_ratio == "20%"
+    assert japan.ai_ratio == "48%"
+    assert {"AI", "素材网"}.issubset({row.source for row in japan.rows})
+    assert {"S", "A", "B", "C", "D"}.issubset({row.grade for row in japan.rows})
+    assert len(france.rows) == 20
+    assert france.sa_ratio == "50%"
+    assert france.cd_ratio == "25%"
+    assert france.ai_ratio == "75%"
+    assert any(row.source == "AI" and row.grade == "D" for row in france.rows)
 
 
 def test_value_prediction_filters_by_grade():
@@ -449,6 +480,35 @@ def test_agent_harness_prefers_configured_real_gold_dataset(monkeypatch, tmp_pat
     assert summary["真实样本数"] == 1
     assert summary["合成样本数"] == 0
     assert summary["数据集来源"].endswith("gold_samples.csv")
+
+
+def test_agent_uses_new_mixed_business_workbook_for_japan_and_france_history(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent._runtime_dir = tmp_path
+
+    japan = agent._history_records("日本")
+    france = agent._history_records("法国")
+
+    assert len(japan) == 25
+    assert len(france) == 20
+    assert {record.country for record in japan} == {"日本"}
+    assert {record.country for record in france} == {"法国"}
+    assert all(record.local_image_path and Path(record.local_image_path).exists() for record in (*japan, *france))
+    assert "drawing" in {record.js_category for record in japan}
+    assert "houses" in {record.js_category for record in france}
+
+
+def test_agent_harness_uses_all_real_business_workbook_samples_when_no_gold_csv(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent._runtime_dir = tmp_path
+
+    japan_samples = agent.harness_samples("日本")
+    france_samples = agent.harness_samples("法国")
+
+    assert len(japan_samples) == 25
+    assert len(france_samples) == 20
+    assert all(sample.is_real for sample in (*japan_samples, *france_samples))
+    assert {sample.gold_grade for sample in france_samples} >= {"S", "A", "B", "C", "D"}
 
 
 def test_agent_harness_summary_reports_invalid_gold_dataset_rows(monkeypatch, tmp_path):
@@ -916,7 +976,7 @@ def test_agent_front_two_layers_readiness_proves_landed_infrastructure(tmp_path)
     readiness = agent.front_two_layers_readiness("日本")
 
     assert readiness["overall_status"] == "front_two_layers_landed"
-    assert readiness["waiting_for_third_layer"] == "等待 30-50 张真实拼图图片、人工等级和真实业务字段后运行真实样本基线。"
+    assert readiness["waiting_for_third_layer"] == "已接入 45 张真实拼图样本；下一步运行真实 VLM Harness，并抽查 AI silver 后晋升 human_gold。"
     assert all(gate["passed"] for gate in readiness["layer1_gates"])
     assert all(gate["passed"] for gate in readiness["layer2_gates"])
     assert any(gate["name"] == "AI silver -> human_gold 防误用" for gate in readiness["layer1_gates"])

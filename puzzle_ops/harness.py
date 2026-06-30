@@ -227,7 +227,7 @@ class AgentHarness:
     def default_samples(self, country: str) -> tuple[EvalSample, ...]:
         records = self.agent._history_records(country)
         samples: list[EvalSample] = []
-        for index, record in enumerate(records[:8], 1):
+        for index, record in enumerate(records, 1):
             is_real = bool(record.local_image_path and Path(record.local_image_path).exists())
             source = "real" if is_real else "synthetic_demo"
             samples.append(

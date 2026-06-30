@@ -8,7 +8,7 @@ from puzzle_ops.rag import RagDocument, chunk_document
 from puzzle_ops.storage import PuzzleRepository
 
 
-FIXTURE = Path("/Users/fanglemin/Desktop/日本数据示例.xlsx")
+FIXTURE = Path("/Users/fanglemin/Desktop/数据示例.xlsx")
 
 
 def test_repository_persists_imported_history_records(tmp_path):
@@ -18,7 +18,7 @@ def test_repository_persists_imported_history_records(tmp_path):
     repo.save_history_records(records)
     loaded = repo.history_records(country="日本")
 
-    assert len(loaded) == 5
+    assert len(loaded) == 25
     assert loaded[0].image_id == records[0].image_id
     assert loaded[0].local_image_path == records[0].local_image_path
     assert loaded[0].js_category == "animal"

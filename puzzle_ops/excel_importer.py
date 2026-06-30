@@ -11,6 +11,11 @@ from puzzle_ops.models import HistoricalRecord, JS_CATEGORIES
 
 
 DISPIMG_RE = re.compile(r'DISPIMG\("([^"]+)"')
+JS_CATEGORY_ALIASES = {
+    "house": "houses",
+    "object": "objects",
+    "flower": "flowers",
+}
 
 
 class ExcelImageExtractor:
@@ -67,9 +72,12 @@ def import_history_workbook(workbook_path: Path | str, country: str, image_outpu
     records: list[HistoricalRecord] = []
     for row in rows[1:]:
         values = dict(zip(headers, row))
-        if not any(value is not None for value in values.values()):
+        if not any(str(value or "").strip() for value in values.values()):
             continue
-        js_category = str(values["JS分类"]).strip()
+        row_country = str(values.get("国家") or country).strip()
+        if row_country and row_country != country:
+            continue
+        js_category = _normalize_js_category(str(values["JS分类"]).strip())
         if js_category not in JS_CATEGORIES:
             raise ValueError(f"未知 JS分类：{js_category}")
         image_formula = str(values["图片本身"] or "")
@@ -95,10 +103,15 @@ def import_history_workbook(workbook_path: Path | str, country: str, image_outpu
                 remark=str(values["备注"] or ""),
                 distribution_date=_as_text(values["分发日期"]),
                 distribution_cycle=str(values["分发周期"]),
-                country=country,
+                country=row_country or country,
             )
         )
     return tuple(records)
+
+
+def _normalize_js_category(value: str) -> str:
+    normalized = value.strip()
+    return JS_CATEGORY_ALIASES.get(normalized, normalized)
 
 
 def _dispimg_id(formula: str) -> str:

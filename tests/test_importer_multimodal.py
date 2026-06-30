@@ -7,13 +7,13 @@ from puzzle_ops.grading import classify_dimension, expected_grade
 from puzzle_ops.models import JS_CATEGORIES
 
 
-FIXTURE = Path("/Users/fanglemin/Desktop/日本数据示例.xlsx")
+FIXTURE = Path("/Users/fanglemin/Desktop/数据示例.xlsx")
 
 
 def test_import_history_workbook_preserves_real_business_columns_and_images(tmp_path):
     records = import_history_workbook(FIXTURE, "日本", tmp_path)
 
-    assert len(records) == 5
+    assert len(records) == 25
     first = records[0]
     assert first.grade == "S"
     assert first.image_id == "550e8400-e29b-41d4-a716-446655440000"
@@ -77,3 +77,23 @@ def test_excel_image_extractor_maps_dispimg_ids_to_media_files(tmp_path):
         "ID_884682E4B2224D84BF30D38126599B71",
     }
     assert Path(mapping["ID_C5EFF1CD27774171A5021588C78A65BA"]).exists()
+
+
+def test_import_history_workbook_filters_mixed_country_sheet_and_extracts_real_images(tmp_path):
+    records = import_history_workbook(FIXTURE, "法国", tmp_path)
+
+    assert len(records) == 20
+    assert {record.country for record in records} == {"法国"}
+    assert {record.distribution_cycle for record in records} == {"W2"}
+    assert all(Path(record.local_image_path).exists() for record in records)
+    assert {"houses", "objects", "drawing"}.issubset({record.js_category for record in records})
+
+
+def test_import_history_workbook_normalizes_real_business_js_category_aliases(tmp_path):
+    records = import_history_workbook(FIXTURE, "日本", tmp_path)
+
+    assert len(records) == 25
+    assert {record.country for record in records} == {"日本"}
+    assert {"objects", "flowers", "drawing"}.issubset({record.js_category for record in records})
+    assert "object" not in {record.js_category for record in records}
+    assert "flower" not in {record.js_category for record in records}
