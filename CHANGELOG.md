@@ -2,6 +2,52 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.86 - 好图衍生生成 Provider 接通通义万相与 ComfyUI
+
+日期：2026-06-30
+
+阶段目标：
+
+- 补齐好图衍生生成的真实 Provider 路线：云端通义万相/DashScope + 本地 ComfyUI。
+- 保持既有安全边界：生成图只作为参考图，必须经过二次 VLM 解析与审核，运营确认后才允许同步飞书附件。
+
+已完成：
+
+- 通义万相/DashScope Provider 延续并强化：
+  - `IMAGE_GENERATION_PROVIDER=dashscope` 或 `wanx` 时使用 `DashScopeImageGenerationProvider`。
+  - 优先读取 `IMAGE_GENERATION_API_KEY`，缺省时复用现有 `QWEN_API_KEY`。
+  - 默认模型为 `wan2.6-image`，生成结果会下载到本地并保留 prompt、negative prompt、seed、来源样本等元数据。
+- 新增真实 ComfyUI Provider：
+  - `IMAGE_GENERATION_PROVIDER=comfyui` 时使用 `ComfyUIImageGenerationProvider`。
+  - 使用 `COMFYUI_BASE_URL`，默认 `http://127.0.0.1:8188`。
+  - 使用 `COMFYUI_WORKFLOW_PATH` 读取本地 workflow JSON。
+  - 不要求 API key，适合本机或内网 ComfyUI。
+  - 会向 workflow 注入 prompt、negative prompt、seed、reference image 和 PuzzleOps 约束信息。
+  - 支持 ComfyUI `/prompt`、`/history/{prompt_id}`、`/view` 基础链路，并把生成图保存成本地文件。
+- 诊断与页面增强：
+  - Trial 页生成 Provider 诊断新增 `workflow_path` 和 `workflow_configured`。
+  - 服务端 `/check_generation_provider` 同步显示 ComfyUI workflow 配置状态。
+  - 未配置 workflow 时不会伪造生成成功，会明确提示缺少 `COMFYUI_WORKFLOW_PATH`。
+
+验证：
+
+- TDD 红灯：
+  - 缺少 `ComfyUIImageGenerationProvider` 类时测试导入失败。
+  - `IMAGE_GENERATION_PROVIDER=comfyui` 仍要求 API key 时失败。
+  - Trial 页缺少 ComfyUI workflow 诊断字段时失败。
+- 定向回归：
+  - `PYTHONPATH=. pytest tests/test_harness.py -q -k "comfyui or dashscope_generation_provider or cloud_generation_provider or factory_selects_generation_provider"`：6 passed。
+  - `PYTHONPATH=. pytest tests/test_renderer.py -q -k "generation_readiness or generation_provider"`：4 passed。
+  - `PYTHONPATH=. pytest tests/test_server.py -q -k "generation_provider_diagnostic or check_generation_provider"`：2 passed。
+  - `PYTHONPATH=. pytest tests/test_server.py -q -k "generate_trial_derivatives or approve_generated_derivatives or sync_trial"`：6 passed。
+  - `PYTHONPATH=. pytest tests/test_harness.py tests/test_renderer.py -q -k "generation"`：17 passed。
+
+当前限制：
+
+- ComfyUI workflow 的节点结构由运营/工程配置提供，本项目只做 workflow 注入和调用适配，不内置大型模型或 LoRA。
+- 通义万相与 ComfyUI 真实出图都会产生外部依赖：云端费用、额度、模型可用性，或本机 ComfyUI 服务状态。
+- 生成图仍不会自动作为最终生产图；必须经过二次 VLM 审核与运营确认。
+
 ## v0.3.85 - 真实 Harness Baseline 与失败样本复盘
 
 日期：2026-06-30

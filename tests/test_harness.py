@@ -9,6 +9,7 @@ from puzzle_ops.image_generation import (
     MockImageGenerationProvider,
     CloudImageGenerationProvider,
     DashScopeImageGenerationProvider,
+    ComfyUIImageGenerationProvider,
     _dashscope_images_from_response,
     _download_image,
 )
@@ -626,6 +627,64 @@ def test_dashscope_generation_provider_raises_clear_error_on_failed_task(tmp_pat
         assert "quota exceeded" in str(exc)
     else:
         raise AssertionError("expected failed DashScope task to raise RuntimeError")
+
+
+def test_comfyui_generation_provider_uses_workflow_and_writes_images(tmp_path):
+    workflow = tmp_path / "workflow.json"
+    workflow.write_text('{"6":{"class_type":"CLIPTextEncode","inputs":{"text":""}}}', encoding="utf-8")
+    png_b64 = (
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/"
+        "pLvAAAAAElFTkSuQmCC"
+    )
+    captured = {}
+
+    def fake_transport(payload, base_url):
+        captured.update(payload=payload, base_url=base_url)
+        return {"prompt_id": "prompt-123", "images": [{"b64_json": png_b64, "prompt": payload["prompt"]}]}
+
+    provider = ComfyUIImageGenerationProvider(
+        output_dir=tmp_path / "generated",
+        base_url="http://127.0.0.1:8188",
+        workflow_path=str(workflow),
+        transport=fake_transport,
+    )
+
+    images = provider.generate_derivatives(
+        reference_image="real-sushi.png",
+        prompt="保留寿司主体，变化为春季便当场景",
+        negative_prompt="避免品牌logo和文字水印",
+        count=1,
+        seed=616,
+        style_constraints={"source_sample_id": "sample-1", "retained_features": "寿司；清爽"},
+    )
+
+    assert provider.healthcheck()["provider"] == "comfyui"
+    assert provider.healthcheck()["configured"] is True
+    assert provider.healthcheck()["workflow_configured"] is True
+    assert captured["base_url"] == "http://127.0.0.1:8188"
+    assert captured["payload"]["reference_image"] == "real-sushi.png"
+    assert captured["payload"]["negative_prompt"] == "避免品牌logo和文字水印"
+    assert captured["payload"]["workflow"]["6"]["inputs"]["text"] == "保留寿司主体，变化为春季便当场景"
+    assert len(images) == 1
+    assert images[0].provider == "comfyui"
+    assert images[0].image_id.startswith("comfyui-")
+    assert Path(images[0].local_image_path).exists()
+    assert images[0].risk_notes == ("生成图需二次 VLM 解析与审核",)
+
+
+def test_factory_creates_comfyui_provider_without_api_key(monkeypatch, tmp_path):
+    workflow = tmp_path / "workflow.json"
+    workflow.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("IMAGE_GENERATION_PROVIDER", "comfyui")
+    monkeypatch.delenv("IMAGE_GENERATION_API_KEY", raising=False)
+    monkeypatch.setenv("COMFYUI_BASE_URL", "http://localhost:8188")
+    monkeypatch.setenv("COMFYUI_WORKFLOW_PATH", str(workflow))
+
+    provider = ImageGenerationProviderFactory.create(tmp_path, transport=lambda payload, base_url: {"images": []})
+
+    assert isinstance(provider, ComfyUIImageGenerationProvider)
+    assert provider.healthcheck()["base_url"] == "http://localhost:8188"
+    assert provider.healthcheck()["workflow_path"] == str(workflow)
 
 
 def test_repository_saves_and_reads_harness_runs(tmp_path):

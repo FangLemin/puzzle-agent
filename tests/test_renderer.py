@@ -2,7 +2,7 @@ from puzzle_ops.agents import PuzzleOpsAgent
 from puzzle_ops.renderer import AppState, render_page
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.vision_llm import MissingVisionLLMConfig
-from puzzle_ops.image_generation import CloudImageGenerationProvider, DashScopeImageGenerationProvider
+from puzzle_ops.image_generation import CloudImageGenerationProvider, DashScopeImageGenerationProvider, ComfyUIImageGenerationProvider
 from puzzle_ops.storage import PuzzleRepository
 
 
@@ -156,6 +156,27 @@ def test_trial_page_shows_dashscope_generation_readiness(tmp_path):
     assert "QWEN_API_KEY" in html
     assert "sdk_available" in html
     assert "False" in html
+
+
+def test_trial_page_shows_comfyui_generation_readiness(tmp_path):
+    workflow = tmp_path / "workflow.json"
+    workflow.write_text("{}", encoding="utf-8")
+    agent = agent_without_vlm(tmp_path)
+    agent.image_generator = ComfyUIImageGenerationProvider(
+        tmp_path / "generated",
+        base_url="http://127.0.0.1:8188",
+        workflow_path=str(workflow),
+        transport=lambda payload, base_url: {"images": []},
+    )
+    state = AppState(country="法国", view="trial", trial_mode="derive")
+
+    html = render_page(agent, state)
+
+    assert "ComfyUI 生成 provider 已配置" in html
+    assert "workflow_path" in html
+    assert str(workflow) in html
+    assert "workflow_configured" in html
+    assert "True" in html
 
 
 def test_runtime_page_shows_rag_feedback_summary(tmp_path):

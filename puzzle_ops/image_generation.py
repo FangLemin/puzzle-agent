@@ -247,6 +247,97 @@ class DashScopeImageGenerationProvider(ImageGenerationProvider):
         return tuple(images)
 
 
+class ComfyUIImageGenerationProvider(ImageGenerationProvider):
+    provider_name = "comfyui"
+
+    def __init__(
+        self,
+        output_dir: Path | str,
+        base_url: str = "http://127.0.0.1:8188",
+        workflow_path: str = "",
+        transport=None,
+        image_downloader=None,
+    ):
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.base_url = base_url.rstrip("/")
+        self.workflow_path = workflow_path
+        self.transport = transport or _comfyui_transport
+        self.image_downloader = image_downloader or _download_image
+
+    def healthcheck(self) -> dict[str, object]:
+        workflow_configured = bool(self.workflow_path and Path(self.workflow_path).expanduser().is_file())
+        return {
+            "provider": self.provider_name,
+            "configured": bool(self.base_url),
+            "ready": bool(self.base_url and workflow_configured),
+            "message": (
+                f"ComfyUI 生成 provider 已配置：{self.base_url}"
+                if workflow_configured
+                else f"ComfyUI 生成 provider 已配置：{self.base_url}；缺少 COMFYUI_WORKFLOW_PATH"
+            ),
+            "model": "ComfyUI workflow",
+            "base_url": self.base_url,
+            "workflow_path": self.workflow_path or "未配置",
+            "workflow_configured": workflow_configured,
+        }
+
+    def generate_derivatives(
+        self,
+        reference_image: str,
+        prompt: str,
+        negative_prompt: str,
+        count: int,
+        seed: int,
+        style_constraints: dict[str, str],
+    ) -> tuple[DerivativeImage, ...]:
+        workflow = self._workflow(prompt, negative_prompt, seed, reference_image, style_constraints)
+        payload = {
+            "workflow": workflow,
+            "prompt": prompt,
+            "negative_prompt": negative_prompt,
+            "count": count,
+            "seed": seed,
+            "reference_image": reference_image,
+            "style_constraints": style_constraints,
+        }
+        try:
+            response = self.transport(payload, self.base_url)
+        except Exception as exc:
+            raise RuntimeError(f"ComfyUI 图像生成失败：{exc}") from exc
+        results = response.get("images", []) if isinstance(response, dict) else []
+        if not results:
+            raise RuntimeError("ComfyUI 图像生成失败：响应中没有生成图片")
+        images: list[DerivativeImage] = []
+        prompt_id = str(response.get("prompt_id", "")) if isinstance(response, dict) else ""
+        for index, item in enumerate(results[:count]):
+            image_bytes = _image_bytes_from_response_item(item, self.image_downloader)
+            item_seed = seed + index
+            digest = hashlib.sha1(image_bytes + f":{item_seed}:{prompt_id}".encode("utf-8")).hexdigest()[:12]
+            path = self.output_dir / f"comfyui_derivative_{digest}.png"
+            path.write_bytes(image_bytes)
+            images.append(
+                DerivativeImage(
+                    image_id=f"comfyui-{digest}",
+                    local_image_path=str(path),
+                    provider=self.provider_name,
+                    prompt=str(item.get("prompt") or prompt) if isinstance(item, dict) else prompt,
+                    negative_prompt=negative_prompt,
+                    seed=item_seed,
+                    source_sample_id=str(style_constraints.get("source_sample_id", "")),
+                    retained_features=_tuple_from_constraint(style_constraints, "retained_features"),
+                    changed_features=_tuple_from_constraint(style_constraints, "changed_features"),
+                    risk_notes=("生成图需二次 VLM 解析与审核",),
+                    generated_at=datetime.now().isoformat(timespec="seconds"),
+                )
+            )
+        return tuple(images)
+
+    def _workflow(self, prompt: str, negative_prompt: str, seed: int, reference_image: str, style_constraints: dict[str, str]) -> dict[str, object]:
+        workflow = _load_comfyui_workflow(self.workflow_path)
+        return _inject_comfyui_workflow_inputs(workflow, prompt, negative_prompt, seed, reference_image, style_constraints)
+
+
 class ImageGenerationProviderFactory:
     @staticmethod
     def create(output_dir: Path | str, transport=None) -> ImageGenerationProvider:
@@ -255,7 +346,7 @@ class ImageGenerationProviderFactory:
             return MissingImageGenerationProvider()
         if provider == "mock":
             return MockImageGenerationProvider(output_dir)
-        if provider in {"cloud", "comfyui"}:
+        if provider == "cloud":
             api_key = os.getenv("IMAGE_GENERATION_API_KEY", "")
             if not api_key:
                 return MissingImageGenerationProvider()
@@ -264,6 +355,13 @@ class ImageGenerationProviderFactory:
                 api_key=api_key,
                 model=os.getenv("IMAGE_GENERATION_MODEL", "wanx2.1-t2i-plus"),
                 base_url=os.getenv("IMAGE_GENERATION_BASE_URL", "https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis"),
+                transport=transport,
+            )
+        if provider == "comfyui":
+            return ComfyUIImageGenerationProvider(
+                output_dir=output_dir,
+                base_url=os.getenv("COMFYUI_BASE_URL", os.getenv("IMAGE_GENERATION_BASE_URL", "http://127.0.0.1:8188")),
+                workflow_path=os.getenv("COMFYUI_WORKFLOW_PATH", ""),
                 transport=transport,
             )
         if provider in {"dashscope", "wanx"}:
@@ -393,6 +491,94 @@ def _dashscope_images_from_response(response: object, prompt: str) -> tuple[dict
     return tuple(images)
 
 
+def _load_comfyui_workflow(workflow_path: str) -> dict[str, object]:
+    if not workflow_path.strip():
+        return {}
+    path = Path(workflow_path).expanduser()
+    if not path.is_file():
+        raise ValueError(f"ComfyUI workflow 不存在：{workflow_path}")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _inject_comfyui_workflow_inputs(
+    workflow: dict[str, object],
+    prompt: str,
+    negative_prompt: str,
+    seed: int,
+    reference_image: str,
+    style_constraints: dict[str, str],
+) -> dict[str, object]:
+    injected = json.loads(json.dumps(workflow, ensure_ascii=False))
+    prompt_done = False
+    negative_done = False
+    for node in injected.values():
+        if not isinstance(node, dict):
+            continue
+        inputs = node.get("inputs")
+        if not isinstance(inputs, dict):
+            continue
+        class_type = str(node.get("class_type", ""))
+        if "seed" in inputs:
+            inputs["seed"] = seed
+        if "noise_seed" in inputs:
+            inputs["noise_seed"] = seed
+        if "image" in inputs and reference_image:
+            inputs["image"] = reference_image
+        if "text" in inputs and "CLIPTextEncode" in class_type:
+            if not prompt_done:
+                inputs["text"] = prompt
+                prompt_done = True
+            elif not negative_done:
+                inputs["text"] = negative_prompt
+                negative_done = True
+    injected.setdefault("_puzzleops", {})
+    if isinstance(injected["_puzzleops"], dict):
+        injected["_puzzleops"].update(
+            {
+                "prompt": prompt,
+                "negative_prompt": negative_prompt,
+                "seed": seed,
+                "reference_image": reference_image,
+                "style_constraints": style_constraints,
+            }
+        )
+    return injected
+
+
+def _comfyui_transport(payload: dict[str, object], base_url: str) -> dict[str, object]:
+    client_id = hashlib.sha1(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+    submit_payload = {"prompt": payload.get("workflow", {}), "client_id": client_id}
+    prompt_response = _json_request(f"{base_url.rstrip('/')}/prompt", submit_payload)
+    prompt_id = str(prompt_response.get("prompt_id", ""))
+    if not prompt_id:
+        raise RuntimeError("ComfyUI 未返回 prompt_id")
+    history = _json_get(f"{base_url.rstrip('/')}/history/{prompt_id}")
+    images: list[dict[str, object]] = []
+    for item in _comfyui_history_images(history, prompt_id):
+        images.append({"url": f"{base_url.rstrip('/')}/view?filename={item['filename']}&subfolder={item.get('subfolder', '')}&type={item.get('type', 'output')}", "prompt": payload.get("prompt", "")})
+    return {"prompt_id": prompt_id, "images": images}
+
+
+def _comfyui_history_images(history: dict[str, object], prompt_id: str) -> tuple[dict[str, str], ...]:
+    node = history.get(prompt_id, history)
+    outputs = node.get("outputs", {}) if isinstance(node, dict) else {}
+    images: list[dict[str, str]] = []
+    if isinstance(outputs, dict):
+        for output in outputs.values():
+            if not isinstance(output, dict):
+                continue
+            for image in output.get("images", ()) or ():
+                if isinstance(image, dict) and image.get("filename"):
+                    images.append(
+                        {
+                            "filename": str(image.get("filename", "")),
+                            "subfolder": str(image.get("subfolder", "")),
+                            "type": str(image.get("type", "output")),
+                        }
+                    )
+    return tuple(images)
+
+
 def _image_url_from_dashscope_item(item: object) -> str:
     if not isinstance(item, dict):
         return ""
@@ -420,4 +606,16 @@ def _cloud_transport(payload: dict[str, object], api_key: str, base_url: str) ->
         method="POST",
     )
     with request.urlopen(req, timeout=90, context=_https_context()) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _json_request(url: str, payload: dict[str, object]) -> dict[str, object]:
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+    with request.urlopen(req, timeout=90, context=_https_context()) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _json_get(url: str) -> dict[str, object]:
+    with request.urlopen(url, timeout=90, context=_https_context()) as response:
         return json.loads(response.read().decode("utf-8"))

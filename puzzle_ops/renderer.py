@@ -283,6 +283,10 @@ def render_generation_provider_diagnostic(status: dict[str, object]) -> str:
         fields.append(("api_key_source", status.get("api_key_source", "未配置")))
     if "sdk_available" in status:
         fields.append(("sdk_available", status.get("sdk_available", False)))
+    if "workflow_path" in status:
+        fields.append(("workflow_path", status.get("workflow_path", "未配置")))
+    if "workflow_configured" in status:
+        fields.append(("workflow_configured", status.get("workflow_configured", False)))
     rows = "".join(f"<div><dt>{escape(key)}</dt><dd>{escape(str(value))}</dd></div>" for key, value in fields)
     return f"<h3>生成 Provider 诊断</h3><dl class=\"detail compact-detail\">{rows}</dl>"
 
