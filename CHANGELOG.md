@@ -2,6 +2,53 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.87 - RAG 离线/在线两阶段工程化包装
+
+日期：2026-06-30
+
+阶段目标：
+
+- 按“离线建知识库 + 在线混合检索生成”的标准 RAG 架构重做工程表达。
+- 让项目不只说“用了 RAG”，而是能讲清楚 DocumentLoader、chunk/overlap、向量/BM25 多路召回、rerank、prompt 防幻觉和可替换存储边界。
+
+已完成：
+
+- 离线阶段增强：
+  - 新增 `StaticDocumentLoaderAdapter`，把现有日本/法国价值观、审核规则、Memory、human_gold 样本、历史数据沉淀统一包装成可替换 loader 边界。
+  - 新增 `RagChunkingConfig`，默认 `sentence_token` 切分，`chunk_size_tokens=600`，`chunk_overlap_tokens=100`。
+  - `chunk_document` 支持 token-aware chunk，优先按句子语义边界切分，并把 splitter/chunk/overlap 参数写入 chunk metadata。
+  - 当前存储层明确定位为轻量本地向量层：SQLite 保存 chunk 原文和 metadata，`rag_embedding_cache` 保存真实 embedding provider 返回的向量缓存；后续可替换为 Chroma/Qdrant/Milvus adapter。
+- 在线阶段增强：
+  - 新增 `rewrite_rag_query`，在不丢失原始 query 的前提下补充“价值观、审核、文化混淆、版权/IP、文字水印、AI质量、主体/色彩/构图”等业务检索词。
+  - `HybridRagRetriever.search` 从“全量混合打分”升级为显式候选池：BM25 top-k + Vector top-k + exact phrase 去重后进入 rerank。
+  - Agent 默认候选池参数：BM25 top-k 30，Vector top-k 30，最终 rerank top-k 与调用方 `top_k` 对齐。
+  - RAG prompt 强化防幻觉约束：只基于引用依据回答；资料没有答案必须说“不知道/需要人工复核”。
+- 真实模型配置增强：
+  - `RAG_EMBEDDING_PROVIDER=dashscope` 时默认 embedding 模型为 `text-embedding-v3`。
+  - `RAG_RERANK_PROVIDER=dashscope` 时默认 rerank 模型为 `gte-rerank-v2`。
+  - 仍保留 `RAG_ENABLE_REMOTE_CALLS` 开关；未开启时使用本地 fallback，避免测试和 demo 强依赖外部费用。
+- 页面可观测增强：
+  - 多模态底座/RAG 摘要新增“离线建库”和“在线检索”卡片。
+  - 展示 loader、splitter、chunk token、overlap、vector store、BM25/Vector candidate top-k、rerank top-k 和 rewritten query。
+
+验证：
+
+- TDD 红灯：
+  - 缺少 `RagChunkingConfig`/`StaticDocumentLoaderAdapter` 时 `tests/test_rag.py` 导入失败。
+  - Agent RAG summary 缺少离线/在线工程参数时失败。
+  - Runtime 页面缺少“离线建库/在线检索”展示时失败。
+- 定向回归：
+  - `PYTHONPATH=. pytest tests/test_rag.py -q`：21 passed。
+  - `PYTHONPATH=. pytest tests/test_rag.py tests/test_agents.py tests/test_renderer.py -q -k "rag or runtime_page_shows_profile_candidates"`：43 passed，86 deselected。
+- 全量回归：
+  - `PYTHONPATH=. pytest tests -q`：287 passed。
+
+当前限制：
+
+- 本版没有引入 Chroma/Qdrant/Milvus 等外部向量数据库，当前采用 SQLite chunk 存储 + embedding cache 的轻量本地实现，适合 demo 和本地闭环。
+- query rewrite 仍是规则增强，不额外调用 LLM 改写，避免每次检索都产生额外费用。
+- 真实 embedding/rerank 只有在配置 DashScope key 且开启 `RAG_ENABLE_REMOTE_CALLS` 后才会调用。
+
 ## v0.3.86 - 好图衍生生成 Provider 接通通义万相与 ComfyUI
 
 日期：2026-06-30

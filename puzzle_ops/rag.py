@@ -50,6 +50,21 @@ class RagPrompt:
     prompt: str
 
 
+@dataclass(frozen=True)
+class RagChunkingConfig:
+    chunk_size_tokens: int = 600
+    chunk_overlap_tokens: int = 100
+    splitter: str = "sentence_token"
+
+
+class StaticDocumentLoaderAdapter:
+    def __init__(self, documents: tuple[RagDocument, ...]):
+        self.documents = documents
+
+    def load(self) -> tuple[RagDocument, ...]:
+        return self.documents
+
+
 @dataclass
 class RagRuntimeStats:
     embedding_cache_hits: int = 0
@@ -88,8 +103,10 @@ class RagProviderConfig:
             _load_env_file(Path.cwd() / ".env")
         embedding_provider = os.getenv("RAG_EMBEDDING_PROVIDER", "local").strip().lower() or "local"
         rerank_provider = os.getenv("RAG_RERANK_PROVIDER", "local").strip().lower() or "local"
-        embedding_model = os.getenv("RAG_EMBEDDING_MODEL", "local-token-cosine").strip() or "local-token-cosine"
-        rerank_model = os.getenv("RAG_RERANK_MODEL", "local-rule-rerank").strip() or "local-rule-rerank"
+        default_embedding_model = "text-embedding-v3" if embedding_provider == "dashscope" else "local-token-cosine"
+        default_rerank_model = "gte-rerank-v2" if rerank_provider == "dashscope" else "local-rule-rerank"
+        embedding_model = os.getenv("RAG_EMBEDDING_MODEL", default_embedding_model).strip() or default_embedding_model
+        rerank_model = os.getenv("RAG_RERANK_MODEL", default_rerank_model).strip() or default_rerank_model
         api_key = os.getenv("RAG_API_KEY", os.getenv("DASHSCOPE_API_KEY", "")).strip()
         embedding_endpoint = os.getenv("RAG_EMBEDDING_ENDPOINT", "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings").strip()
         rerank_endpoint = os.getenv("RAG_RERANK_ENDPOINT", "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank").strip()
@@ -346,16 +363,24 @@ def providers_from_config(
     return embedding, rerank
 
 
-def chunk_document(document: RagDocument, max_chars: int = 220, overlap_sentences: int = 1) -> tuple[RagChunk, ...]:
+def chunk_document(
+    document: RagDocument,
+    max_chars: int | None = 220,
+    overlap_sentences: int = 1,
+    *,
+    chunking: RagChunkingConfig | None = None,
+) -> tuple[RagChunk, ...]:
     sentences = _sentences(document.text)
     if not sentences:
         return ()
+    if chunking is not None:
+        return _chunk_document_by_tokens(document, sentences, chunking)
     chunks: list[RagChunk] = []
     current: list[str] = []
     index = 1
     for sentence in sentences:
         candidate = "".join(current + [sentence])
-        if current and len(candidate) > max_chars:
+        if current and max_chars is not None and len(candidate) > max_chars:
             chunks.append(_make_chunk(document, current, index))
             index += 1
             current = current[-overlap_sentences:] if overlap_sentences else []
@@ -371,7 +396,7 @@ def build_rag_prompt(query: str, hits: tuple[RagHit, ...]) -> RagPrompt:
     citations = tuple(hit.chunk.chunk_id for hit in hits)
     prompt = (
         "你是 PuzzleOps 出海拼图内容运营 Agent。\n"
-        "只基于引用依据回答，禁止编造未提供的事实；如果依据不足，要明确说需要人工复核。\n"
+        "只基于引用依据回答，禁止编造未提供的事实；如果资料里没有答案，必须说“不知道/需要人工复核”。\n"
         "请围绕当前提需判断是否符合国家价值观，并给出可发散的新拼图内容方向。\n\n"
         f"问题：{query}\n\n"
         f"引用依据：\n{context}\n\n"
@@ -385,6 +410,12 @@ def build_rag_prompt(query: str, hits: tuple[RagHit, ...]) -> RagPrompt:
         "引用依据："
     )
     return RagPrompt(query=query, context=context, citations=citations, prompt=prompt)
+
+
+def rewrite_rag_query(query: str, *, country: str = "") -> str:
+    base = " ".join(part for part in (query.strip(), country.strip()) if part)
+    domain_terms = "价值观 审核 风险 文化混淆 版权 IP 文字水印 AI质量 主体清晰 色彩氛围 构图环境"
+    return f"{base} {domain_terms}".strip()
 
 
 class HybridRagRetriever:
@@ -409,6 +440,8 @@ class HybridRagRetriever:
         country: str,
         top_k: int = 6,
         source_types: tuple[str, ...] | None = None,
+        bm25_top_k: int = 30,
+        vector_top_k: int = 30,
     ) -> tuple[RagHit, ...]:
         query_tokens = _tokens(query)
         if not query_tokens:
@@ -423,11 +456,11 @@ class HybridRagRetriever:
             query,
             tuple(chunk.text + " " + chunk.title for chunk in eligible_chunks),
         )
-        candidates: list[tuple[RagChunk, float, float]] = []
+        scored: list[tuple[RagChunk, float, float]] = []
         for chunk, vector in zip(eligible_chunks, vector_scores):
             bm25 = self._bm25(query_tokens, chunk)
-            if bm25 > 0 or vector > 0 or _has_exact_phrase(query, chunk.text):
-                candidates.append((chunk, bm25, vector))
+            scored.append((chunk, bm25, vector))
+        candidates = self._candidate_pool(scored, query, bm25_top_k=bm25_top_k, vector_top_k=vector_top_k)
         rerank_scores = self.rerank_provider.rerank_many(query, country, tuple(candidates))
         hits = [
             RagHit(
@@ -441,6 +474,24 @@ class HybridRagRetriever:
         ]
         ranked = sorted(hits, key=lambda hit: hit.rerank_score, reverse=True)
         return tuple(ranked[:top_k])
+
+    def _candidate_pool(
+        self,
+        scored: list[tuple[RagChunk, float, float]],
+        query: str,
+        *,
+        bm25_top_k: int,
+        vector_top_k: int,
+    ) -> list[tuple[RagChunk, float, float]]:
+        candidates_by_id: dict[str, tuple[RagChunk, float, float]] = {}
+        bm25_ranked = sorted((item for item in scored if item[1] > 0), key=lambda item: item[1], reverse=True)
+        vector_ranked = sorted((item for item in scored if item[2] > 0), key=lambda item: item[2], reverse=True)
+        exact_matches = [item for item in scored if _has_exact_phrase(query, item[0].text)]
+        for chunk, bm25, vector in (
+            bm25_ranked[: max(bm25_top_k, 0)] + vector_ranked[: max(vector_top_k, 0)] + exact_matches
+        ):
+            candidates_by_id.setdefault(chunk.chunk_id, (chunk, bm25, vector))
+        return list(candidates_by_id.values())
 
     def _document_frequency(self) -> Counter[str]:
         counter: Counter[str] = Counter()
@@ -478,8 +529,74 @@ def _make_chunk(document: RagDocument, sentences: list[str], index: int) -> RagC
         title=document.title,
         text="".join(sentences).strip(),
         chunk_index=index,
-        metadata=document.metadata,
+        metadata=dict(document.metadata),
     )
+
+
+def _chunk_document_by_tokens(
+    document: RagDocument,
+    sentences: tuple[str, ...],
+    chunking: RagChunkingConfig,
+) -> tuple[RagChunk, ...]:
+    chunks: list[RagChunk] = []
+    current: list[str] = []
+    index = 1
+    max_tokens = max(chunking.chunk_size_tokens, 1)
+    overlap_tokens = max(chunking.chunk_overlap_tokens, 0)
+    for sentence in sentences:
+        candidate = current + [sentence]
+        if current and _estimated_chunk_tokens(candidate) > max_tokens:
+            chunks.append(_make_token_chunk(document, current, index, chunking))
+            index += 1
+            current = _overlap_sentences(current, overlap_tokens)
+        current.append(sentence)
+    if current:
+        chunks.append(_make_token_chunk(document, current, index, chunking))
+    return tuple(chunks)
+
+
+def _make_token_chunk(document: RagDocument, sentences: list[str], index: int, chunking: RagChunkingConfig) -> RagChunk:
+    metadata = dict(document.metadata)
+    metadata.update(
+        {
+            "splitter": chunking.splitter,
+            "chunk_size_tokens": chunking.chunk_size_tokens,
+            "chunk_overlap_tokens": chunking.chunk_overlap_tokens,
+        }
+    )
+    return RagChunk(
+        chunk_id=f"{document.document_id}#chunk-{index}",
+        parent_id=document.document_id,
+        country=document.country,
+        source_type=document.source_type,
+        title=document.title,
+        text="".join(sentences).strip(),
+        chunk_index=index,
+        metadata=metadata,
+    )
+
+
+def _overlap_sentences(sentences: list[str], overlap_tokens: int) -> list[str]:
+    if overlap_tokens <= 0:
+        return []
+    selected: list[str] = []
+    total = 0
+    for sentence in reversed(sentences):
+        selected.insert(0, sentence)
+        total += _estimated_sentence_tokens(sentence)
+        if total >= overlap_tokens:
+            break
+    return selected
+
+
+def _estimated_chunk_tokens(sentences: list[str]) -> int:
+    return sum(_estimated_sentence_tokens(sentence) for sentence in sentences)
+
+
+def _estimated_sentence_tokens(sentence: str) -> int:
+    latin = re.findall(r"[a-z0-9]+", sentence.lower())
+    cjk_chars = re.findall(r"[\u4e00-\u9fff]", sentence)
+    return len(latin) + math.ceil(len(cjk_chars) / 2)
 
 
 def _sentences(text: str) -> tuple[str, ...]:

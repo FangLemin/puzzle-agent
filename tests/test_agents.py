@@ -1390,6 +1390,20 @@ def test_agent_rag_summary_includes_runtime_stats():
     assert "rerank_fallbacks" in summary
 
 
+def test_agent_rag_summary_exposes_engineering_pipeline_settings():
+    summary = PuzzleOpsAgent().value_audit_rag_summary("日本")
+
+    assert summary["offline_loader"] == "StaticDocumentLoaderAdapter"
+    assert summary["splitter"] == "sentence_token"
+    assert summary["chunk_size_tokens"] == 600
+    assert summary["chunk_overlap_tokens"] == 100
+    assert summary["vector_store"] == "sqlite_chunks_with_embedding_cache"
+    assert summary["bm25_top_k"] == 30
+    assert summary["vector_top_k"] == 30
+    assert summary["rerank_top_k"] == 5
+    assert "价值观" in str(summary["rewritten_query"])
+
+
 def test_agent_rag_summary_exposes_citation_source_parent_and_text():
     summary = PuzzleOpsAgent().value_audit_rag_summary("日本")
 

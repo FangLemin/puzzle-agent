@@ -15,7 +15,7 @@ from puzzle_ops.excel_importer import import_history_workbook
 from puzzle_ops.feishu import FeishuClientFactory, MockFeishuClient
 from puzzle_ops.models import AgentTrace, AnalysisReport, AnalysisRow, DemandRow, HolidayRecommendation, ImageProfile, ScheduleItem, TagMeta, ValuePredictionCard, ValueRuleCandidate
 from puzzle_ops.multimodal import ImageFeatureExtractor, SimilarImageRetriever, ValueInsightMiner
-from puzzle_ops.rag import FeedbackAwareRerankProvider, HybridRagRetriever, RagChunk, RagDocument, RagPrompt, RagProviderConfig, RagRuntimeStats, build_rag_prompt, chunk_document, providers_from_config
+from puzzle_ops.rag import FeedbackAwareRerankProvider, HybridRagRetriever, RagChunk, RagChunkingConfig, RagDocument, RagPrompt, RagProviderConfig, RagRuntimeStats, StaticDocumentLoaderAdapter, build_rag_prompt, chunk_document, providers_from_config, rewrite_rag_query
 from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.trulens_eval import TruLensRAGEvaluator
 from puzzle_ops.trial_upload import TrialImageUploadService, _compact_tag_subject
@@ -33,6 +33,9 @@ class PuzzleOpsAgent:
     editable_methods = {"纯AI", "限素材网", "先照片后AI"}
     workday_positions = (1, 2, 3, 4, 5, 6, 7, 8, 9, 12)
     weekend_positions = (1, 2, 3, 4, 5, 6, 7, 8, 9, 12)
+    rag_chunking_config = RagChunkingConfig(chunk_size_tokens=600, chunk_overlap_tokens=100)
+    rag_bm25_top_k = 30
+    rag_vector_top_k = 30
 
     def __init__(
         self,
@@ -57,6 +60,7 @@ class PuzzleOpsAgent:
         self.image_generator = ImageGenerationProviderFactory.create(runtime_dir / "trial_uploads")
         self.rag_provider_config = RagProviderConfig.from_env()
         self._last_rag_stats = RagRuntimeStats()
+        self._last_rag_rewritten_query = ""
 
     def countries(self) -> tuple[str, ...]:
         return tuple(COUNTRIES.keys())
@@ -404,8 +408,12 @@ class PuzzleOpsAgent:
         return tuple(base_rules + approved)
 
     def build_value_audit_rag_index(self, country: str) -> tuple[RagDocument, ...]:
-        documents = self._rag_documents(country)
-        chunks = tuple(chunk for document in documents for chunk in chunk_document(document))
+        documents = StaticDocumentLoaderAdapter(self._rag_documents(country)).load()
+        chunks = tuple(
+            chunk
+            for document in documents
+            for chunk in chunk_document(document, max_chars=None, chunking=self.rag_chunking_config)
+        )
         self.repository.save_rag_index(country, documents, chunks)
         return documents
 
@@ -432,13 +440,28 @@ class PuzzleOpsAgent:
             if feedback_scores:
                 rerank_provider = FeedbackAwareRerankProvider(rerank_provider, feedback_scores)
         retriever = HybridRagRetriever(chunks, embedding_provider=embedding_provider, rerank_provider=rerank_provider)
-        hits = retriever.search(query, country=country, top_k=top_k)
+        rewritten_query = rewrite_rag_query(query, country=country)
+        hits = retriever.search(
+            rewritten_query,
+            country=country,
+            top_k=top_k,
+            bm25_top_k=self.rag_bm25_top_k,
+            vector_top_k=self.rag_vector_top_k,
+        )
         if _looks_like_audit_query(query) and not any(hit.chunk.source_type == "audit_policy" for hit in hits):
-            audit_hits = retriever.search(query, country=country, top_k=1, source_types=("audit_policy",))
+            audit_hits = retriever.search(
+                rewritten_query,
+                country=country,
+                top_k=1,
+                source_types=("audit_policy",),
+                bm25_top_k=self.rag_bm25_top_k,
+                vector_top_k=self.rag_vector_top_k,
+            )
             if audit_hits:
                 hits = tuple(list(hits[: max(top_k - 1, 0)]) + [audit_hits[0]])
         self._last_rag_stats = stats
-        return build_rag_prompt(query, hits)
+        self._last_rag_rewritten_query = rewritten_query
+        return build_rag_prompt(rewritten_query, hits)
 
     def _rag_rules_for_value_master(self, row: DemandRow) -> tuple[tuple[str, str], ...]:
         query = " ".join(
@@ -498,6 +521,15 @@ class PuzzleOpsAgent:
             "provider_remote_ready": self.rag_provider_config.remote_ready,
             "provider_remote_calls_enabled": self.rag_provider_config.remote_calls_enabled,
             "provider_status": self.rag_provider_config.status_text,
+            "offline_loader": "StaticDocumentLoaderAdapter",
+            "splitter": self.rag_chunking_config.splitter,
+            "chunk_size_tokens": self.rag_chunking_config.chunk_size_tokens,
+            "chunk_overlap_tokens": self.rag_chunking_config.chunk_overlap_tokens,
+            "vector_store": "sqlite_chunks_with_embedding_cache",
+            "bm25_top_k": self.rag_bm25_top_k,
+            "vector_top_k": self.rag_vector_top_k,
+            "rerank_top_k": 5,
+            "rewritten_query": self._last_rag_rewritten_query,
             "feedback_summary": self.rag_feedback_summary(country),
             **self._last_rag_stats.as_dict(),
         }

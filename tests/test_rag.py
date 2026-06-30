@@ -5,12 +5,15 @@ from puzzle_ops.rag import (
     HybridRagRetriever,
     LocalEmbeddingProvider,
     LocalRerankProvider,
+    RagChunkingConfig,
     RagDocument,
     RagProviderConfig,
     RagRuntimeStats,
+    StaticDocumentLoaderAdapter,
     build_rag_prompt,
     chunk_document,
     providers_from_config,
+    rewrite_rag_query,
 )
 
 
@@ -31,6 +34,44 @@ def test_chunk_document_keeps_parent_child_and_semantic_overlap():
     assert chunks[0].chunk_id == "JP_VALUE_001#chunk-1"
     assert "避免中日韩文化混淆" in chunks[0].text
     assert "避免中日韩文化混淆" in chunks[1].text
+
+
+def test_static_document_loader_marks_loader_boundary_for_offline_indexing():
+    document = RagDocument("JP_VALUE_001", "日本", "value_rule", "文化真实性", "寿司属于日本本土饮食文化。", {})
+
+    loaded = StaticDocumentLoaderAdapter((document,)).load()
+
+    assert loaded == (document,)
+
+
+def test_token_chunk_document_uses_sentence_boundaries_and_overlap_metadata():
+    document = RagDocument(
+        document_id="JP_LONG_VALUE",
+        country="日本",
+        source_type="value_rule",
+        title="日本价值观长文",
+        text=(
+            "寿司和抹茶属于日本本土饮食文化，需要保持生活化语境。"
+            "温泉街和浴衣人物强调治愈感、季节感和旅行动机。"
+            "画面应避免中日韩文化混淆、文字水印、热门IP角色和知名工作室风格。"
+            "拼图提需还需要主体清晰、色彩层次明确、构图环境适合反复观察。"
+        ),
+        metadata={},
+    )
+
+    chunks = chunk_document(
+        document,
+        max_chars=None,
+        chunking=RagChunkingConfig(chunk_size_tokens=36, chunk_overlap_tokens=10),
+    )
+
+    assert len(chunks) >= 2
+    assert all(chunk.parent_id == "JP_LONG_VALUE" for chunk in chunks)
+    assert chunks[0].metadata["splitter"] == "sentence_token"
+    assert chunks[0].metadata["chunk_size_tokens"] == 36
+    assert chunks[1].metadata["chunk_overlap_tokens"] == 10
+    assert "温泉街" in chunks[0].text
+    assert "温泉街" in chunks[1].text
 
 
 def test_hybrid_retriever_uses_bm25_vector_and_rerank_for_value_and_audit_hits():
@@ -60,7 +101,17 @@ def test_build_rag_prompt_keeps_citations_for_grounded_llm_answer():
     assert "[JP_VALUE_001#chunk-1]" in prompt.context
     assert "引用依据" in prompt.prompt
     assert "只基于引用依据回答" in prompt.prompt
+    assert "不知道" in prompt.prompt
     assert prompt.citations == ("JP_VALUE_001#chunk-1",)
+
+
+def test_rewrite_rag_query_adds_domain_terms_without_losing_user_query():
+    rewritten = rewrite_rag_query("这张寿司图适合日本吗", country="日本")
+
+    assert rewritten.startswith("这张寿司图适合日本吗")
+    assert "价值观" in rewritten
+    assert "审核" in rewritten
+    assert "文化混淆" in rewritten
 
 
 def test_rag_provider_config_reports_local_fallback_without_external_keys(monkeypatch):
@@ -73,6 +124,21 @@ def test_rag_provider_config_reports_local_fallback_without_external_keys(monkey
     assert config.rerank_provider == "local"
     assert config.configured is False
     assert "本地" in config.status_text
+
+
+def test_dashscope_config_defaults_to_real_embedding_and_rerank_models(monkeypatch):
+    monkeypatch.setenv("RAG_EMBEDDING_PROVIDER", "dashscope")
+    monkeypatch.setenv("RAG_RERANK_PROVIDER", "dashscope")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "dashscope-test")
+    monkeypatch.setenv("RAG_ENABLE_REMOTE_CALLS", "true")
+    monkeypatch.delenv("RAG_EMBEDDING_MODEL", raising=False)
+    monkeypatch.delenv("RAG_RERANK_MODEL", raising=False)
+
+    config = RagProviderConfig.from_env(load_env=False)
+
+    assert config.embedding_model == "text-embedding-v3"
+    assert config.rerank_model == "gte-rerank-v2"
+    assert config.remote_calls_enabled is True
 
 
 def test_hybrid_retriever_accepts_pluggable_embedding_and_rerank_providers():
@@ -102,6 +168,26 @@ def test_hybrid_retriever_accepts_pluggable_embedding_and_rerank_providers():
     assert hits[0].rerank_score == 9.9
     assert "fake-embedding" in hits[0].reason
     assert "fake-reranker" in hits[0].reason
+
+
+def test_hybrid_retriever_merges_bm25_and_vector_candidate_pools_before_rerank():
+    class VectorOnlyProvider(LocalEmbeddingProvider):
+        provider_name = "vector-only"
+
+        def similarities(self, query: str, texts: tuple[str, ...]) -> tuple[float, ...]:
+            return tuple(0.99 if "生活艺术" in text else 0.0 for text in texts)
+
+    documents = (
+        RagDocument("JP_KEYWORD", "日本", "value_rule", "饮食文化", "寿司属于日本本土饮食文化。", {}),
+        RagDocument("JP_VECTOR", "日本", "value_rule", "生活艺术", "海边野餐强调生活艺术与松弛感。", {}),
+        RagDocument("JP_OTHER", "日本", "value_rule", "无关", "夜景城市霓虹适合另一类拼图。", {}),
+    )
+    chunks = tuple(chunk for document in documents for chunk in chunk_document(document, max_chars=80))
+    retriever = HybridRagRetriever(chunks, embedding_provider=VectorOnlyProvider())
+
+    hits = retriever.search("日本寿司是否符合价值观", country="日本", top_k=2, bm25_top_k=1, vector_top_k=1)
+
+    assert {hit.chunk.parent_id for hit in hits} == {"JP_KEYWORD", "JP_VECTOR"}
 
 
 def test_feedback_aware_rerank_provider_promotes_useful_chunks():

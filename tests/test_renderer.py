@@ -576,6 +576,10 @@ def test_multimodal_runtime_page_shows_profile_candidates_and_evidence():
     assert "引用依据" in html
     assert "Embedding" in html
     assert "Rerank" in html
+    assert "离线建库" in html
+    assert "sentence_token" in html
+    assert "在线检索" in html
+    assert "sqlite_chunks_with_embedding_cache" in html
     assert "cache hit" in html
     assert "embedding remote" in html
     assert "rerank fallback" in html

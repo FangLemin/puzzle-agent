@@ -615,6 +615,19 @@ def render_rag_summary(summary: dict[str, object]) -> str:
     embedding = f"{summary.get('embedding_provider', 'local')} / {summary.get('embedding_model', 'local-token-cosine')}"
     rerank = f"{summary.get('rerank_provider', 'local')} / {summary.get('rerank_model', 'local-rule-rerank')}"
     provider_status = str(summary.get("provider_status", "本地 fallback"))
+    offline_pipeline = (
+        f"Loader：{summary.get('offline_loader', 'StaticDocumentLoaderAdapter')}；"
+        f"Splitter：{summary.get('splitter', 'sentence_token')}；"
+        f"chunk={summary.get('chunk_size_tokens', 600)}；"
+        f"overlap={summary.get('chunk_overlap_tokens', 100)}；"
+        f"store={summary.get('vector_store', 'sqlite_chunks_with_embedding_cache')}"
+    )
+    online_pipeline = (
+        f"BM25 top-k {summary.get('bm25_top_k', 30)}；"
+        f"Vector top-k {summary.get('vector_top_k', 30)}；"
+        f"Rerank top-k {summary.get('rerank_top_k', 5)}；"
+        f"query rewrite：{summary.get('rewritten_query', '')}"
+    )
     stats = (
         f"cache hit {summary.get('embedding_cache_hits', 0)}；"
         f"embedding remote {summary.get('embedding_remote_calls', 0)}；"
@@ -630,6 +643,8 @@ def render_rag_summary(summary: dict[str, object]) -> str:
   <article><strong>父子知识块</strong><span>{escape(str(summary.get("chunk_count", 0)))} 个 chunk</span><small>{escape(source_text)}</small></article>
   <article><strong>多路召回</strong><span>BM25 + Embedding + Rerank</span><small>Embedding：{escape(embedding)}；Rerank：{escape(rerank)}。{escape(provider_status)}</small></article>
   <article><strong>引用依据</strong><span>{escape(citation_text or "暂无引用")}</span><small>{escape(context[:140] or "暂无召回上下文")}；{escape(stats)}</small></article>
+  <article><strong>离线建库</strong><span>DocumentLoader + Chunk + Store</span><small>{escape(offline_pipeline)}</small></article>
+  <article><strong>在线检索</strong><span>Rewrite + Hybrid Recall + Rerank</span><small>{escape(online_pipeline[:220])}</small></article>
   {feedback_card}
 </div>
 <h3>引用明细</h3>
