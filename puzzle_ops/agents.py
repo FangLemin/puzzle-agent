@@ -15,7 +15,7 @@ from puzzle_ops.excel_importer import import_history_workbook
 from puzzle_ops.feishu import FeishuClientFactory, MockFeishuClient
 from puzzle_ops.models import AgentTrace, AnalysisReport, AnalysisRow, DemandRow, HolidayRecommendation, ImageProfile, ScheduleItem, TagMeta, ValuePredictionCard, ValueRuleCandidate
 from puzzle_ops.multimodal import ImageFeatureExtractor, SimilarImageRetriever, ValueInsightMiner
-from puzzle_ops.rag import FeedbackAwareRerankProvider, HybridRagRetriever, RagChunk, RagChunkingConfig, RagDocument, RagPrompt, RagProviderConfig, RagRuntimeStats, StaticDocumentLoaderAdapter, build_rag_prompt, chunk_document, providers_from_config, rewrite_rag_query
+from puzzle_ops.rag import FeedbackAwareRerankProvider, HybridRagRetriever, RagChunk, RagChunkingConfig, RagDocument, RagPrompt, RagProviderConfig, RagRuntimeStats, RagVectorStoreConfig, StaticDocumentLoaderAdapter, build_rag_prompt, chunk_document, providers_from_config, rewrite_rag_query
 from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.trulens_eval import TruLensRAGEvaluator
 from puzzle_ops.trial_upload import TrialImageUploadService, _compact_tag_subject
@@ -59,6 +59,7 @@ class PuzzleOpsAgent:
         self.trial_uploads = TrialImageUploadService(runtime_dir / "trial_uploads")
         self.image_generator = ImageGenerationProviderFactory.create(runtime_dir / "trial_uploads")
         self.rag_provider_config = RagProviderConfig.from_env()
+        self.rag_vector_store_config = RagVectorStoreConfig.from_env()
         self._last_rag_stats = RagRuntimeStats()
         self._last_rag_rewritten_query = ""
 
@@ -525,7 +526,10 @@ class PuzzleOpsAgent:
             "splitter": self.rag_chunking_config.splitter,
             "chunk_size_tokens": self.rag_chunking_config.chunk_size_tokens,
             "chunk_overlap_tokens": self.rag_chunking_config.chunk_overlap_tokens,
-            "vector_store": "sqlite_chunks_with_embedding_cache",
+            "vector_store": self.rag_vector_store_config.provider,
+            "vector_store_collection": self.rag_vector_store_config.collection,
+            "vector_store_ready": self.rag_vector_store_config.ready,
+            "vector_store_status": self.rag_vector_store_config.status_text,
             "bm25_top_k": self.rag_bm25_top_k,
             "vector_top_k": self.rag_vector_top_k,
             "rerank_top_k": 5,

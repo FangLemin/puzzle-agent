@@ -1351,16 +1351,16 @@ def test_agent_rag_documents_include_all_four_memory_layers():
 
 def test_agent_rag_summary_exposes_embedding_and_rerank_provider_names(monkeypatch):
     monkeypatch.setenv("RAG_EMBEDDING_PROVIDER", "dashscope")
-    monkeypatch.setenv("RAG_EMBEDDING_MODEL", "text-embedding-v3")
     monkeypatch.setenv("RAG_RERANK_PROVIDER", "dashscope")
-    monkeypatch.setenv("RAG_RERANK_MODEL", "gte-rerank-v2")
+    monkeypatch.setenv("RAG_EMBEDDING_MODEL", "")
+    monkeypatch.setenv("RAG_RERANK_MODEL", "")
 
     summary = PuzzleOpsAgent().value_audit_rag_summary("日本")
 
     assert summary["embedding_provider"] == "dashscope"
-    assert summary["embedding_model"] == "text-embedding-v3"
+    assert summary["embedding_model"] == "text-embedding-v4"
     assert summary["rerank_provider"] == "dashscope"
-    assert summary["rerank_model"] == "gte-rerank-v2"
+    assert summary["rerank_model"] == "qwen3-rerank"
     assert summary["provider_configured"] is True
 
 
@@ -1397,11 +1397,24 @@ def test_agent_rag_summary_exposes_engineering_pipeline_settings():
     assert summary["splitter"] == "sentence_token"
     assert summary["chunk_size_tokens"] == 600
     assert summary["chunk_overlap_tokens"] == 100
-    assert summary["vector_store"] == "sqlite_chunks_with_embedding_cache"
+    assert summary["vector_store"] == "sqlite"
+    assert "embedding cache" in str(summary["vector_store_status"])
     assert summary["bm25_top_k"] == 30
     assert summary["vector_top_k"] == 30
     assert summary["rerank_top_k"] == 5
     assert "价值观" in str(summary["rewritten_query"])
+
+
+def test_agent_rag_summary_uses_qdrant_vector_store_config_when_declared(monkeypatch):
+    monkeypatch.setenv("RAG_VECTOR_STORE_PROVIDER", "qdrant")
+    monkeypatch.setenv("QDRANT_URL", "http://127.0.0.1:6333")
+    monkeypatch.setenv("QDRANT_COLLECTION", "puzzle_ops_rag")
+
+    summary = PuzzleOpsAgent().value_audit_rag_summary("日本")
+
+    assert summary["vector_store"] == "qdrant"
+    assert summary["vector_store_collection"] == "puzzle_ops_rag"
+    assert summary["vector_store_ready"] is True
 
 
 def test_agent_rag_summary_exposes_citation_source_parent_and_text():

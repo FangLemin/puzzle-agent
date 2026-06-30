@@ -2,6 +2,54 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.88 - Qwen3 Embedding 默认配置、RAG hit@5 评测与 Qdrant 路线
+
+日期：2026-06-30
+
+阶段目标：
+
+- 回应中文业务文档为主的 RAG 诉求：默认 embedding/rerank 从旧 DashScope 命名升级为 Qwen3 系列。
+- 给 RAG 增加业务相关检索评测口径，支持用真实 gold case 验证 `hit@5 >= 0.8`。
+- 把向量库路线从“仅 SQLite 轻量层”升级为“默认 SQLite，团队生产可配置 Qdrant”。
+
+已完成：
+
+- 模型默认配置调整：
+  - `text-embedding-v3` 不是 OpenAI 模型名，在本项目里它属于阿里 DashScope/百炼 embedding 配置。
+  - 当 `RAG_EMBEDDING_PROVIDER=dashscope` 且未显式指定模型时，默认改为 `text-embedding-v4`，用于对齐 Qwen3-Embedding 系列。
+  - 当 `RAG_RERANK_PROVIDER=dashscope` 且未显式指定模型时，默认改为 `qwen3-rerank`。
+  - 仍保留显式旧模型配置能力：如果 `.env` 主动写了 `RAG_EMBEDDING_MODEL` 或 `RAG_RERANK_MODEL`，系统会尊重配置。
+- RAG 业务评测增强：
+  - 新增 `RagRetrievalCase`。
+  - 新增 `evaluate_retrieval_hit_rate(retriever, cases, k=5)`。
+  - 用日本/法国价值观与审核规则构造业务 gold case，测试 `hit@5 >= 0.8`，当前测试样本达到 5/5。
+- Qdrant 配置边界：
+  - 新增 `RagVectorStoreConfig`。
+  - 支持：
+    - `RAG_VECTOR_STORE_PROVIDER=qdrant`
+    - `QDRANT_URL`
+    - `QDRANT_COLLECTION`
+    - `QDRANT_API_KEY`
+  - Agent summary 会展示 `vector_store`、collection、ready 状态和配置说明。
+  - 页面“离线建库”卡片会展示当前 store 是 SQLite 还是 Qdrant。
+
+验证：
+
+- TDD 红灯：
+  - 缺少 `RagRetrievalCase` 时导入失败。
+  - 默认模型仍为 `text-embedding-v3/gte-rerank-v2` 时失败。
+  - Qdrant 配置无法进入 Agent summary 时失败。
+- 定向回归：
+  - `PYTHONPATH=. pytest tests/test_rag.py tests/test_agents.py tests/test_renderer.py tests/test_storage_runtime.py -q -k "rag or qdrant or embedding_cache"`：56 passed，87 deselected。
+- 全量回归：
+  - `PYTHONPATH=. pytest tests -q`：290 passed。
+
+当前限制：
+
+- 本版先完成 Qdrant 配置与工程边界，没有把真实 Qdrant HTTP upsert/search 全链路接入运行路径。
+- 当前 hit@5 测试使用本地小型业务 gold case；下一步应接入你整理的真实 30-50 张拼图样本与人工/AI gold label。
+- `text-embedding-v4/qwen3-rerank` 真实远程调用仍依赖阿里百炼账号、额度和 `RAG_ENABLE_REMOTE_CALLS`。
+
 ## v0.3.87 - RAG 离线/在线两阶段工程化包装
 
 日期：2026-06-30

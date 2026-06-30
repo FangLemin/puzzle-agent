@@ -620,7 +620,9 @@ def render_rag_summary(summary: dict[str, object]) -> str:
         f"Splitter：{summary.get('splitter', 'sentence_token')}；"
         f"chunk={summary.get('chunk_size_tokens', 600)}；"
         f"overlap={summary.get('chunk_overlap_tokens', 100)}；"
-        f"store={summary.get('vector_store', 'sqlite_chunks_with_embedding_cache')}"
+        f"store={summary.get('vector_store', 'sqlite')}；"
+        f"collection={summary.get('vector_store_collection', 'puzzle_ops_rag')}；"
+        f"{summary.get('vector_store_status', 'SQLite 本地 chunk store + embedding cache')}"
     )
     online_pipeline = (
         f"BM25 top-k {summary.get('bm25_top_k', 30)}；"

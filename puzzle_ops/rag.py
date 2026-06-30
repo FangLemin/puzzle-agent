@@ -51,6 +51,13 @@ class RagPrompt:
 
 
 @dataclass(frozen=True)
+class RagRetrievalCase:
+    query: str
+    country: str
+    expected_parent_id: str
+
+
+@dataclass(frozen=True)
 class RagChunkingConfig:
     chunk_size_tokens: int = 600
     chunk_overlap_tokens: int = 100
@@ -63,6 +70,35 @@ class StaticDocumentLoaderAdapter:
 
     def load(self) -> tuple[RagDocument, ...]:
         return self.documents
+
+
+@dataclass(frozen=True)
+class RagVectorStoreConfig:
+    provider: str = "sqlite"
+    endpoint: str = ""
+    collection: str = "puzzle_ops_rag"
+    api_key: str = ""
+    configured: bool = False
+    ready: bool = True
+    status_text: str = "SQLite 本地 chunk store + embedding cache"
+
+    @classmethod
+    def from_env(cls, load_env: bool = True) -> "RagVectorStoreConfig":
+        if load_env:
+            _load_env_file(Path.cwd() / ".env")
+        provider = os.getenv("RAG_VECTOR_STORE_PROVIDER", "sqlite").strip().lower() or "sqlite"
+        endpoint = os.getenv("QDRANT_URL", os.getenv("RAG_QDRANT_URL", "")).strip().rstrip("/")
+        collection = os.getenv("QDRANT_COLLECTION", os.getenv("RAG_QDRANT_COLLECTION", "puzzle_ops_rag")).strip() or "puzzle_ops_rag"
+        api_key = os.getenv("QDRANT_API_KEY", os.getenv("RAG_QDRANT_API_KEY", "")).strip()
+        if provider == "qdrant":
+            ready = bool(endpoint and collection)
+            status = (
+                f"Qdrant ready：{endpoint} / {collection}"
+                if ready
+                else "Qdrant 已声明但缺少 QDRANT_URL 或 QDRANT_COLLECTION"
+            )
+            return cls(provider, endpoint, collection, api_key, True, ready, status)
+        return cls()
 
 
 @dataclass
@@ -103,8 +139,8 @@ class RagProviderConfig:
             _load_env_file(Path.cwd() / ".env")
         embedding_provider = os.getenv("RAG_EMBEDDING_PROVIDER", "local").strip().lower() or "local"
         rerank_provider = os.getenv("RAG_RERANK_PROVIDER", "local").strip().lower() or "local"
-        default_embedding_model = "text-embedding-v3" if embedding_provider == "dashscope" else "local-token-cosine"
-        default_rerank_model = "gte-rerank-v2" if rerank_provider == "dashscope" else "local-rule-rerank"
+        default_embedding_model = "text-embedding-v4" if embedding_provider == "dashscope" else "local-token-cosine"
+        default_rerank_model = "qwen3-rerank" if rerank_provider == "dashscope" else "local-rule-rerank"
         embedding_model = os.getenv("RAG_EMBEDDING_MODEL", default_embedding_model).strip() or default_embedding_model
         rerank_model = os.getenv("RAG_RERANK_MODEL", default_rerank_model).strip() or default_rerank_model
         api_key = os.getenv("RAG_API_KEY", os.getenv("DASHSCOPE_API_KEY", "")).strip()
@@ -416,6 +452,38 @@ def rewrite_rag_query(query: str, *, country: str = "") -> str:
     base = " ".join(part for part in (query.strip(), country.strip()) if part)
     domain_terms = "价值观 审核 风险 文化混淆 版权 IP 文字水印 AI质量 主体清晰 色彩氛围 构图环境"
     return f"{base} {domain_terms}".strip()
+
+
+def evaluate_retrieval_hit_rate(
+    retriever: "HybridRagRetriever",
+    cases: tuple[RagRetrievalCase, ...],
+    *,
+    k: int = 5,
+) -> dict[str, object]:
+    total = len(cases)
+    case_results = []
+    hits = 0
+    for case in cases:
+        result_hits = retriever.search(rewrite_rag_query(case.query, country=case.country), country=case.country, top_k=k)
+        retrieved_parent_ids = tuple(hit.chunk.parent_id for hit in result_hits)
+        hit = case.expected_parent_id in retrieved_parent_ids
+        hits += 1 if hit else 0
+        case_results.append(
+            {
+                "query": case.query,
+                "country": case.country,
+                "expected_parent_id": case.expected_parent_id,
+                "retrieved_parent_ids": retrieved_parent_ids,
+                "hit": hit,
+            }
+        )
+    metric_name = f"hit@{k}"
+    return {
+        metric_name: hits / total if total else 0.0,
+        "hits": hits,
+        "total": total,
+        "cases": tuple(case_results),
+    }
 
 
 class HybridRagRetriever:

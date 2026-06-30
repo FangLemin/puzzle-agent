@@ -8,10 +8,13 @@ from puzzle_ops.rag import (
     RagChunkingConfig,
     RagDocument,
     RagProviderConfig,
+    RagRetrievalCase,
     RagRuntimeStats,
+    RagVectorStoreConfig,
     StaticDocumentLoaderAdapter,
     build_rag_prompt,
     chunk_document,
+    evaluate_retrieval_hit_rate,
     providers_from_config,
     rewrite_rag_query,
 )
@@ -136,9 +139,23 @@ def test_dashscope_config_defaults_to_real_embedding_and_rerank_models(monkeypat
 
     config = RagProviderConfig.from_env(load_env=False)
 
-    assert config.embedding_model == "text-embedding-v3"
-    assert config.rerank_model == "gte-rerank-v2"
+    assert config.embedding_model == "text-embedding-v4"
+    assert config.rerank_model == "qwen3-rerank"
     assert config.remote_calls_enabled is True
+
+
+def test_qdrant_vector_store_config_reports_ready_endpoint(monkeypatch):
+    monkeypatch.setenv("RAG_VECTOR_STORE_PROVIDER", "qdrant")
+    monkeypatch.setenv("QDRANT_URL", "http://127.0.0.1:6333")
+    monkeypatch.setenv("QDRANT_COLLECTION", "puzzle_ops_rag")
+
+    config = RagVectorStoreConfig.from_env(load_env=False)
+
+    assert config.provider == "qdrant"
+    assert config.collection == "puzzle_ops_rag"
+    assert config.configured is True
+    assert config.ready is True
+    assert "Qdrant" in config.status_text
 
 
 def test_hybrid_retriever_accepts_pluggable_embedding_and_rerank_providers():
@@ -188,6 +205,31 @@ def test_hybrid_retriever_merges_bm25_and_vector_candidate_pools_before_rerank()
     hits = retriever.search("日本寿司是否符合价值观", country="日本", top_k=2, bm25_top_k=1, vector_top_k=1)
 
     assert {hit.chunk.parent_id for hit in hits} == {"JP_KEYWORD", "JP_VECTOR"}
+
+
+def test_rag_retrieval_hit_at_five_can_validate_business_gold_cases():
+    documents = (
+        RagDocument("JP_SUSHI", "日本", "value_rule", "日本饮食", "寿司、抹茶、和果子属于日本本土饮食文化。", {}),
+        RagDocument("JP_ONSEN", "日本", "value_rule", "日本治愈", "温泉街、浴衣、旅馆灯笼适合日本治愈旅行场景。", {}),
+        RagDocument("JP_AUDIT", "GLOBAL", "audit_policy", "审核风险", "避免文字水印、热门IP角色、商标和中日韩文化混淆。", {}),
+        RagDocument("FR_LAVENDER", "法国", "value_rule", "法国自然", "薰衣草、石屋、风车体现法国乡村生活艺术。", {}),
+        RagDocument("FR_PICNIC", "法国", "value_rule", "法国生活艺术", "海滩野餐、面包、奶酪和玻璃杯体现法国生活艺术。", {}),
+    )
+    chunks = tuple(chunk for document in documents for chunk in chunk_document(document, max_chars=80))
+    retriever = HybridRagRetriever(chunks)
+    cases = (
+        RagRetrievalCase("日本寿司图是否符合本土饮食价值观", "日本", "JP_SUSHI"),
+        RagRetrievalCase("温泉街浴衣人物适合日本治愈旅行吗", "日本", "JP_ONSEN"),
+        RagRetrievalCase("试新图有文字水印和IP角色风险吗", "日本", "JP_AUDIT"),
+        RagRetrievalCase("薰衣草风车石屋适合法国吗", "法国", "FR_LAVENDER"),
+        RagRetrievalCase("法国海滩野餐面包奶酪是否符合生活艺术", "法国", "FR_PICNIC"),
+    )
+
+    result = evaluate_retrieval_hit_rate(retriever, cases, k=5)
+
+    assert result["hit@5"] >= 0.8
+    assert result["hits"] == 5
+    assert result["total"] == 5
 
 
 def test_feedback_aware_rerank_provider_promotes_useful_chunks():
