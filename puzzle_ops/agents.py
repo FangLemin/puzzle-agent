@@ -1120,6 +1120,40 @@ class PuzzleOpsAgent:
             summary["导入问题摘要"] = "；".join(f"{issue.sample_id}:{issue.reason}" for issue in issues[:3])
         return summary
 
+    def harness_baseline_summary(self, country: str) -> dict[str, object]:
+        samples = tuple(sample for sample in self.harness_samples(country) if sample.is_real)
+        human_gold_samples = tuple(
+            sample
+            for sample in samples
+            if sample.label_source == "human_gold" and sample.label_status == "reviewed"
+        )
+        run = self.harness_display_run(country)
+        failure_sample_count = len({case.sample_id for case in run.failures})
+        not_evaluable_count = sum(
+            1
+            for case in run.cases
+            for score in case.scores.values()
+            if score == "not_evaluable"
+        )
+        baseline_status = "human_gold_baseline" if samples and len(human_gold_samples) == len(samples) else "needs_human_gold"
+        top_failure_categories = _top_failure_categories(run.failures)
+        next_action = "无失败样本，可保存为当前真实 baseline。" if not run.failures else "可以进入失败样本人工复盘。"
+        if baseline_status != "human_gold_baseline":
+            next_action = "先完成 AI silver 人工抽查并晋升 human_gold。"
+        return {
+            "baseline_status": baseline_status,
+            "run_id": run.run_id,
+            "execution_mode": run.execution_mode,
+            "真实样本数": len(samples),
+            "human_gold 样本数": len(human_gold_samples),
+            "human_gold 覆盖率": _pct(len(human_gold_samples) / len(samples)) if samples else "0%",
+            "失败 case 数": len(run.failures),
+            "失败样本数": failure_sample_count,
+            "not_evaluable 数": not_evaluable_count,
+            "Top 失败分类": top_failure_categories,
+            "下一步动作": next_action,
+        }
+
     def harness_gold_coverage(self, country: str) -> dict[str, object]:
         samples = tuple(sample for sample in self.harness_samples(country) if sample.is_real)
         required_fields = (
@@ -1791,6 +1825,17 @@ def _prelabel_row_summary(rows: list[dict[str, str]], country: str) -> dict[str,
         "pending_review_count": sum(1 for row in country_rows if row.get("label_source") == "ai_silver" and row.get("label_status") == "pending_review"),
         "human_gold_count": sum(1 for row in country_rows if row.get("label_source") == "human_gold" and row.get("label_status") == "reviewed"),
     }
+
+
+def _top_failure_categories(failures) -> str:
+    counts: dict[str, int] = {}
+    for case in failures:
+        categories = case.failure_categories or ("uncategorized",)
+        for category in categories:
+            counts[category] = counts.get(category, 0) + 1
+    if not counts:
+        return "无"
+    return "；".join(f"{category}:{count}" for category, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:3])
 
 
 def _replace_tag_date_suffix(operation_tag: str, today: date) -> str:

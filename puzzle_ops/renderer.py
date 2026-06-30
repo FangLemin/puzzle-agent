@@ -673,6 +673,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
     trace = agent.run_agent_task(state.country, "value_judge")
     report = agent.eval_report(state.country)
     harness_summary = agent.harness_summary(state.country)
+    baseline_summary = agent.harness_baseline_summary(state.country)
     gold_coverage = agent.harness_gold_coverage(state.country)
     readiness = agent.harness_readiness(state.country)
     front_two_layers = agent.front_two_layers_readiness(state.country)
@@ -690,6 +691,11 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
     summary_rows = "".join(
         f"<tr><td>{escape(key)}</td><td>{render_summary_value(value)}</td></tr>"
         for key, value in harness_summary.items()
+    )
+    baseline_cards = "".join(
+        f"<article><span>{escape(key)}</span><strong>{escape(str(value))}</strong></article>"
+        for key, value in baseline_summary.items()
+        if key not in {"run_id"}
     )
     readiness_panel = render_harness_readiness(readiness)
     front_two_layers_panel = render_front_two_layers_readiness(front_two_layers)
@@ -760,6 +766,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
     <div><dt>执行模式</dt><dd>{escape(harness_run.execution_mode)}</dd></div>
   </dl></div>
 </section>
+<section class="panel"><div class="section-line"><h2>真实 Baseline 复盘</h2><span class="status-pill">run {escape(str(baseline_summary.get('run_id', '')))}</span></div><div class="gold-coverage">{baseline_cards}</div></section>
 <section class="metrics">{harness_metric_cards}</section>
 <section class="grid two">
   <div class="panel"><h2>失败样本复盘</h2><div class="table-wrap"><table><thead><tr><th>样本</th><th>Gold Label</th><th>任务</th><th>Agent 输出</th><th>失败原因</th><th>HITL 修正入口</th></tr></thead><tbody>{failure_rows or '<tr><td colspan="6">暂无失败样本。</td></tr>'}</tbody></table></div></div>

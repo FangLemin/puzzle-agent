@@ -511,6 +511,36 @@ def test_agent_harness_uses_all_real_business_workbook_samples_when_no_gold_csv(
     assert {sample.gold_grade for sample in france_samples} >= {"S", "A", "B", "C", "D"}
 
 
+def test_agent_harness_baseline_summary_reports_human_gold_failure_replay(monkeypatch, tmp_path):
+    image_path = tmp_path / "france-picnic.png"
+    image_path.write_bytes(b"fake-png")
+    dataset = tmp_path / "gold_samples.csv"
+    dataset.write_text(
+        "\n".join(
+            (
+                "sample_id,country,local_image_path,operation_tag,subject,js_category,source,position,open_rate,completion_rate,avg_finish_time,gold_grade,gold_subject,gold_color_mood,gold_composition,gold_value_labels,gold_risk_labels,human_note,label_source,label_status",
+                f"fr-real-001,法国,{image_path},试新_法国_海滩野餐0624,海滩野餐,lifestyle,real,7,0.42,0.91,38,A,海滩野餐,暖色,海边沙滩,生活艺术,,人工确认,human_gold,reviewed",
+            )
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_HARNESS_DATASET", str(dataset))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+
+    run = agent.harness_run("法国", save=True)
+    summary = agent.harness_baseline_summary("法国")
+
+    assert summary["baseline_status"] == "human_gold_baseline"
+    assert summary["run_id"] == run.run_id
+    assert summary["真实样本数"] == 1
+    assert summary["human_gold 样本数"] == 1
+    assert summary["human_gold 覆盖率"] == "100%"
+    assert summary["失败 case 数"] == len(run.failures)
+    assert summary["失败样本数"] == len({case.sample_id for case in run.failures})
+    assert summary["Top 失败分类"]
+    assert summary["下一步动作"] in {"可以进入失败样本人工复盘。", "无失败样本，可保存为当前真实 baseline。"}
+
+
 def test_agent_harness_summary_reports_invalid_gold_dataset_rows(monkeypatch, tmp_path):
     dataset = tmp_path / "gold_samples.csv"
     dataset.write_text(

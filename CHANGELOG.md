@@ -2,6 +2,46 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.85 - 真实 Harness Baseline 与失败样本复盘
+
+日期：2026-06-30
+
+阶段目标：
+
+- 在 v0.3.84 的 human_gold/RAG/Memory 沉淀闭环上，补齐“真实评测基线”视角。
+- 让 Eval 页不只展示单次 Harness 运行指标，还能明确说明当前 run 是否可作为 human_gold baseline，以及失败样本复盘的规模和分类。
+
+已完成：
+
+- 新增 `harness_baseline_summary(country)`：
+  - 绑定当前展示 run 或最近保存 run。
+  - 统计真实样本数、human_gold 样本数、human_gold 覆盖率。
+  - 统计失败 case 数、失败样本数、`not_evaluable` 数。
+  - 聚合 Top 失败分类，支撑后续人工复盘优先级。
+  - 输出下一步动作：
+    - human_gold 不完整时，提示先完成人工抽查。
+    - 有失败 case 时，提示进入失败样本人工复盘。
+    - 无失败 case 时，提示可保存为当前真实 baseline。
+- Eval 页新增“真实 Baseline 复盘”：
+  - 展示 baseline 状态、run_id、执行模式。
+  - 展示 human_gold 覆盖率、失败 case 数、失败样本数、Top 失败分类和下一步动作。
+  - 与原有“失败样本复盘”“Case 证据链”“失败分类”形成完整评测闭环。
+
+验证：
+
+- TDD 红灯：
+  - `harness_baseline_summary` 不存在时失败。
+  - Eval 页缺少“真实 Baseline 复盘”时失败。
+- 定向回归：
+  - `PYTHONPATH=. pytest tests/test_agents.py -q -k "harness_baseline_summary_reports or harness_summary or harness_readiness"`：4 passed。
+  - `PYTHONPATH=. pytest tests/test_renderer.py -q -k "real_baseline_summary or failure_samples or case_evidence"`：3 passed。
+  - `PYTHONPATH=. pytest tests/test_harness.py -q`：21 passed。
+
+当前限制：
+
+- 本版本提供 baseline 摘要和失败复盘入口；真实模型质量仍取决于 Qwen-VL 配置、human_gold 覆盖率和实际运行是否选择真实 VLM。
+- 下一阶段进入好图衍生生成 Provider，重点是接通通义万相/ComfyUI，并把生成结果纳入二次 VLM 审核和 Harness 评测。
+
 ## v0.3.84 - human_gold 与 RAG/Memory 沉淀证据闭环
 
 日期：2026-06-30
