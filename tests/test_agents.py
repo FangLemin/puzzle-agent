@@ -1179,12 +1179,17 @@ def test_agent_promotes_ai_silver_labels_to_human_gold_facts(tmp_path):
     result = agent.approve_harness_silver_labels("法国", sample_ids=("fr-real-001",), reviewer_note="人工抽查通过")
 
     assert result["approved_count"] == 1
+    assert result["fact_memory_count"] == 1
+    assert result["rag_human_gold_count"] == 1
+    assert result["human_gold_count"] == 1
     sample = agent.harness_samples("法国")[0]
     assert sample.label_source == "human_gold"
     assert sample.label_status == "reviewed"
     assert "人工抽查通过" in sample.human_note
     facts = agent.memory_debug("法国", query="法式海滩野餐")
     assert any(row["layer"] == "facts" and "法式海滩野餐" in row["summary"] for row in facts)
+    rag_answer = agent.value_audit_rag_answer("法国", "法式海滩野餐 生活艺术", top_k=3)
+    assert "FR_HARNESS_GOLD_fr-real-001#chunk-1" in rag_answer.citations
 
 
 def test_agent_approves_only_selected_ai_silver_samples(tmp_path):

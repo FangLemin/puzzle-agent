@@ -2,6 +2,42 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.84 - human_gold 与 RAG/Memory 沉淀证据闭环
+
+日期：2026-06-30
+
+阶段目标：
+
+- 在 v0.3.83 的 `ai_silver/pending_review` 基础上，补齐运营确认后的可信标准答案沉淀闭环。
+- 让“确认 AI 预标注为 human_gold”不只是改 CSV 状态，而是能明确证明已经进入 facts memory 和 RAG 可引用知识库。
+
+已完成：
+
+- 增强 `approve_harness_silver_labels(country)`：
+  - 确认通过的 silver 样本继续晋升为 `human_gold/reviewed`。
+  - 晋升后写入 `facts` 层 memory，保留人工确认 note。
+  - human_gold 样本继续进入价值观/审核 RAG 文档，作为 `harness_gold_sample` 来源。
+  - 返回沉淀证据统计：
+    - `fact_memory_count`
+    - `rag_human_gold_count`
+    - `human_gold_count`
+- 服务端消息增强：
+  - `/approve_harness_silver_labels` 成功后，页面提示不再只显示晋升条数。
+  - 同步显示 Facts 沉淀数量与 RAG human_gold 文档数量，方便运营判断闭环是否完成。
+
+验证：
+
+- TDD 红灯：
+  - 晋升返回值缺少 `fact_memory_count / rag_human_gold_count / human_gold_count` 时失败。
+  - 服务端确认消息缺少 Facts/RAG 沉淀数量时失败。
+- 定向回归：
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_server.py tests/test_renderer.py -q -k "human_gold or harness_silver or harness_readiness or rag_documents_include_human_gold or rag_answer_can_cite_human_gold"`：8 passed。
+
+当前限制：
+
+- 本版本证明的是 `ai_silver -> human_gold -> facts memory/RAG` 的沉淀链路。
+- 真实业务效果还需要下一版运行真实 Harness baseline，把 Agent 输出与 human_gold 做批量对比和失败样本复盘。
+
 ## v0.3.83 - 真实样本 VLM 预标注批处理
 
 日期：2026-06-30

@@ -1560,7 +1560,25 @@ class PuzzleOpsAgent:
             )
             approved += 1
         self._write_harness_gold_rows(dataset, rows)
-        return {"approved_count": approved, "skipped_count": skipped, "dataset": str(dataset)}
+        fact_memory_count = sum(
+            1
+            for memory in self.repository.layered_memories(country, layer="facts")
+            if memory.get("memory_type") == "harness_gold_label"
+        )
+        rag_human_gold_count = len(self._harness_gold_rag_documents(country))
+        human_gold_count = sum(
+            1
+            for sample in self.harness_samples(country)
+            if sample.is_real and sample.label_source == "human_gold" and sample.label_status == "reviewed"
+        )
+        return {
+            "approved_count": approved,
+            "skipped_count": skipped,
+            "fact_memory_count": fact_memory_count,
+            "rag_human_gold_count": rag_human_gold_count,
+            "human_gold_count": human_gold_count,
+            "dataset": str(dataset),
+        }
 
     def update_harness_gold_label(
         self,

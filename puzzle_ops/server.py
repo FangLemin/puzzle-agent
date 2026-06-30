@@ -435,6 +435,7 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         result = agent.approve_harness_silver_labels(state.country, **approve_kwargs)
         state.sync_message = (
             f"AI Silver 已确认晋升：{result['approved_count']} 条，跳过 {result['skipped_count']} 条；"
+            f"Facts {result.get('fact_memory_count', 0)} 条，RAG human_gold {result.get('rag_human_gold_count', 0)} 条；"
             f"数据集：{result['dataset']}"
         )
         state.sync_url = ""
