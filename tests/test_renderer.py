@@ -253,6 +253,36 @@ def test_eval_page_exposes_ai_silver_label_action(monkeypatch, tmp_path):
     assert "needs_ai_prelabeled" in html
 
 
+def test_eval_page_shows_ai_prelabel_progress_summary(monkeypatch, tmp_path):
+    picnic = tmp_path / "france-picnic.png"
+    lavender = tmp_path / "france-lavender.png"
+    garden = tmp_path / "france-garden.png"
+    picnic.write_bytes(b"fake-png")
+    lavender.write_bytes(b"fake-png")
+    garden.write_bytes(b"fake-png")
+    dataset = tmp_path / "gold_samples.csv"
+    dataset.write_text(
+        "\n".join(
+            (
+                "sample_id,country,local_image_path,operation_tag,subject,js_category,source,position,open_rate,completion_rate,avg_finish_time,gold_grade,gold_subject,gold_color_mood,gold_composition,gold_value_labels,gold_risk_labels,human_note,label_source,label_status",
+                f"fr-real-001,法国,{picnic},试新_法国_样本一0623,待AI预标注,lifestyle,real,0,0,0,0,A,,,,,,,manual_grade,needs_ai_prelabeled",
+                f"fr-real-002,法国,{lavender},试新_法国_样本二0623,薰衣草风车,landscape,real,4,0.36,0.91,42,S,薰衣草风车,紫色,普罗旺斯田野,法式乡村,,AI silver,ai_silver,pending_review",
+                f"fr-real-003,法国,{garden},试新_法国_样本三0623,法式花园,travel,real,5,0.4,0.92,40,A,法式花园,暖色,庭院构图,生活艺术,,人工确认,human_gold,reviewed",
+            )
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_HARNESS_DATASET", str(dataset))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+
+    html = render_page(agent, AppState(country="法国", view="eval"))
+
+    assert "AI 预标注进度" in html
+    assert "待预标注 1" in html
+    assert "待审核 silver 1" in html
+    assert "human_gold 1" in html
+
+
 def test_eval_page_exposes_silver_approval_action(monkeypatch, tmp_path):
     image_path = tmp_path / "france-picnic.png"
     image_path.write_bytes(b"fake-png")

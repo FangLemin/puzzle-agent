@@ -1134,6 +1134,9 @@ class PuzzleOpsAgent:
         metric_missing_counts = {field: 0 for field in metric_fields}
         complete = 0
         metric_complete = 0
+        needs_prelabeled = 0
+        pending_silver = 0
+        human_gold = 0
         for sample in samples:
             missing = _missing_gold_fields(sample)
             for field in missing:
@@ -1146,6 +1149,12 @@ class PuzzleOpsAgent:
                 metric_missing_counts[field] += 1
             if not metric_missing:
                 metric_complete += 1
+            if sample.label_source == "manual_grade" and sample.label_status == "needs_ai_prelabeled":
+                needs_prelabeled += 1
+            if sample.label_source == "ai_silver" and sample.label_status == "pending_review":
+                pending_silver += 1
+            if sample.label_source == "human_gold" and sample.label_status == "reviewed":
+                human_gold += 1
         missing_summary = "；".join(f"{field}:{count}" for field, count in missing_counts.items() if count) or "无"
         metric_missing_summary = "；".join(f"{field}:{count}" for field, count in metric_missing_counts.items() if count) or "无"
         return {
@@ -1156,6 +1165,9 @@ class PuzzleOpsAgent:
             "完整业务指标样本数": metric_complete,
             "业务指标完成率": _pct(metric_complete / len(samples)) if samples else "0%",
             "缺失业务指标摘要": metric_missing_summary,
+            "待 AI 预标注": needs_prelabeled,
+            "待审核 silver": pending_silver,
+            "human_gold 样本数": human_gold,
             "数据集文件": str(self._active_harness_dataset_path(country)),
         }
 
@@ -1406,7 +1418,14 @@ class PuzzleOpsAgent:
             "dataset": str(dataset),
         }
 
-    def auto_prelabeled_harness_samples(self, country: str, sample_ids: tuple[str, ...] = ()) -> dict[str, object]:
+    def auto_prelabeled_harness_samples(
+        self,
+        country: str,
+        sample_ids: tuple[str, ...] = (),
+        *,
+        max_count: int | None = None,
+        force: bool = False,
+    ) -> dict[str, object]:
         dataset = self.ensure_harness_gold_dataset(country)
         rows = self._read_harness_gold_rows(dataset)
         wanted = set(sample_ids)
@@ -1417,10 +1436,18 @@ class PuzzleOpsAgent:
             raise ValueError(f"缺少真实视觉 LLM 配置：{missing_text}")
         updated = 0
         skipped = 0
+        already_labeled = 0
+        eligible = 0
         for row in rows:
             if row.get("country") != country or row.get("source") != "real":
                 continue
             if wanted and row.get("sample_id") not in wanted:
+                continue
+            if not force and not _row_needs_ai_prelabeled(row):
+                already_labeled += 1
+                continue
+            eligible += 1
+            if max_count is not None and updated >= max_count:
                 continue
             image_path = Path(str(row.get("local_image_path", ""))).expanduser()
             if not image_path.exists():
@@ -1473,7 +1500,18 @@ class PuzzleOpsAgent:
             )
             updated += 1
         self._write_harness_gold_rows(dataset, rows)
-        return {"updated_count": updated, "skipped_count": skipped, "dataset": str(dataset)}
+        summary = _prelabel_row_summary(rows, country)
+        return {
+            "updated_count": updated,
+            "skipped_count": skipped,
+            "already_labeled_count": already_labeled,
+            "eligible_count": eligible,
+            "total_count": summary["total_count"],
+            "remaining_needs_prelabeled": summary["remaining_needs_prelabeled"],
+            "pending_review_count": summary["pending_review_count"],
+            "human_gold_count": summary["human_gold_count"],
+            "dataset": str(dataset),
+        }
 
     def approve_harness_silver_labels(
         self,
@@ -1717,6 +1755,24 @@ def _third_layer_status_text(real_sample_count: int) -> str:
     if real_sample_count >= 30:
         return f"已接入 {real_sample_count} 张真实拼图样本；下一步运行真实 VLM Harness，并抽查 AI silver 后晋升 human_gold。"
     return "等待 30-50 张真实拼图图片、人工等级和真实业务字段后运行真实样本基线。"
+
+
+def _row_needs_ai_prelabeled(row: dict[str, str]) -> bool:
+    if row.get("label_source") == "human_gold" and row.get("label_status") == "reviewed":
+        return False
+    if row.get("label_source") == "ai_silver" and row.get("label_status") == "pending_review":
+        return False
+    return any(not row.get(field) for field in ("gold_subject", "gold_color_mood", "gold_composition", "gold_value_labels"))
+
+
+def _prelabel_row_summary(rows: list[dict[str, str]], country: str) -> dict[str, int]:
+    country_rows = [row for row in rows if row.get("country") == country and row.get("source") == "real"]
+    return {
+        "total_count": len(country_rows),
+        "remaining_needs_prelabeled": sum(1 for row in country_rows if _row_needs_ai_prelabeled(row)),
+        "pending_review_count": sum(1 for row in country_rows if row.get("label_source") == "ai_silver" and row.get("label_status") == "pending_review"),
+        "human_gold_count": sum(1 for row in country_rows if row.get("label_source") == "human_gold" and row.get("label_status") == "reviewed"),
+    }
 
 
 def _replace_tag_date_suffix(operation_tag: str, today: date) -> str:

@@ -1056,8 +1056,8 @@ def test_register_harness_real_samples_text_action_can_auto_prelabeled(monkeypat
         calls.append(("register", country, text))
         return {"registered_count": 1, "dataset": "/tmp/harness_gold_samples_法国.csv"}
 
-    def fake_auto(country):
-        calls.append(("auto", country))
+    def fake_auto(country, max_count=None):
+        calls.append(("auto", country, max_count))
         return {"updated_count": 1, "skipped_count": 0, "dataset": "/tmp/harness_gold_samples_法国.csv"}
 
     monkeypatch.setattr(APP.agent, "register_harness_real_samples_from_text", fake_register)
@@ -1073,7 +1073,7 @@ def test_register_harness_real_samples_text_action_can_auto_prelabeled(monkeypat
         },
     )
 
-    assert calls == [("register", "法国", "S /tmp/lavender.png"), ("auto", "法国")]
+    assert calls == [("register", "法国", "S /tmp/lavender.png"), ("auto", "法国", 5)]
     assert "AI 预标注 1 条" in APP.state.sync_message
 
 

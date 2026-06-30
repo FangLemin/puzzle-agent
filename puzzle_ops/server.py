@@ -403,8 +403,8 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
                 state.sync_message = f"真实样本已登记：{result['registered_count']} 条；数据集：{result['dataset']}"
             if value(form, "auto_prelabeled", "") == "1":
                 try:
-                    prelabel = agent.auto_prelabeled_harness_samples(state.country)
-                    state.sync_message += f"；AI 预标注 {prelabel['updated_count']} 条，跳过 {prelabel['skipped_count']} 条"
+                    prelabel = agent.auto_prelabeled_harness_samples(state.country, max_count=5)
+                    state.sync_message += _prelabel_message(prelabel)
                 except ValueError as exc:
                     state.sync_message += f"；AI 预标注失败：{exc}"
         except ValueError as exc:
@@ -413,9 +413,14 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         state.view = "eval"
     elif path == "/auto_prelabeled_harness_gold":
         try:
-            result = agent.auto_prelabeled_harness_samples(state.country)
+            max_count = _optional_positive_int(value(form, "max_count", ""))
+            if max_count is None:
+                result = agent.auto_prelabeled_harness_samples(state.country)
+            else:
+                result = agent.auto_prelabeled_harness_samples(state.country, max_count=max_count)
             state.sync_message = (
-                f"AI 预标注完成：{result['updated_count']} 条，跳过 {result['skipped_count']} 条；"
+                f"AI 预标注完成：{result['updated_count']} 条，跳过 {result['skipped_count']} 条，"
+                f"剩余待预标注 {result.get('remaining_needs_prelabeled', 0)} 条，待审核 silver {result.get('pending_review_count', 0)} 条；"
                 f"数据集：{result['dataset']}"
             )
         except ValueError as exc:
@@ -454,6 +459,24 @@ def redirect_location(state: AppState) -> str:
 
 def value(form: dict[str, list[str]], key: str, default: str) -> str:
     return form.get(key, [default])[0]
+
+
+def _optional_positive_int(raw: str) -> int | None:
+    text = raw.strip()
+    if not text:
+        return None
+    try:
+        value = int(text)
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
+def _prelabel_message(result: dict[str, object]) -> str:
+    return (
+        f"；AI 预标注 {result.get('updated_count', 0)} 条，跳过 {result.get('skipped_count', 0)} 条，"
+        f"剩余待预标注 {result.get('remaining_needs_prelabeled', 0)} 条"
+    )
 
 
 def image_content_type(path: Path) -> str:

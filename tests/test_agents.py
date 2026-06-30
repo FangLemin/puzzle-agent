@@ -1027,6 +1027,94 @@ def test_agent_ai_prelabeled_real_samples_as_silver_labels(tmp_path):
     assert any(row["layer"] == "perception" and "法式海滩野餐" in row["summary"] for row in rows)
 
 
+def test_agent_ai_prelabeled_default_business_samples_in_batches(tmp_path):
+    class FakeVisionClient:
+        provider = "qwen"
+
+        def __init__(self):
+            self.calls = []
+
+        def analyze(self, images, country, category, local_summary):
+            self.calls.append((country, category, images[0]["filename"]))
+            return VisionLLMResult(
+                subject="薰衣草风车",
+                scene="普罗旺斯薰衣草田中有风车和石屋，前景花田层次清晰",
+                culture_elements=("普罗旺斯", "法式乡村"),
+                style="明亮紫色花田与暖色日光，法国度假氛围",
+                risk_tags=(),
+                prompt_keywords=("薰衣草", "风车", "石屋"),
+                confidence=0.88,
+                provider="qwen",
+                raw_text="fake batch result",
+            )
+
+    client = FakeVisionClient()
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent._runtime_dir = tmp_path
+    agent.trial_uploads = TrialImageUploadService(tmp_path / "uploads", vision_client=client)
+
+    result = agent.auto_prelabeled_harness_samples("法国", max_count=3)
+
+    assert result["total_count"] == 20
+    assert result["eligible_count"] == 20
+    assert result["updated_count"] == 3
+    assert result["remaining_needs_prelabeled"] == 17
+    assert result["pending_review_count"] == 3
+    assert len(client.calls) == 3
+    samples = agent.harness_samples("法国")
+    assert sum(sample.label_source == "ai_silver" for sample in samples) == 3
+    assert sum(sample.label_status == "needs_ai_prelabeled" for sample in samples) == 17
+
+
+def test_agent_ai_prelabeled_skips_existing_silver_and_human_gold_by_default(tmp_path):
+    image_path = tmp_path / "france-picnic.png"
+    second_image_path = tmp_path / "france-lavender.png"
+    Image.new("RGB", (80, 60), (220, 180, 120)).save(image_path)
+    Image.new("RGB", (80, 60), (120, 90, 200)).save(second_image_path)
+
+    class FakeVisionClient:
+        provider = "qwen"
+
+        def __init__(self):
+            self.calls = 0
+
+        def analyze(self, images, country, category, local_summary):
+            self.calls += 1
+            return VisionLLMResult(
+                subject="法式花园",
+                scene="法式庭院中的花园静物",
+                culture_elements=("法式花园",),
+                style="明亮暖色",
+                risk_tags=(),
+                prompt_keywords=("花园",),
+                confidence=0.9,
+                provider="qwen",
+                raw_text="fake result",
+            )
+
+    client = FakeVisionClient()
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent._runtime_dir = tmp_path
+    agent.trial_uploads = TrialImageUploadService(tmp_path / "uploads", vision_client=client)
+    dataset = agent.register_harness_real_samples(
+        "法国",
+        [
+            {"sample_id": "fr-real-001", "local_image_path": str(image_path), "gold_grade": "A", "js_category": "lifestyle"},
+            {"sample_id": "fr-real-002", "local_image_path": str(second_image_path), "gold_grade": "S", "js_category": "landscape"},
+        ],
+    )
+    rows = agent._read_harness_gold_rows(dataset)
+    rows[0].update({"gold_subject": "海滩野餐", "label_source": "ai_silver", "label_status": "pending_review"})
+    rows[1].update({"gold_subject": "薰衣草风车", "label_source": "human_gold", "label_status": "reviewed"})
+    agent._write_harness_gold_rows(dataset, rows)
+
+    result = agent.auto_prelabeled_harness_samples("法国")
+
+    assert result["updated_count"] == 0
+    assert result["already_labeled_count"] == 2
+    assert client.calls == 0
+
+
 def test_agent_ai_silver_label_compacts_long_visual_subject(tmp_path):
     image_path = tmp_path / "flower-cart.png"
     Image.new("RGB", (80, 60), (230, 200, 120)).save(image_path)

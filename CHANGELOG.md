@@ -2,6 +2,49 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.83 - 真实样本 VLM 预标注批处理
+
+日期：2026-06-30
+
+阶段目标：
+
+- 在 v0.3.82 已接入 45 张真实业务样本的基础上，打通“真实 VLM 预标注 -> ai_silver -> 人工抽查”的第一段闭环。
+- 让运营可以分批调用 Qwen-VL，为已有人工等级的真实样本补主体、色彩氛围、构图环境、价值观候选和风险候选。
+
+已完成：
+
+- 增强 `auto_prelabeled_harness_samples(country)`：
+  - 支持默认从真实业务 Excel 样本生成 gold CSV 草稿后直接预标注。
+  - 新增 `max_count`，支持一次只处理部分样本，避免误触后产生过多模型调用费用。
+  - 默认跳过已是 `ai_silver/pending_review` 或 `human_gold/reviewed` 的样本，避免重复付费覆盖。
+  - 返回批处理进度：总真实样本数、可预标注数、已更新数、跳过数、剩余待预标注数、待审核 silver 数、human_gold 数。
+- Eval 页增强：
+  - Gold Dataset 工作台新增“AI 预标注进度”。
+  - 显示：待预标注、待审核 silver、human_gold。
+  - “AI 自动预标注”表单新增本次最多处理张数，默认 5 张。
+- 服务端 action 增强：
+  - `/auto_prelabeled_harness_gold` 支持读取 `max_count`。
+  - 同步消息显示剩余待预标注和待审核 silver 数量。
+  - 登记真实样本后选择“立即 AI 预标注”时，默认最多处理 5 张。
+
+验证：
+
+- TDD 红灯：
+  - 默认业务样本批量预标注不支持 `max_count` 时失败。
+  - 已有 silver/human_gold 被重复调用覆盖时失败。
+  - Eval 页缺少 AI 预标注进度时失败。
+- 定向回归：
+  - `PYTHONPATH=. pytest tests/test_agents.py -q -k "ai_prelabeled"`：3 passed。
+  - `PYTHONPATH=. pytest tests/test_renderer.py -q -k "ai_prelabel or ai_silver"`：2 passed。
+  - `PYTHONPATH=. pytest tests/test_server.py -q -k "auto_prelabeled or register_harness_real_samples_text_action_can_auto"`：2 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py tests/test_server.py -q`：160 passed。
+
+当前限制：
+
+- 本版本打通的是“预标注批处理能力”，不会把 `ai_silver` 自动当作最终标准答案。
+- 真实业务效果证明仍需要运营抽查后晋升 `human_gold`，再运行真实 VLM Harness baseline。
+- 如果 Qwen-VL 配置缺失或余额不足，页面会提示失败，不会伪造预标注结果。
+
 ## v0.3.82 - 真实业务样本接入与业务背景规则同步
 
 日期：2026-06-30
