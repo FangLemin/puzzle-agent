@@ -15,7 +15,7 @@ from puzzle_ops.excel_importer import import_history_workbook
 from puzzle_ops.feishu import FeishuClientFactory, MockFeishuClient
 from puzzle_ops.models import AgentTrace, AnalysisReport, AnalysisRow, DemandRow, HolidayRecommendation, ImageProfile, ScheduleItem, TagMeta, ValuePredictionCard, ValueRuleCandidate
 from puzzle_ops.multimodal import ImageFeatureExtractor, SimilarImageRetriever, ValueInsightMiner
-from puzzle_ops.rag import FeedbackAwareRerankProvider, HybridRagRetriever, RagChunk, RagChunkingConfig, RagDocument, RagPrompt, RagProviderConfig, RagRetrievalCase, RagRuntimeStats, RagVectorStoreConfig, StaticDocumentLoaderAdapter, build_rag_prompt, chunk_document, evaluate_retrieval_report, export_offline_rag_index, providers_from_config, rewrite_rag_query
+from puzzle_ops.rag import FeedbackAwareRerankProvider, FileDocumentLoaderAdapter, HybridRagRetriever, RagChunk, RagChunkingConfig, RagDocument, RagPrompt, RagProviderConfig, RagRetrievalCase, RagRuntimeStats, RagVectorStoreConfig, RetrievalCaseLoaderAdapter, StaticDocumentLoaderAdapter, build_rag_prompt, chunk_document, evaluate_retrieval_report, export_offline_rag_index, providers_from_config, rewrite_rag_query
 from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.trulens_eval import TruLensRAGEvaluator
 from puzzle_ops.trial_upload import TrialImageUploadService, _compact_tag_subject
@@ -218,7 +218,7 @@ class PuzzleOpsAgent:
 
     def parse_trial_uploads(self, country: str, category: str, mode: str, files: list[dict[str, object]]) -> tuple[DemandRow, tuple[dict[str, str], ...]]:
         row = self.create_trial_demand(country, category, mode)
-        parsed, previews = self.trial_uploads.parse(row, files, mode)
+        parsed, previews = self.trial_uploads.parse(row, files, mode, business_date=self.today)
         if previews:
             self.record_perception_memory(
                 country,
@@ -539,6 +539,7 @@ class PuzzleOpsAgent:
             "rewritten_query": self._last_rag_rewritten_query,
             "retrieval_trace": self._last_rag_trace,
             "retrieval_eval_report": self.value_audit_rag_eval_report(country),
+            "knowledge_base": self._rag_knowledge_summary(country),
             "feedback_summary": self.rag_feedback_summary(country),
             **self._last_rag_stats.as_dict(),
         }
@@ -572,13 +573,14 @@ class PuzzleOpsAgent:
             for chunk in chunk_document(document, max_chars=None, chunking=self.rag_chunking_config)
         )
         retriever = HybridRagRetriever(chunks)
-        cases = _rag_smoke_eval_cases(country, documents)
+        file_cases = self._rag_eval_cases(country)
+        cases = file_cases or _rag_smoke_eval_cases(country, documents)
         return evaluate_retrieval_report(
             retriever,
             cases,
             k=5,
             threshold=0.8,
-            dataset_name=f"{country}价值观审核RAG smoke eval",
+            dataset_name=f"{country}价值观审核RAG {'file' if file_cases else 'smoke'} eval",
             knowledge_version=f"{country}-value-audit-{len(documents)}docs-{len(chunks)}chunks",
         )
 
@@ -764,6 +766,7 @@ class PuzzleOpsAgent:
 
     def _rag_documents(self, country: str) -> tuple[RagDocument, ...]:
         documents: list[RagDocument] = []
+        documents.extend(self._file_knowledge_rag_documents(country))
         for index, (title, body) in enumerate(self._country(country)["value_rules"], 1):
             documents.append(
                 RagDocument(
@@ -815,6 +818,30 @@ class PuzzleOpsAgent:
                 )
             )
         return tuple(documents)
+
+    def _file_knowledge_rag_documents(self, country: str) -> tuple[RagDocument, ...]:
+        path = _rag_knowledge_dir() / "processed" / "value_audit_documents.jsonl"
+        documents = FileDocumentLoaderAdapter((path,)).load()
+        return tuple(document for document in documents if document.country in {country, "GLOBAL"})
+
+    def _rag_eval_cases(self, country: str) -> tuple[RagRetrievalCase, ...]:
+        path = _rag_knowledge_dir() / "eval" / "value_audit_cases.jsonl"
+        cases = RetrievalCaseLoaderAdapter(path).load()
+        return tuple(case for case in cases if case.country == country)
+
+    def _rag_knowledge_summary(self, country: str) -> dict[str, object]:
+        root = _rag_knowledge_dir()
+        documents_path = root / "processed" / "value_audit_documents.jsonl"
+        eval_cases_path = root / "eval" / "value_audit_cases.jsonl"
+        return {
+            "root": str(root),
+            "documents_path": str(documents_path),
+            "eval_cases_path": str(eval_cases_path),
+            "documents_exists": documents_path.exists(),
+            "eval_cases_exists": eval_cases_path.exists(),
+            "file_document_count": len(self._file_knowledge_rag_documents(country)),
+            "file_eval_case_count": len(self._rag_eval_cases(country)),
+        }
 
     def _harness_gold_rag_documents(self, country: str) -> tuple[RagDocument, ...]:
         documents: list[RagDocument] = []
@@ -1910,6 +1937,13 @@ def _rag_smoke_eval_cases(country: str, documents: tuple[RagDocument, ...]) -> t
             )
         )
     return tuple(cases)
+
+
+def _rag_knowledge_dir() -> Path:
+    configured = os.getenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return Path(__file__).resolve().parent.parent / "knowledge"
 
 
 def _row_needs_ai_prelabeled(row: dict[str, str]) -> bool:

@@ -194,6 +194,8 @@ def test_runtime_page_shows_rag_feedback_summary(tmp_path):
     assert "RAG 检索评测" in html
     assert "hit@5" in html
     assert "候选池" in html
+    assert "版本化知识库" in html
+    assert "value_audit_cases.jsonl" in html
 
 
 def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):

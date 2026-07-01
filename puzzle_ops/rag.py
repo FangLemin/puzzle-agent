@@ -137,6 +137,81 @@ class StaticDocumentLoaderAdapter:
         return self.documents
 
 
+class FileDocumentLoaderAdapter:
+    def __init__(self, paths: tuple[Path | str, ...]):
+        self.paths = tuple(Path(path) for path in paths)
+
+    def load(self) -> tuple[RagDocument, ...]:
+        documents: list[RagDocument] = []
+        for path in self.paths:
+            if path.is_dir():
+                for child in sorted(path.glob("*.jsonl")):
+                    documents.extend(load_rag_documents_jsonl(child))
+            elif path.exists():
+                documents.extend(load_rag_documents_jsonl(path))
+        return tuple(documents)
+
+
+class RetrievalCaseLoaderAdapter:
+    def __init__(self, path: Path | str):
+        self.path = Path(path)
+
+    def load(self) -> tuple[RagRetrievalCase, ...]:
+        return load_retrieval_cases_jsonl(self.path)
+
+
+def load_rag_documents_jsonl(path: Path | str) -> tuple[RagDocument, ...]:
+    source = Path(path)
+    documents: list[RagDocument] = []
+    if not source.exists():
+        return ()
+    for line_number, line in enumerate(source.read_text(encoding="utf-8").splitlines(), 1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        payload = json.loads(stripped)
+        if not isinstance(payload, dict):
+            raise ValueError(f"RAG document JSONL 第 {line_number} 行不是对象：{source}")
+        metadata = payload.get("metadata", {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+        metadata = dict(metadata)
+        metadata.setdefault("source_file", str(source))
+        documents.append(
+            RagDocument(
+                document_id=str(payload["document_id"]),
+                country=str(payload["country"]),
+                source_type=str(payload["source_type"]),
+                title=str(payload["title"]),
+                text=str(payload["text"]),
+                metadata=metadata,
+            )
+        )
+    return tuple(documents)
+
+
+def load_retrieval_cases_jsonl(path: Path | str) -> tuple[RagRetrievalCase, ...]:
+    source = Path(path)
+    cases: list[RagRetrievalCase] = []
+    if not source.exists():
+        return ()
+    for line_number, line in enumerate(source.read_text(encoding="utf-8").splitlines(), 1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        payload = json.loads(stripped)
+        if not isinstance(payload, dict):
+            raise ValueError(f"RAG eval case JSONL 第 {line_number} 行不是对象：{source}")
+        cases.append(
+            RagRetrievalCase(
+                query=str(payload["query"]),
+                country=str(payload["country"]),
+                expected_parent_id=str(payload["expected_parent_id"]),
+            )
+        )
+    return tuple(cases)
+
+
 @dataclass(frozen=True)
 class RagVectorStoreConfig:
     provider: str = "sqlite"

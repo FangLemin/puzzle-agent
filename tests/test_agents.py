@@ -1407,6 +1407,10 @@ def test_agent_rag_summary_exposes_engineering_pipeline_settings():
     assert summary["retrieval_trace"]["final_hits"]
     assert summary["retrieval_eval_report"]["hit@5"] >= 0.8
     assert summary["retrieval_eval_report"]["passed_threshold"] is True
+    assert summary["knowledge_base"]["documents_path"].endswith("knowledge/processed/value_audit_documents.jsonl")
+    assert summary["knowledge_base"]["eval_cases_path"].endswith("knowledge/eval/value_audit_cases.jsonl")
+    assert summary["knowledge_base"]["file_document_count"] >= 1
+    assert summary["knowledge_base"]["file_eval_case_count"] >= 1
 
 
 def test_agent_rag_summary_uses_qdrant_vector_store_config_when_declared(monkeypatch):
@@ -1451,11 +1455,70 @@ def test_agent_value_audit_rag_eval_report_tracks_hit_at_five_threshold(tmp_path
 
     report = agent.value_audit_rag_eval_report("日本")
 
-    assert report["dataset_name"] == "日本价值观审核RAG smoke eval"
+    assert report["dataset_name"] == "日本价值观审核RAG file eval"
     assert report["hit@5"] >= 0.8
     assert report["passed_threshold"] is True
     assert report["total"] >= 3
     assert report["cases"][0]["expected_parent_id"]
+
+
+def test_agent_loads_versioned_knowledge_documents_and_eval_cases(monkeypatch, tmp_path):
+    knowledge_dir = tmp_path / "knowledge"
+    processed = knowledge_dir / "processed"
+    eval_dir = knowledge_dir / "eval"
+    processed.mkdir(parents=True)
+    eval_dir.mkdir(parents=True)
+    (processed / "value_audit_documents.jsonl").write_text(
+        "\n".join(
+            (
+                json.dumps(
+                    {
+                        "document_id": "JP_KB_SUSHI",
+                        "country": "日本",
+                        "source_type": "value_rule",
+                        "title": "日本饮食文化",
+                        "text": "寿司、抹茶、和果子属于日本本土饮食文化。",
+                        "metadata": {"knowledge_version": "unit-test"},
+                    },
+                    ensure_ascii=False,
+                ),
+                json.dumps(
+                    {
+                        "document_id": "GLOBAL_KB_IP",
+                        "country": "GLOBAL",
+                        "source_type": "audit_policy",
+                        "title": "版权风险",
+                        "text": "避免文字水印、商标、热门IP角色。",
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+        ),
+        encoding="utf-8",
+    )
+    (eval_dir / "value_audit_cases.jsonl").write_text(
+        json.dumps(
+            {
+                "query": "日本寿司图是否符合本土饮食价值观",
+                "country": "日本",
+                "expected_parent_id": "JP_KB_SUSHI",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
+
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "knowledge.db"))
+    documents = agent.build_value_audit_rag_index("日本")
+    report = agent.value_audit_rag_eval_report("日本")
+
+    assert any(document.document_id == "JP_KB_SUSHI" for document in documents)
+    assert report["dataset_name"] == "日本价值观审核RAG file eval"
+    assert report["total"] == 1
+    assert report["cases"][0]["expected_parent_id"] == "JP_KB_SUSHI"
+    assert report["hit@5"] == 1.0
 
 
 def test_agent_exports_harness_annotation_files_for_label_tools(monkeypatch, tmp_path):

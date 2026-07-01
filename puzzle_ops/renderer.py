@@ -655,6 +655,15 @@ def render_rag_summary(summary: dict[str, object]) -> str:
         f"threshold={eval_report.get('threshold', 0.8)}；"
         f"passed={eval_report.get('passed_threshold', False)}"
     )
+    knowledge = summary.get("knowledge_base", {})
+    if not isinstance(knowledge, dict):
+        knowledge = {}
+    knowledge_text = (
+        f"documents={knowledge.get('file_document_count', 0)}；"
+        f"eval cases={knowledge.get('file_eval_case_count', 0)}；"
+        f"{Path(str(knowledge.get('documents_path', ''))).name}；"
+        f"{Path(str(knowledge.get('eval_cases_path', ''))).name}"
+    )
     citation_rows = render_rag_citation_details(summary.get("citation_details", ()))
     feedback = summary.get("feedback_summary", {})
     feedback_card = render_rag_feedback_summary(feedback if isinstance(feedback, dict) else {})
@@ -666,6 +675,7 @@ def render_rag_summary(summary: dict[str, object]) -> str:
   <article><strong>离线建库</strong><span>DocumentLoader + Chunk + Store</span><small>{escape(offline_pipeline)}</small></article>
   <article><strong>在线检索</strong><span>Rewrite + Hybrid Recall + Rerank</span><small>{escape(online_pipeline[:220])}</small></article>
   <article><strong>RAG 检索评测</strong><span>hit@5 / mrr@5</span><small>{escape(eval_text)}；{escape(trace_text)}</small></article>
+  <article><strong>版本化知识库</strong><span>Documents + Eval Cases</span><small>{escape(knowledge_text[:260])}</small></article>
   {feedback_card}
 </div>
 <h3>引用明细</h3>

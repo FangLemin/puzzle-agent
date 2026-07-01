@@ -2,6 +2,56 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.91 - 版本化 RAG 知识库与文件级检索评测
+
+日期：2026-07-01
+
+阶段目标：
+
+- 继续推进工业级 RAG：把知识源从代码内置规则扩展为可版本化、可替换、可评测的文件知识库。
+- 让日本/法国价值观与审核规则具备独立的 `knowledge/` 目录，便于后续接入业务背景、审核手册和 human_gold 样本。
+- 让 RAG eval 从 smoke case 升级为文件级 gold case，支持后续补到 30-50 条业务 query。
+
+已完成：
+
+- 新增版本化知识库目录：
+  - `knowledge/README.md`
+  - `knowledge/processed/value_audit_documents.jsonl`
+  - `knowledge/eval/value_audit_cases.jsonl`
+- 新增文件加载器：
+  - `FileDocumentLoaderAdapter`
+  - `RetrievalCaseLoaderAdapter`
+  - `load_rag_documents_jsonl()`
+  - `load_retrieval_cases_jsonl()`
+- Agent 接入文件知识库：
+  - 默认读取仓库内 `knowledge/processed/value_audit_documents.jsonl`。
+  - 支持 `PUZZLEOPS_RAG_KNOWLEDGE_DIR=/path/to/knowledge` 覆盖知识库目录。
+  - 文件知识会进入 `build_value_audit_rag_index()`，与内置价值观、审核规则、Memory、human_gold 样本一起组成 RAG index。
+- RAG eval 升级：
+  - 默认读取 `knowledge/eval/value_audit_cases.jsonl`。
+  - 有文件 eval case 时，`value_audit_rag_eval_report()` 使用 file eval；没有时回退 smoke eval。
+  - 当前种子集：日本 6 条、法国 6 条。
+  - 本地验证：日本 `hit@5=1.0`、法国 `hit@5=1.0`。
+- Runtime 展示：
+  - RAG summary 新增 `knowledge_base`。
+  - Runtime 页新增版本化知识库状态，展示 document/case 数和文件名。
+
+验证：
+
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_rag.py tests/test_agents.py tests/test_renderer.py -q -k "file_document_loader or retrieval_case_loader or versioned_knowledge or rag_eval_report or engineering_pipeline_settings or runtime_page_shows_rag_feedback_summary"`：6 passed。
+  - `PYTHONPATH=. pytest tests/test_rag.py tests/test_agents.py tests/test_renderer.py -q`：144 passed。
+  - `PYTHONPATH=. pytest tests -q`：302 passed。
+- 手工 smoke：
+  - 日本 file eval：`hit@5=1.0`，`mrr@5=0.9167`，total=6。
+  - 法国 file eval：`hit@5=1.0`，`mrr@5=0.8056`，total=6。
+
+当前限制：
+
+- 文件 eval 目前是 12 条种子 case，仍需结合真实业务 query、人工 gold parent ids 扩展到 30-50 条。
+- 当前知识库文件是 processed JSONL；后续还需要增加 raw 文档加载链路，把业务背景、审核手册、运营沉淀 Markdown/Docx 自动归一化为 processed documents。
+- 在线检索默认仍用 SQLite chunk store + hybrid retriever；Qdrant 已有 upsert adapter，但还未切为默认在线 search。
+
 ## v0.3.90 - 工业级 RAG 离线/在线闭环第一版
 
 日期：2026-07-01

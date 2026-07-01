@@ -1,0 +1,12 @@
+{"query":"日本寿司图是否符合本土饮食文化价值观","country":"日本","expected_parent_id":"JP_KB_SUSHI_FOOD"}
+{"query":"抹茶和和果子桌面图适合日本市场吗","country":"日本","expected_parent_id":"JP_KB_SUSHI_FOOD"}
+{"query":"温泉街浴衣灯笼图片是否符合日本治愈旅行价值观","country":"日本","expected_parent_id":"JP_KB_ONSEN_TRAVEL"}
+{"query":"樱花红叶夏祭这些季节元素适合日本提需吗","country":"日本","expected_parent_id":"JP_KB_ONSEN_TRAVEL"}
+{"query":"日式建筑木质纹理主体清晰度应该如何判断","country":"日本","expected_parent_id":"JP_KB_CRAFT_CLEAR_SUBJECT"}
+{"query":"法国薰衣草风车石屋是否符合生活艺术价值观","country":"法国","expected_parent_id":"FR_KB_LAVENDER_COUNTRYSIDE"}
+{"query":"普罗旺斯乡村小路陶罐花束适合法国吗","country":"法国","expected_parent_id":"FR_KB_LAVENDER_COUNTRYSIDE"}
+{"query":"法国海滩野餐面包奶酪玻璃杯是否符合精致生活方式","country":"法国","expected_parent_id":"FR_KB_PICNIC_LIFESTYLE"}
+{"query":"法式窗台庭院餐桌甜点图可以怎么判断价值观","country":"法国","expected_parent_id":"FR_KB_PICNIC_LIFESTYLE"}
+{"query":"法式庄园石屋窗台花艺构图层次如何判断","country":"法国","expected_parent_id":"FR_KB_ARCHITECTURE_FLORAL"}
+{"query":"试新图片出现文字水印商标热门IP角色有什么风险","country":"日本","expected_parent_id":"GLOBAL_KB_AUDIT_IP_TEXT"}
+{"query":"图片有文化混淆宗教符号和AI畸形质量问题怎么办","country":"法国","expected_parent_id":"GLOBAL_KB_AUDIT_CULTURE_QUALITY"}

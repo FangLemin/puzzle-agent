@@ -5,6 +5,7 @@ from puzzle_ops.rag import (
     DashScopeEmbeddingProvider,
     DashScopeRerankProvider,
     FeedbackAwareRerankProvider,
+    FileDocumentLoaderAdapter,
     HybridRagRetriever,
     LocalEmbeddingProvider,
     LocalRerankProvider,
@@ -16,12 +17,15 @@ from puzzle_ops.rag import (
     RagRetrievalCase,
     RagRuntimeStats,
     RagVectorStoreConfig,
+    RetrievalCaseLoaderAdapter,
     StaticDocumentLoaderAdapter,
     build_rag_prompt,
     export_offline_rag_index,
     chunk_document,
     evaluate_retrieval_report,
     evaluate_retrieval_hit_rate,
+    load_rag_documents_jsonl,
+    load_retrieval_cases_jsonl,
     prepare_qdrant_points,
     providers_from_config,
     rewrite_rag_query,
@@ -53,6 +57,81 @@ def test_static_document_loader_marks_loader_boundary_for_offline_indexing():
     loaded = StaticDocumentLoaderAdapter((document,)).load()
 
     assert loaded == (document,)
+
+
+def test_file_document_loader_reads_versioned_jsonl_documents(tmp_path):
+    source = tmp_path / "knowledge" / "processed" / "value_audit_documents.jsonl"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        "\n".join(
+            (
+                json.dumps(
+                    {
+                        "document_id": "JP_KB_SUSHI",
+                        "country": "日本",
+                        "source_type": "value_rule",
+                        "title": "日本饮食文化",
+                        "text": "寿司、抹茶、和果子属于日本本土饮食文化。",
+                        "metadata": {"knowledge_version": "2026-07-01", "source_file": "japan_values.md"},
+                    },
+                    ensure_ascii=False,
+                ),
+                json.dumps(
+                    {
+                        "document_id": "GLOBAL_AUDIT_IP",
+                        "country": "GLOBAL",
+                        "source_type": "audit_policy",
+                        "title": "版权与文字风险",
+                        "text": "避免文字水印、商标、热门IP角色和知名工作室点名风格。",
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    documents = FileDocumentLoaderAdapter((source,)).load()
+
+    assert documents == load_rag_documents_jsonl(source)
+    assert documents[0].document_id == "JP_KB_SUSHI"
+    assert documents[0].metadata["knowledge_version"] == "2026-07-01"
+    assert documents[1].metadata["source_file"] == str(source)
+
+
+def test_retrieval_case_loader_reads_jsonl_business_cases(tmp_path):
+    source = tmp_path / "knowledge" / "eval" / "value_audit_cases.jsonl"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        "\n".join(
+            (
+                json.dumps(
+                    {
+                        "query": "日本寿司图是否符合本土饮食价值观",
+                        "country": "日本",
+                        "expected_parent_id": "JP_KB_SUSHI",
+                        "tags": ["value", "japan"],
+                    },
+                    ensure_ascii=False,
+                ),
+                json.dumps(
+                    {
+                        "query": "法国薰衣草风车石屋是否符合生活艺术",
+                        "country": "法国",
+                        "expected_parent_id": "FR_KB_LAVENDER",
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    cases = RetrievalCaseLoaderAdapter(source).load()
+
+    assert cases == load_retrieval_cases_jsonl(source)
+    assert cases[0].query.startswith("日本寿司")
+    assert cases[0].expected_parent_id == "JP_KB_SUSHI"
 
 
 def test_token_chunk_document_uses_sentence_boundaries_and_overlap_metadata():

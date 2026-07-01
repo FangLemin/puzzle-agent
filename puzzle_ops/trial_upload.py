@@ -28,7 +28,14 @@ class TrialImageUploadService:
             except MissingVisionLLMConfig as exc:
                 self.vision_config_error = exc
 
-    def parse(self, row: DemandRow, files: list[dict[str, object]], mode: str) -> tuple[DemandRow, tuple[dict[str, str], ...]]:
+    def parse(
+        self,
+        row: DemandRow,
+        files: list[dict[str, object]],
+        mode: str,
+        *,
+        business_date: date | None = None,
+    ) -> tuple[DemandRow, tuple[dict[str, str], ...]]:
         saved = tuple(self._save(file) for file in files if file.get("filename"))
         if not saved:
             return row.edited(remark=(row.remark + "；" if row.remark else "") + "未选择图片，无法解析。"), ()
@@ -39,7 +46,7 @@ class TrialImageUploadService:
         semantic = self.vision_client.analyze(list(saved), row.country, row.js_category, visual) if self.vision_client else None
         if semantic and semantic.subject:
             subject = semantic.subject
-        operation_tag = _trial_operation_tag(row.operation_tag, row.country, subject)
+        operation_tag = _trial_operation_tag(row.operation_tag, row.country, subject, business_date or date.today())
         semantic_remark = _semantic_remark(semantic) if semantic else _missing_semantic_remark(self.vision_config_error)
         if mode == "derive":
             image_name = f"{names[0]} + 衍生方向"
@@ -105,9 +112,9 @@ def _subject_from_names(names: tuple[str, ...]) -> str:
     return ""
 
 
-def _trial_operation_tag(current_tag: str, country: str, subject: str) -> str:
+def _trial_operation_tag(current_tag: str, country: str, subject: str, business_date: date) -> str:
     cleaned = _compact_tag_subject(subject)
-    suffix = date.today().strftime("%m%d")
+    suffix = business_date.strftime("%m%d")
     if current_tag.startswith("试新_"):
         return f"试新_{country}_{cleaned}{suffix}"
     return re.sub(r"\d{4}$", suffix, current_tag)
