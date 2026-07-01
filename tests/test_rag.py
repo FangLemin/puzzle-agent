@@ -1,3 +1,5 @@
+import json
+
 from puzzle_ops.rag import (
     BGERerankProvider,
     DashScopeEmbeddingProvider,
@@ -8,14 +10,19 @@ from puzzle_ops.rag import (
     LocalRerankProvider,
     RagChunkingConfig,
     RagDocument,
+    RagIndexArtifacts,
     RagProviderConfig,
+    QdrantVectorStore,
     RagRetrievalCase,
     RagRuntimeStats,
     RagVectorStoreConfig,
     StaticDocumentLoaderAdapter,
     build_rag_prompt,
+    export_offline_rag_index,
     chunk_document,
+    evaluate_retrieval_report,
     evaluate_retrieval_hit_rate,
+    prepare_qdrant_points,
     providers_from_config,
     rewrite_rag_query,
 )
@@ -248,6 +255,145 @@ def test_rag_retrieval_hit_at_five_can_validate_business_gold_cases():
     assert result["hit@5"] >= 0.8
     assert result["hits"] == 5
     assert result["total"] == 5
+
+
+def test_export_offline_rag_index_writes_manifest_documents_and_chunks_jsonl(tmp_path):
+    documents = (
+        RagDocument(
+            "JP_VALUE_001",
+            "日本",
+            "value_rule",
+            "饮食文化",
+            "寿司、抹茶、和果子属于日本本土饮食文化。需要保持生活化餐桌语境。",
+            {"source_file": "japan_values.md", "version": "2026-07-01"},
+        ),
+        RagDocument(
+            "AUDIT_001",
+            "GLOBAL",
+            "audit_policy",
+            "版权风险",
+            "避免文字水印、商标、热门IP角色和知名工作室点名风格。",
+            {"source_file": "audit.md", "version": "2026-07-01"},
+        ),
+    )
+
+    artifacts = export_offline_rag_index(
+        documents,
+        tmp_path,
+        country="日本",
+        chunking=RagChunkingConfig(chunk_size_tokens=20, chunk_overlap_tokens=6),
+        vector_store=RagVectorStoreConfig(provider="qdrant", endpoint="http://127.0.0.1:6333", collection="puzzle_ops_rag", configured=True, ready=True),
+    )
+
+    assert isinstance(artifacts, RagIndexArtifacts)
+    assert artifacts.manifest_path.exists()
+    assert artifacts.documents_path.exists()
+    assert artifacts.chunks_path.exists()
+    manifest = json.loads(artifacts.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["country"] == "日本"
+    assert manifest["document_count"] == 2
+    assert manifest["chunk_count"] >= 2
+    assert manifest["chunking"]["chunk_size_tokens"] == 20
+    assert manifest["vector_store"]["provider"] == "qdrant"
+    assert manifest["parent_child"]["JP_VALUE_001"]
+    chunk_line = json.loads(artifacts.chunks_path.read_text(encoding="utf-8").splitlines()[0])
+    assert {"chunk_id", "parent_id", "text", "metadata"} <= set(chunk_line)
+
+
+def test_hybrid_retriever_search_trace_exposes_multiroute_candidates_and_final_hits():
+    documents = (
+        RagDocument("JP_SUSHI", "日本", "value_rule", "日本饮食", "寿司、抹茶、和果子属于日本本土饮食文化。", {}),
+        RagDocument("JP_AUDIT", "GLOBAL", "audit_policy", "审核风险", "避免文字水印、热门IP角色、商标和中日韩文化混淆。", {}),
+        RagDocument("FR_PICNIC", "法国", "value_rule", "法国生活艺术", "海滩野餐、面包和奶酪体现法国生活艺术。", {}),
+    )
+    chunks = tuple(chunk for document in documents for chunk in chunk_document(document, max_chars=80))
+    retriever = HybridRagRetriever(chunks)
+
+    trace = retriever.search_with_trace(
+        rewrite_rag_query("日本寿司图是否符合价值观并检查水印风险", country="日本"),
+        country="日本",
+        top_k=2,
+        bm25_top_k=2,
+        vector_top_k=2,
+    )
+
+    assert trace.query
+    assert trace.country == "日本"
+    assert trace.eligible_chunk_count == 2
+    assert trace.bm25_top_k == 2
+    assert trace.vector_top_k == 2
+    assert trace.merged_candidate_count >= 2
+    assert trace.rerank_provider == "local-rule-rerank"
+    assert len(trace.final_hits) == 2
+    assert trace.final_hits[0].rerank_score >= trace.final_hits[-1].rerank_score
+    assert trace.as_dict()["final_hits"][0]["chunk_id"]
+
+
+def test_evaluate_retrieval_report_includes_hit_mrr_and_threshold_status():
+    documents = (
+        RagDocument("JP_SUSHI", "日本", "value_rule", "日本饮食", "寿司、抹茶、和果子属于日本本土饮食文化。", {}),
+        RagDocument("FR_LAVENDER", "法国", "value_rule", "法国自然", "薰衣草、石屋、风车体现法国乡村生活艺术。", {}),
+    )
+    chunks = tuple(chunk for document in documents for chunk in chunk_document(document, max_chars=80))
+    retriever = HybridRagRetriever(chunks)
+    cases = (
+        RagRetrievalCase("日本寿司图是否符合本土饮食价值观", "日本", "JP_SUSHI"),
+        RagRetrievalCase("薰衣草风车石屋适合法国吗", "法国", "FR_LAVENDER"),
+    )
+
+    report = evaluate_retrieval_report(
+        retriever,
+        cases,
+        k=5,
+        threshold=0.8,
+        dataset_name="value_audit_smoke",
+        knowledge_version="rag-v1",
+    )
+
+    assert report["dataset_name"] == "value_audit_smoke"
+    assert report["knowledge_version"] == "rag-v1"
+    assert report["hit@5"] == 1.0
+    assert report["mrr@5"] == 1.0
+    assert report["passed_threshold"] is True
+    assert report["cases"][0]["rank"] == 1
+
+
+def test_prepare_qdrant_points_keeps_vector_text_and_parent_payload():
+    chunk = chunk_document(
+        RagDocument("JP_SUSHI", "日本", "value_rule", "日本饮食", "寿司属于日本本土饮食文化。", {"source": "rules"})
+    )[0]
+
+    points = prepare_qdrant_points((chunk,), {chunk.chunk_id: (0.1, 0.2, 0.3)})
+
+    assert len(points) == 1
+    assert points[0].id
+    assert points[0].vector == (0.1, 0.2, 0.3)
+    assert points[0].payload["chunk_id"] == chunk.chunk_id
+    assert points[0].payload["parent_id"] == "JP_SUSHI"
+    assert points[0].payload["text"] == "寿司属于日本本土饮食文化。"
+
+
+def test_qdrant_vector_store_upserts_points_with_payload():
+    calls = []
+
+    def fake_transport(endpoint, payload, api_key):
+        calls.append((endpoint, payload, api_key))
+        return {"status": "ok"}
+
+    chunk = chunk_document(RagDocument("JP_SUSHI", "日本", "value_rule", "日本饮食", "寿司属于日本本土饮食文化。", {}))[0]
+    points = prepare_qdrant_points((chunk,), {chunk.chunk_id: (0.1, 0.2)})
+    store = QdrantVectorStore(
+        RagVectorStoreConfig(provider="qdrant", endpoint="http://127.0.0.1:6333", collection="puzzle_ops_rag", api_key="qdrant-key", configured=True, ready=True),
+        transport=fake_transport,
+    )
+
+    response = store.upsert(points)
+
+    assert response == {"status": "ok"}
+    assert calls[0][0] == "http://127.0.0.1:6333/collections/puzzle_ops_rag/points?wait=true"
+    assert calls[0][1]["points"][0]["vector"] == [0.1, 0.2]
+    assert calls[0][1]["points"][0]["payload"]["text"] == "寿司属于日本本土饮食文化。"
+    assert calls[0][2] == "qdrant-key"
 
 
 def test_feedback_aware_rerank_provider_promotes_useful_chunks():

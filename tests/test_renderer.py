@@ -191,6 +191,9 @@ def test_runtime_page_shows_rag_feedback_summary(tmp_path):
     assert "AUDIT_001#chunk-1" in html
     assert "useful=1" in html
     assert "not_useful=1" in html
+    assert "RAG 检索评测" in html
+    assert "hit@5" in html
+    assert "候选池" in html
 
 
 def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):

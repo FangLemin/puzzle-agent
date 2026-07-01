@@ -637,6 +637,24 @@ def render_rag_summary(summary: dict[str, object]) -> str:
         f"rerank remote {summary.get('rerank_remote_calls', 0)}；"
         f"rerank fallback {summary.get('rerank_fallbacks', 0)}"
     )
+    trace = summary.get("retrieval_trace", {})
+    if not isinstance(trace, dict):
+        trace = {}
+    eval_report = summary.get("retrieval_eval_report", {})
+    if not isinstance(eval_report, dict):
+        eval_report = {}
+    trace_text = (
+        f"候选池 {trace.get('merged_candidate_count', 0)}；"
+        f"eligible {trace.get('eligible_chunk_count', 0)}；"
+        f"BM25候选 {len(trace.get('bm25_candidates', ()) if isinstance(trace.get('bm25_candidates', ()), (tuple, list)) else ())}；"
+        f"向量候选 {len(trace.get('vector_candidates', ()) if isinstance(trace.get('vector_candidates', ()), (tuple, list)) else ())}"
+    )
+    eval_text = (
+        f"hit@5={eval_report.get('hit@5', 0)}；"
+        f"mrr@5={eval_report.get('mrr@5', 0)}；"
+        f"threshold={eval_report.get('threshold', 0.8)}；"
+        f"passed={eval_report.get('passed_threshold', False)}"
+    )
     citation_rows = render_rag_citation_details(summary.get("citation_details", ()))
     feedback = summary.get("feedback_summary", {})
     feedback_card = render_rag_feedback_summary(feedback if isinstance(feedback, dict) else {})
@@ -647,6 +665,7 @@ def render_rag_summary(summary: dict[str, object]) -> str:
   <article><strong>引用依据</strong><span>{escape(citation_text or "暂无引用")}</span><small>{escape(context[:140] or "暂无召回上下文")}；{escape(stats)}</small></article>
   <article><strong>离线建库</strong><span>DocumentLoader + Chunk + Store</span><small>{escape(offline_pipeline)}</small></article>
   <article><strong>在线检索</strong><span>Rewrite + Hybrid Recall + Rerank</span><small>{escape(online_pipeline[:220])}</small></article>
+  <article><strong>RAG 检索评测</strong><span>hit@5 / mrr@5</span><small>{escape(eval_text)}；{escape(trace_text)}</small></article>
   {feedback_card}
 </div>
 <h3>引用明细</h3>

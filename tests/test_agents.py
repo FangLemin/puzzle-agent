@@ -1403,6 +1403,10 @@ def test_agent_rag_summary_exposes_engineering_pipeline_settings():
     assert summary["vector_top_k"] == 30
     assert summary["rerank_top_k"] == 5
     assert "价值观" in str(summary["rewritten_query"])
+    assert summary["retrieval_trace"]["merged_candidate_count"] >= len(summary["citations"])
+    assert summary["retrieval_trace"]["final_hits"]
+    assert summary["retrieval_eval_report"]["hit@5"] >= 0.8
+    assert summary["retrieval_eval_report"]["passed_threshold"] is True
 
 
 def test_agent_rag_summary_uses_qdrant_vector_store_config_when_declared(monkeypatch):
@@ -1426,6 +1430,32 @@ def test_agent_rag_summary_exposes_citation_source_parent_and_text():
     assert first["parent_id"]
     assert first["source_type"]
     assert first["text"]
+
+
+def test_agent_exports_value_audit_rag_offline_artifacts(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "rag_artifacts.db"))
+
+    artifacts = agent.export_value_audit_rag_artifacts("日本", tmp_path / "rag_export")
+
+    assert artifacts["manifest_path"].endswith("rag_manifest_日本.json")
+    assert artifacts["documents_path"].endswith("rag_documents_日本.jsonl")
+    assert artifacts["chunks_path"].endswith("rag_chunks_日本.jsonl")
+    assert artifacts["document_count"] >= 1
+    assert artifacts["chunk_count"] >= artifacts["document_count"]
+    assert artifacts["vector_store"] in {"sqlite", "qdrant"}
+    assert artifacts["parent_child_count"] >= 1
+
+
+def test_agent_value_audit_rag_eval_report_tracks_hit_at_five_threshold(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "rag_eval.db"))
+
+    report = agent.value_audit_rag_eval_report("日本")
+
+    assert report["dataset_name"] == "日本价值观审核RAG smoke eval"
+    assert report["hit@5"] >= 0.8
+    assert report["passed_threshold"] is True
+    assert report["total"] >= 3
+    assert report["cases"][0]["expected_parent_id"]
 
 
 def test_agent_exports_harness_annotation_files_for_label_tools(monkeypatch, tmp_path):

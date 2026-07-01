@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import json
 import math
 import os
@@ -9,6 +10,7 @@ import re
 from pathlib import Path
 from typing import Callable
 from urllib import request
+import uuid
 
 
 @dataclass(frozen=True)
@@ -58,6 +60,69 @@ class RagRetrievalCase:
 
 
 @dataclass(frozen=True)
+class RagIndexArtifacts:
+    output_dir: Path
+    manifest_path: Path
+    documents_path: Path
+    chunks_path: Path
+    manifest: dict[str, object]
+
+
+@dataclass(frozen=True)
+class QdrantPoint:
+    id: str
+    vector: tuple[float, ...]
+    payload: dict[str, object]
+
+
+@dataclass(frozen=True)
+class RagRetrievalTrace:
+    query: str
+    country: str
+    eligible_chunk_count: int
+    bm25_top_k: int
+    vector_top_k: int
+    rerank_top_k: int
+    bm25_candidates: tuple[str, ...]
+    vector_candidates: tuple[str, ...]
+    exact_match_candidates: tuple[str, ...]
+    merged_candidate_count: int
+    embedding_provider: str
+    rerank_provider: str
+    final_hits: tuple[RagHit, ...]
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "query": self.query,
+            "country": self.country,
+            "eligible_chunk_count": self.eligible_chunk_count,
+            "bm25_top_k": self.bm25_top_k,
+            "vector_top_k": self.vector_top_k,
+            "rerank_top_k": self.rerank_top_k,
+            "bm25_candidates": self.bm25_candidates,
+            "vector_candidates": self.vector_candidates,
+            "exact_match_candidates": self.exact_match_candidates,
+            "merged_candidate_count": self.merged_candidate_count,
+            "embedding_provider": self.embedding_provider,
+            "rerank_provider": self.rerank_provider,
+            "final_hits": tuple(
+                {
+                    "chunk_id": hit.chunk.chunk_id,
+                    "parent_id": hit.chunk.parent_id,
+                    "country": hit.chunk.country,
+                    "source_type": hit.chunk.source_type,
+                    "title": hit.chunk.title,
+                    "bm25_score": hit.bm25_score,
+                    "vector_score": hit.vector_score,
+                    "rerank_score": hit.rerank_score,
+                    "reason": hit.reason,
+                }
+                for hit in self.final_hits
+            ),
+        }
+
+
+@dataclass(frozen=True)
 class RagChunkingConfig:
     chunk_size_tokens: int = 600
     chunk_overlap_tokens: int = 100
@@ -99,6 +164,32 @@ class RagVectorStoreConfig:
             )
             return cls(provider, endpoint, collection, api_key, True, ready, status)
         return cls()
+
+
+class QdrantVectorStore:
+    def __init__(
+        self,
+        config: RagVectorStoreConfig,
+        transport: Callable[[str, dict[str, object], str], dict[str, object]] | None = None,
+    ):
+        self.config = config
+        self.transport = transport or _post_json
+
+    def upsert(self, points: tuple[QdrantPoint, ...]) -> dict[str, object]:
+        if self.config.provider != "qdrant" or not self.config.ready:
+            raise RuntimeError("Qdrant vector store 未就绪")
+        endpoint = f"{self.config.endpoint}/collections/{self.config.collection}/points?wait=true"
+        payload = {
+            "points": [
+                {
+                    "id": point.id,
+                    "vector": list(point.vector),
+                    "payload": point.payload,
+                }
+                for point in points
+            ]
+        }
+        return self.transport(endpoint, payload, self.config.api_key)
 
 
 @dataclass
@@ -531,6 +622,137 @@ def evaluate_retrieval_hit_rate(
     }
 
 
+def evaluate_retrieval_report(
+    retriever: "HybridRagRetriever",
+    cases: tuple[RagRetrievalCase, ...],
+    *,
+    k: int = 5,
+    threshold: float = 0.8,
+    dataset_name: str = "rag_retrieval_eval",
+    knowledge_version: str = "",
+) -> dict[str, object]:
+    total = len(cases)
+    hits = 0
+    reciprocal_rank_sum = 0.0
+    case_results = []
+    for case in cases:
+        result_hits = retriever.search(rewrite_rag_query(case.query, country=case.country), country=case.country, top_k=k)
+        retrieved_parent_ids = tuple(hit.chunk.parent_id for hit in result_hits)
+        rank = 0
+        for index, parent_id in enumerate(retrieved_parent_ids, 1):
+            if parent_id == case.expected_parent_id:
+                rank = index
+                break
+        if rank:
+            hits += 1
+            reciprocal_rank_sum += 1 / rank
+        case_results.append(
+            {
+                "query": case.query,
+                "country": case.country,
+                "expected_parent_id": case.expected_parent_id,
+                "retrieved_parent_ids": retrieved_parent_ids,
+                "hit": bool(rank),
+                "rank": rank,
+            }
+        )
+    hit_rate = hits / total if total else 0.0
+    mrr = reciprocal_rank_sum / total if total else 0.0
+    return {
+        "dataset_name": dataset_name,
+        "knowledge_version": knowledge_version,
+        f"hit@{k}": hit_rate,
+        f"mrr@{k}": mrr,
+        "passed_threshold": hit_rate >= threshold,
+        "threshold": threshold,
+        "hits": hits,
+        "total": total,
+        "cases": tuple(case_results),
+    }
+
+
+def export_offline_rag_index(
+    documents: tuple[RagDocument, ...],
+    output_dir: Path | str,
+    *,
+    country: str,
+    chunking: RagChunkingConfig | None = None,
+    vector_store: RagVectorStoreConfig | None = None,
+) -> RagIndexArtifacts:
+    output = Path(output_dir)
+    output.mkdir(parents=True, exist_ok=True)
+    chunking = chunking or RagChunkingConfig()
+    vector_store = vector_store or RagVectorStoreConfig()
+    chunks = tuple(
+        chunk
+        for document in documents
+        for chunk in chunk_document(document, max_chars=None, chunking=chunking)
+    )
+    parent_child: dict[str, list[str]] = {}
+    for chunk in chunks:
+        parent_child.setdefault(chunk.parent_id, []).append(chunk.chunk_id)
+    documents_path = output / f"rag_documents_{country}.jsonl"
+    chunks_path = output / f"rag_chunks_{country}.jsonl"
+    manifest_path = output / f"rag_manifest_{country}.json"
+    _write_jsonl(documents_path, (_document_to_dict(document) for document in documents))
+    _write_jsonl(chunks_path, (_chunk_to_dict(chunk) for chunk in chunks))
+    source_counts: dict[str, int] = {}
+    for document in documents:
+        source_counts[document.source_type] = source_counts.get(document.source_type, 0) + 1
+    manifest: dict[str, object] = {
+        "country": country,
+        "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "document_count": len(documents),
+        "chunk_count": len(chunks),
+        "source_counts": source_counts,
+        "chunking": {
+            "splitter": chunking.splitter,
+            "chunk_size_tokens": chunking.chunk_size_tokens,
+            "chunk_overlap_tokens": chunking.chunk_overlap_tokens,
+        },
+        "vector_store": {
+            "provider": vector_store.provider,
+            "endpoint": vector_store.endpoint,
+            "collection": vector_store.collection,
+            "ready": vector_store.ready,
+            "status_text": vector_store.status_text,
+        },
+        "parent_child": parent_child,
+        "documents_path": str(documents_path),
+        "chunks_path": str(chunks_path),
+    }
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    return RagIndexArtifacts(output, manifest_path, documents_path, chunks_path, manifest)
+
+
+def prepare_qdrant_points(
+    chunks: tuple[RagChunk, ...],
+    vectors_by_chunk_id: dict[str, tuple[float, ...]],
+) -> tuple[QdrantPoint, ...]:
+    points: list[QdrantPoint] = []
+    for chunk in chunks:
+        vector = vectors_by_chunk_id.get(chunk.chunk_id)
+        if not vector:
+            continue
+        points.append(
+            QdrantPoint(
+                id=str(uuid.uuid5(uuid.NAMESPACE_URL, chunk.chunk_id)),
+                vector=tuple(float(value) for value in vector),
+                payload={
+                    "chunk_id": chunk.chunk_id,
+                    "parent_id": chunk.parent_id,
+                    "country": chunk.country,
+                    "source_type": chunk.source_type,
+                    "title": chunk.title,
+                    "text": chunk.text,
+                    "chunk_index": chunk.chunk_index,
+                    "metadata": dict(chunk.metadata),
+                },
+            )
+        )
+    return tuple(points)
+
+
 class HybridRagRetriever:
     def __init__(
         self,
@@ -556,9 +778,42 @@ class HybridRagRetriever:
         bm25_top_k: int = 30,
         vector_top_k: int = 30,
     ) -> tuple[RagHit, ...]:
+        return self.search_with_trace(
+            query,
+            country=country,
+            top_k=top_k,
+            source_types=source_types,
+            bm25_top_k=bm25_top_k,
+            vector_top_k=vector_top_k,
+        ).final_hits
+
+    def search_with_trace(
+        self,
+        query: str,
+        *,
+        country: str,
+        top_k: int = 6,
+        source_types: tuple[str, ...] | None = None,
+        bm25_top_k: int = 30,
+        vector_top_k: int = 30,
+    ) -> RagRetrievalTrace:
         query_tokens = _tokens(query)
         if not query_tokens:
-            return ()
+            return RagRetrievalTrace(
+                query,
+                country,
+                0,
+                bm25_top_k,
+                vector_top_k,
+                top_k,
+                (),
+                (),
+                (),
+                0,
+                self.embedding_provider.provider_name,
+                self.rerank_provider.provider_name,
+                (),
+            )
         allowed_sources = set(source_types or ())
         eligible_chunks = tuple(
             chunk
@@ -573,7 +828,12 @@ class HybridRagRetriever:
         for chunk, vector in zip(eligible_chunks, vector_scores):
             bm25 = self._bm25(query_tokens, chunk)
             scored.append((chunk, bm25, vector))
-        candidates = self._candidate_pool(scored, query, bm25_top_k=bm25_top_k, vector_top_k=vector_top_k)
+        candidates, bm25_ids, vector_ids, exact_ids = self._candidate_pool_with_routes(
+            scored,
+            query,
+            bm25_top_k=bm25_top_k,
+            vector_top_k=vector_top_k,
+        )
         rerank_scores = self.rerank_provider.rerank_many(query, country, tuple(candidates))
         hits = [
             RagHit(
@@ -586,7 +846,21 @@ class HybridRagRetriever:
             for (chunk, bm25, vector), rerank in zip(candidates, rerank_scores)
         ]
         ranked = sorted(hits, key=lambda hit: hit.rerank_score, reverse=True)
-        return tuple(ranked[:top_k])
+        return RagRetrievalTrace(
+            query=query,
+            country=country,
+            eligible_chunk_count=len(eligible_chunks),
+            bm25_top_k=bm25_top_k,
+            vector_top_k=vector_top_k,
+            rerank_top_k=top_k,
+            bm25_candidates=tuple(bm25_ids),
+            vector_candidates=tuple(vector_ids),
+            exact_match_candidates=tuple(exact_ids),
+            merged_candidate_count=len(candidates),
+            embedding_provider=self.embedding_provider.provider_name,
+            rerank_provider=self.rerank_provider.provider_name,
+            final_hits=tuple(ranked[:top_k]),
+        )
 
     def _candidate_pool(
         self,
@@ -596,15 +870,37 @@ class HybridRagRetriever:
         bm25_top_k: int,
         vector_top_k: int,
     ) -> list[tuple[RagChunk, float, float]]:
+        return self._candidate_pool_with_routes(
+            scored,
+            query,
+            bm25_top_k=bm25_top_k,
+            vector_top_k=vector_top_k,
+        )[0]
+
+    def _candidate_pool_with_routes(
+        self,
+        scored: list[tuple[RagChunk, float, float]],
+        query: str,
+        *,
+        bm25_top_k: int,
+        vector_top_k: int,
+    ) -> tuple[list[tuple[RagChunk, float, float]], list[str], list[str], list[str]]:
         candidates_by_id: dict[str, tuple[RagChunk, float, float]] = {}
         bm25_ranked = sorted((item for item in scored if item[1] > 0), key=lambda item: item[1], reverse=True)
         vector_ranked = sorted((item for item in scored if item[2] > 0), key=lambda item: item[2], reverse=True)
         exact_matches = [item for item in scored if _has_exact_phrase(query, item[0].text)]
+        bm25_selected = bm25_ranked[: max(bm25_top_k, 0)]
+        vector_selected = vector_ranked[: max(vector_top_k, 0)]
         for chunk, bm25, vector in (
-            bm25_ranked[: max(bm25_top_k, 0)] + vector_ranked[: max(vector_top_k, 0)] + exact_matches
+            bm25_selected + vector_selected + exact_matches
         ):
             candidates_by_id.setdefault(chunk.chunk_id, (chunk, bm25, vector))
-        return list(candidates_by_id.values())
+        return (
+            list(candidates_by_id.values()),
+            [chunk.chunk_id for chunk, _, _ in bm25_selected],
+            [chunk.chunk_id for chunk, _, _ in vector_selected],
+            [chunk.chunk_id for chunk, _, _ in exact_matches],
+        )
 
     def _document_frequency(self) -> Counter[str]:
         counter: Counter[str] = Counter()
@@ -643,6 +939,37 @@ def _make_chunk(document: RagDocument, sentences: list[str], index: int) -> RagC
         text="".join(sentences).strip(),
         chunk_index=index,
         metadata=dict(document.metadata),
+    )
+
+
+def _document_to_dict(document: RagDocument) -> dict[str, object]:
+    return {
+        "document_id": document.document_id,
+        "country": document.country,
+        "source_type": document.source_type,
+        "title": document.title,
+        "text": document.text,
+        "metadata": dict(document.metadata),
+    }
+
+
+def _chunk_to_dict(chunk: RagChunk) -> dict[str, object]:
+    return {
+        "chunk_id": chunk.chunk_id,
+        "parent_id": chunk.parent_id,
+        "country": chunk.country,
+        "source_type": chunk.source_type,
+        "title": chunk.title,
+        "text": chunk.text,
+        "chunk_index": chunk.chunk_index,
+        "metadata": dict(chunk.metadata),
+    }
+
+
+def _write_jsonl(path: Path, rows) -> None:
+    path.write_text(
+        "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
     )
 
 

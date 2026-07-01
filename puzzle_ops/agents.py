@@ -15,7 +15,7 @@ from puzzle_ops.excel_importer import import_history_workbook
 from puzzle_ops.feishu import FeishuClientFactory, MockFeishuClient
 from puzzle_ops.models import AgentTrace, AnalysisReport, AnalysisRow, DemandRow, HolidayRecommendation, ImageProfile, ScheduleItem, TagMeta, ValuePredictionCard, ValueRuleCandidate
 from puzzle_ops.multimodal import ImageFeatureExtractor, SimilarImageRetriever, ValueInsightMiner
-from puzzle_ops.rag import FeedbackAwareRerankProvider, HybridRagRetriever, RagChunk, RagChunkingConfig, RagDocument, RagPrompt, RagProviderConfig, RagRuntimeStats, RagVectorStoreConfig, StaticDocumentLoaderAdapter, build_rag_prompt, chunk_document, providers_from_config, rewrite_rag_query
+from puzzle_ops.rag import FeedbackAwareRerankProvider, HybridRagRetriever, RagChunk, RagChunkingConfig, RagDocument, RagPrompt, RagProviderConfig, RagRetrievalCase, RagRuntimeStats, RagVectorStoreConfig, StaticDocumentLoaderAdapter, build_rag_prompt, chunk_document, evaluate_retrieval_report, export_offline_rag_index, providers_from_config, rewrite_rag_query
 from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.trulens_eval import TruLensRAGEvaluator
 from puzzle_ops.trial_upload import TrialImageUploadService, _compact_tag_subject
@@ -62,6 +62,7 @@ class PuzzleOpsAgent:
         self.rag_vector_store_config = RagVectorStoreConfig.from_env()
         self._last_rag_stats = RagRuntimeStats()
         self._last_rag_rewritten_query = ""
+        self._last_rag_trace: dict[str, object] = {}
 
     def countries(self) -> tuple[str, ...]:
         return tuple(COUNTRIES.keys())
@@ -442,13 +443,14 @@ class PuzzleOpsAgent:
                 rerank_provider = FeedbackAwareRerankProvider(rerank_provider, feedback_scores)
         retriever = HybridRagRetriever(chunks, embedding_provider=embedding_provider, rerank_provider=rerank_provider)
         rewritten_query = rewrite_rag_query(query, country=country)
-        hits = retriever.search(
+        trace = retriever.search_with_trace(
             rewritten_query,
             country=country,
             top_k=top_k,
             bm25_top_k=self.rag_bm25_top_k,
             vector_top_k=self.rag_vector_top_k,
         )
+        hits = trace.final_hits
         if _looks_like_audit_query(query) and not any(hit.chunk.source_type == "audit_policy" for hit in hits):
             audit_hits = retriever.search(
                 rewritten_query,
@@ -462,6 +464,7 @@ class PuzzleOpsAgent:
                 hits = tuple(list(hits[: max(top_k - 1, 0)]) + [audit_hits[0]])
         self._last_rag_stats = stats
         self._last_rag_rewritten_query = rewritten_query
+        self._last_rag_trace = trace.as_dict()
         return build_rag_prompt(rewritten_query, hits)
 
     def _rag_rules_for_value_master(self, row: DemandRow) -> tuple[tuple[str, str], ...]:
@@ -534,9 +537,50 @@ class PuzzleOpsAgent:
             "vector_top_k": self.rag_vector_top_k,
             "rerank_top_k": 5,
             "rewritten_query": self._last_rag_rewritten_query,
+            "retrieval_trace": self._last_rag_trace,
+            "retrieval_eval_report": self.value_audit_rag_eval_report(country),
             "feedback_summary": self.rag_feedback_summary(country),
             **self._last_rag_stats.as_dict(),
         }
+
+    def export_value_audit_rag_artifacts(self, country: str, output_dir: Path | str) -> dict[str, object]:
+        documents = StaticDocumentLoaderAdapter(self._rag_documents(country)).load()
+        artifacts = export_offline_rag_index(
+            documents,
+            output_dir,
+            country=country,
+            chunking=self.rag_chunking_config,
+            vector_store=self.rag_vector_store_config,
+        )
+        return {
+            "manifest_path": str(artifacts.manifest_path),
+            "documents_path": str(artifacts.documents_path),
+            "chunks_path": str(artifacts.chunks_path),
+            "document_count": artifacts.manifest["document_count"],
+            "chunk_count": artifacts.manifest["chunk_count"],
+            "source_counts": artifacts.manifest["source_counts"],
+            "vector_store": artifacts.manifest["vector_store"]["provider"],
+            "vector_store_ready": artifacts.manifest["vector_store"]["ready"],
+            "parent_child_count": len(artifacts.manifest["parent_child"]),
+        }
+
+    def value_audit_rag_eval_report(self, country: str) -> dict[str, object]:
+        documents = StaticDocumentLoaderAdapter(self._rag_documents(country)).load()
+        chunks = tuple(
+            chunk
+            for document in documents
+            for chunk in chunk_document(document, max_chars=None, chunking=self.rag_chunking_config)
+        )
+        retriever = HybridRagRetriever(chunks)
+        cases = _rag_smoke_eval_cases(country, documents)
+        return evaluate_retrieval_report(
+            retriever,
+            cases,
+            k=5,
+            threshold=0.8,
+            dataset_name=f"{country}价值观审核RAG smoke eval",
+            knowledge_version=f"{country}-value-audit-{len(documents)}docs-{len(chunks)}chunks",
+        )
 
     def rag_feedback_summary(self, country: str) -> dict[str, object]:
         by_chunk: dict[str, dict[str, object]] = {}
@@ -1843,6 +1887,29 @@ def _third_layer_status_text(real_sample_count: int) -> str:
     if real_sample_count >= 30:
         return f"已接入 {real_sample_count} 张真实拼图样本；下一步运行真实 VLM Harness，并抽查 AI silver 后晋升 human_gold。"
     return "等待 30-50 张真实拼图图片、人工等级和真实业务字段后运行真实样本基线。"
+
+
+def _rag_smoke_eval_cases(country: str, documents: tuple[RagDocument, ...]) -> tuple[RagRetrievalCase, ...]:
+    country_docs = [document for document in documents if document.country == country and document.source_type == "value_rule"]
+    audit_docs = [document for document in documents if document.source_type == "audit_policy"]
+    cases = [
+        RagRetrievalCase(
+            query=f"{country}{document.title}是否符合市场价值观 {document.text[:40]}",
+            country=country,
+            expected_parent_id=document.document_id,
+        )
+        for document in country_docs[:4]
+    ]
+    if audit_docs:
+        audit = audit_docs[0]
+        cases.append(
+            RagRetrievalCase(
+                query=f"{country}试新图是否存在版权 IP 文字水印 审核风险",
+                country=country,
+                expected_parent_id=audit.document_id,
+            )
+        )
+    return tuple(cases)
 
 
 def _row_needs_ai_prelabeled(row: dict[str, str]) -> bool:

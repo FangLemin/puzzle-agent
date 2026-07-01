@@ -2,6 +2,61 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.90 - 工业级 RAG 离线/在线闭环第一版
+
+日期：2026-07-01
+
+阶段目标：
+
+- 把价值观与审核 RAG 从“能召回引用”升级为更工程化的离线建库、在线检索、可追踪、可评测闭环。
+- 对齐业务定位：日本/法国价值观、审核风险规则、真实 gold 样本和四层 Memory 都可以成为 RAG 知识源。
+- 为团队规模适合的 Qdrant 路线补齐代码级 adapter 边界，但不强制本机必须启动 Qdrant。
+
+已完成：
+
+- 离线建库制品：
+  - 新增 `RagIndexArtifacts`。
+  - 新增 `export_offline_rag_index()`，可导出 `rag_manifest_国家.json`、`rag_documents_国家.jsonl`、`rag_chunks_国家.jsonl`。
+  - manifest 记录 document/chunk 数、source 分布、chunking 参数、vector store 配置、父子 chunk 映射。
+- 在线检索 trace：
+  - 新增 `RagRetrievalTrace`。
+  - `HybridRagRetriever.search_with_trace()` 会返回 eligible chunk 数、BM25 候选、向量候选、精确短语候选、合并候选池、最终 rerank hits。
+  - Agent 的 `value_audit_rag_summary()` 已暴露 `retrieval_trace`，Runtime 页可查看候选池规模和最终引用。
+- RAG 评测报告：
+  - 新增 `evaluate_retrieval_report()`。
+  - 支持 `hit@k`、`mrr@k`、threshold pass/fail、case 级 rank 和 retrieved parent ids。
+  - Agent 新增 `value_audit_rag_eval_report()`，默认用本地检索跑 smoke eval，避免页面刷新产生远程模型费用。
+  - Runtime 页新增“RAG 检索评测”卡片，展示 `hit@5`、`mrr@5`、threshold 与候选池 trace。
+- Qdrant adapter 边界：
+  - 新增 `QdrantPoint`、`prepare_qdrant_points()`、`QdrantVectorStore.upsert()`。
+  - Qdrant payload 保留 `chunk_id`、`parent_id`、国家、source_type、标题、原文、chunk_index、metadata。
+  - 继续保留 SQLite 作为本地 chunk store 与 embedding cache。
+- Agent 层接口：
+  - 新增 `export_value_audit_rag_artifacts(country, output_dir)`。
+  - 新增 `value_audit_rag_eval_report(country)`。
+  - `value_audit_rag_summary()` 新增 trace 与 eval report。
+
+验证：
+
+- 新增/更新测试：
+  - 离线 RAG artifact 导出。
+  - search trace 候选池与最终 hits。
+  - hit@5/mrr@5 retrieval report。
+  - Qdrant points payload 与 HTTP upsert adapter。
+  - Agent 离线 artifact 导出与 RAG eval report。
+  - Runtime 页展示 RAG 检索评测。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_rag.py -q`：30 passed。
+  - `PYTHONPATH=. pytest tests/test_renderer.py -q -k "runtime_page_shows_rag_feedback_summary"`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py -q -k "engineering_pipeline_settings or rag_offline_artifacts or rag_eval_report"`：3 passed。
+  - `PYTHONPATH=. pytest tests -q`：299 passed。
+
+当前限制：
+
+- Qdrant adapter 已具备 upsert 边界，但本轮没有强制启动 Qdrant 服务，也没有把所有在线检索切到 Qdrant HTTP search；默认仍以 SQLite 本地 chunk store + embedding cache 承载 demo 与测试。
+- `value_audit_rag_eval_report()` 当前是 smoke eval，后续需要用你补齐的真实业务 query/gold parent ids 扩展成 30-50 条正式评测集。
+- 离线知识库已能导出标准制品，但还需要把业务背景、审核手册、真实 human_gold 样本定期纳入版本化知识库目录。
+
 ## v0.3.89 - Qwen3-Embedding 真实调用验证与 BGE-Reranker-v2 Provider 边界
 
 日期：2026-07-01
