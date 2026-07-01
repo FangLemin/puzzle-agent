@@ -196,6 +196,7 @@ def test_runtime_page_shows_rag_feedback_summary(tmp_path):
     assert "候选池" in html
     assert "版本化知识库" in html
     assert "value_audit_cases.jsonl" in html
+    assert "raw=" in html
 
 
 def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):

@@ -1411,6 +1411,8 @@ def test_agent_rag_summary_exposes_engineering_pipeline_settings():
     assert summary["knowledge_base"]["eval_cases_path"].endswith("knowledge/eval/value_audit_cases.jsonl")
     assert summary["knowledge_base"]["file_document_count"] >= 1
     assert summary["knowledge_base"]["file_eval_case_count"] >= 1
+    assert summary["knowledge_base"]["raw_dir"].endswith("knowledge/raw")
+    assert "raw_file_count" in summary["knowledge_base"]
 
 
 def test_agent_rag_summary_uses_qdrant_vector_store_config_when_declared(monkeypatch):

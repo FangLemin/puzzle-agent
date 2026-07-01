@@ -831,12 +831,15 @@ class PuzzleOpsAgent:
 
     def _rag_knowledge_summary(self, country: str) -> dict[str, object]:
         root = _rag_knowledge_dir()
+        raw_dir = root / "raw"
         documents_path = root / "processed" / "value_audit_documents.jsonl"
         eval_cases_path = root / "eval" / "value_audit_cases.jsonl"
         return {
             "root": str(root),
+            "raw_dir": str(raw_dir),
             "documents_path": str(documents_path),
             "eval_cases_path": str(eval_cases_path),
+            "raw_file_count": len(tuple(raw_dir.rglob("*"))) if raw_dir.exists() else 0,
             "documents_exists": documents_path.exists(),
             "eval_cases_exists": eval_cases_path.exists(),
             "file_document_count": len(self._file_knowledge_rag_documents(country)),

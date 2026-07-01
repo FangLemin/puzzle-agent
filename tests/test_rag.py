@@ -20,6 +20,7 @@ from puzzle_ops.rag import (
     RetrievalCaseLoaderAdapter,
     StaticDocumentLoaderAdapter,
     build_rag_prompt,
+    build_processed_documents_from_raw,
     export_offline_rag_index,
     chunk_document,
     evaluate_retrieval_report,
@@ -132,6 +133,55 @@ def test_retrieval_case_loader_reads_jsonl_business_cases(tmp_path):
     assert cases == load_retrieval_cases_jsonl(source)
     assert cases[0].query.startswith("日本寿司")
     assert cases[0].expected_parent_id == "JP_KB_SUSHI"
+
+
+def test_build_processed_documents_from_raw_markdown_sections(tmp_path):
+    raw_dir = tmp_path / "knowledge" / "raw"
+    processed_path = tmp_path / "knowledge" / "processed" / "value_audit_documents.jsonl"
+    raw_dir.mkdir(parents=True)
+    (raw_dir / "japan_values.md").write_text(
+        """---
+country: 日本
+source_type: value_rule
+knowledge_version: unit-test
+---
+# 日本价值观
+
+## 本土饮食文化 {#JP_KB_SUSHI_FOOD}
+寿司、抹茶、和果子属于日本本土饮食文化。
+
+## 治愈旅行
+温泉街、浴衣、灯笼和樱花强调治愈旅行与季节感。
+""",
+        encoding="utf-8",
+    )
+    (raw_dir / "audit.md").write_text(
+        """---
+country: GLOBAL
+source_type: audit_policy
+knowledge_version: unit-test
+---
+# 审核规则
+
+## 版权与文字风险
+避免文字水印、商标、热门IP角色。
+""",
+        encoding="utf-8",
+    )
+
+    documents = build_processed_documents_from_raw(raw_dir, processed_path)
+
+    assert processed_path.exists()
+    assert [document.document_id for document in documents] == [
+        "JP_KB_SUSHI_FOOD",
+        "RAW_JAPAN_VALUES_治愈旅行",
+        "RAW_AUDIT_版权与文字风险",
+    ]
+    assert documents[0].country == "日本"
+    assert documents[0].source_type == "value_rule"
+    assert documents[0].metadata["source_file"].endswith("japan_values.md")
+    loaded = load_rag_documents_jsonl(processed_path)
+    assert loaded == documents
 
 
 def test_token_chunk_document_uses_sentence_boundaries_and_overlap_metadata():

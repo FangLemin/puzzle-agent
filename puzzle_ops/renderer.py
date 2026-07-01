@@ -659,6 +659,7 @@ def render_rag_summary(summary: dict[str, object]) -> str:
     if not isinstance(knowledge, dict):
         knowledge = {}
     knowledge_text = (
+        f"raw={knowledge.get('raw_file_count', 0)}；"
         f"documents={knowledge.get('file_document_count', 0)}；"
         f"eval cases={knowledge.get('file_eval_case_count', 0)}；"
         f"{Path(str(knowledge.get('documents_path', ''))).name}；"

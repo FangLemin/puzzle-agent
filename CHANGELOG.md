@@ -2,6 +2,50 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.92 - RAG Raw 文档离线 Ingest 与稳定 Gold ID
+
+日期：2026-07-02
+
+阶段目标：
+
+- 继续补齐工业级 RAG 离线阶段：在 processed JSONL 之外，新增可人工维护的 raw Markdown 知识源。
+- 让 raw 文档能稳定生成 processed documents，并保持 parent document id 与 eval gold case 对齐。
+
+已完成：
+
+- 新增 raw 知识源：
+  - `knowledge/raw/japan_values.md`
+  - `knowledge/raw/france_values.md`
+  - `knowledge/raw/global_audit.md`
+- 新增 raw ingest 能力：
+  - `build_processed_documents_from_raw(raw_dir, output_path)`
+  - 支持 Markdown/TXT 文件。
+  - 支持 front matter：`country`、`source_type`、`knowledge_version`。
+  - 按 `##` 语义边界拆成父文档。
+  - 保留 `source_file`、`raw_section_index`、`knowledge_version` 等 metadata。
+- 稳定 Gold ID：
+  - Markdown 二级标题支持 `{#DOC_ID}`。
+  - raw -> processed 重建后，document id 可与 `knowledge/eval/value_audit_cases.jsonl` 的 `expected_parent_id` 保持一致。
+  - 临时重建验证：日本/法国 file eval 均保持 `hit@5=1.0`。
+- Runtime 展示：
+  - 版本化知识库卡片新增 raw 文件数量。
+- 稳定性修复：
+  - 试新上传解析的运营 tag 日期改为使用 Agent 业务日期，避免长测试跨午夜时从 0701 漂到 0702。
+
+验证：
+
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_rag.py tests/test_agents.py -q -k "processed_documents_from_raw or engineering_pipeline_settings"`：2 passed。
+  - `PYTHONPATH=. pytest tests/test_rag.py tests/test_agents.py tests/test_renderer.py tests/test_server.py -q -k "processed_documents_from_raw or engineering_pipeline_settings or runtime_page_shows_rag_feedback_summary or real_openai_semantics or real_semantic_subject or compacts_long_semantic_subject"`：6 passed。
+  - `PYTHONPATH=. pytest tests -q`：303 passed。
+  - raw -> processed 临时重建后，日本 file eval：`hit@5=1.0`，法国 file eval：`hit@5=1.0`。
+
+当前限制：
+
+- raw ingest 当前覆盖 Markdown/TXT；`.docx` 原始业务文档后续还需要补专门 loader 或转换脚本。
+- 当前不会自动覆盖仓库内 processed JSONL，避免误改生产知识库；后续可增加显式 CLI 命令做受控重建。
+- Qdrant 仍是 adapter 边界，尚未作为默认在线 search 后端。
+
 ## v0.3.91 - 版本化 RAG 知识库与文件级检索评测
 
 日期：2026-07-01

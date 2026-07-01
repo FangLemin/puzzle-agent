@@ -212,6 +212,107 @@ def load_retrieval_cases_jsonl(path: Path | str) -> tuple[RagRetrievalCase, ...]
     return tuple(cases)
 
 
+def build_processed_documents_from_raw(raw_dir: Path | str, output_path: Path | str) -> tuple[RagDocument, ...]:
+    raw_root = Path(raw_dir)
+    documents: list[RagDocument] = []
+    if raw_root.exists():
+        paths = tuple(
+            child for child in raw_root.rglob("*") if child.is_file() and child.suffix.lower() in {".md", ".markdown", ".txt"}
+        )
+        for path in sorted(paths, key=_raw_file_sort_key):
+            documents.extend(_raw_text_file_to_documents(path))
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    _write_jsonl(output, (_document_to_dict(document) for document in documents))
+    return tuple(documents)
+
+
+def _raw_file_sort_key(path: Path) -> tuple[int, str]:
+    text = path.read_text(encoding="utf-8")
+    metadata, _ = _parse_front_matter(text)
+    source_type = str(metadata.get("source_type", ""))
+    country = str(metadata.get("country", ""))
+    priority = 1 if source_type == "audit_policy" or country == "GLOBAL" else 0
+    return (priority, path.name)
+
+
+def _raw_text_file_to_documents(path: Path) -> tuple[RagDocument, ...]:
+    raw_text = path.read_text(encoding="utf-8")
+    metadata, body = _parse_front_matter(raw_text)
+    country = str(metadata.get("country", "GLOBAL")).strip() or "GLOBAL"
+    source_type = str(metadata.get("source_type", "value_rule")).strip() or "value_rule"
+    knowledge_version = str(metadata.get("knowledge_version", "")).strip()
+    sections = _markdown_sections(body)
+    documents: list[RagDocument] = []
+    stem = re.sub(r"[^A-Za-z0-9\u4e00-\u9fff]+", "_", path.stem).strip("_").upper() or "RAW"
+    for index, (raw_title, text) in enumerate(sections, 1):
+        title, explicit_id = _section_title_and_explicit_id(raw_title)
+        safe_title = re.sub(r"[^A-Za-z0-9\u4e00-\u9fff]+", "_", title).strip("_") or f"SECTION_{index}"
+        doc_metadata: dict[str, object] = {"source_file": str(path), "raw_section_index": index}
+        if knowledge_version:
+            doc_metadata["knowledge_version"] = knowledge_version
+        for key, value in metadata.items():
+            if key not in {"country", "source_type", "knowledge_version"}:
+                doc_metadata[key] = value
+        documents.append(
+            RagDocument(
+                document_id=explicit_id or f"RAW_{stem}_{safe_title}",
+                country=country,
+                source_type=source_type,
+                title=title,
+                text=text,
+                metadata=doc_metadata,
+            )
+        )
+    return tuple(documents)
+
+
+def _section_title_and_explicit_id(title: str) -> tuple[str, str]:
+    match = re.search(r"\s*\{#([A-Za-z0-9_\-]+)\}\s*$", title)
+    if not match:
+        return title.strip(), ""
+    cleaned = title[: match.start()].strip()
+    return cleaned, match.group(1)
+
+
+def _parse_front_matter(text: str) -> tuple[dict[str, str], str]:
+    if not text.startswith("---"):
+        return {}, text
+    match = re.match(r"^---\s*\n(.*?)\n---\s*\n?(.*)$", text, flags=re.DOTALL)
+    if not match:
+        return {}, text
+    metadata: dict[str, str] = {}
+    for line in match.group(1).splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        metadata[key.strip()] = value.strip().strip('"').strip("'")
+    return metadata, match.group(2)
+
+
+def _markdown_sections(text: str) -> tuple[tuple[str, str], ...]:
+    current_title = ""
+    current_lines: list[str] = []
+    sections: list[tuple[str, str]] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            if current_title and "".join(current_lines).strip():
+                sections.append((current_title, "\n".join(current_lines).strip()))
+            current_title = stripped.lstrip("#").strip()
+            current_lines = []
+        elif stripped.startswith("# ") and not current_title:
+            current_title = stripped.lstrip("#").strip()
+        else:
+            current_lines.append(line)
+    if current_title and "\n".join(current_lines).strip():
+        sections.append((current_title, "\n".join(current_lines).strip()))
+    if sections:
+        return tuple(sections)
+    cleaned = text.strip()
+    return (("Raw Document", cleaned),) if cleaned else ()
+
+
 @dataclass(frozen=True)
 class RagVectorStoreConfig:
     provider: str = "sqlite"
