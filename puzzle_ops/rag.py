@@ -140,14 +140,26 @@ class RagProviderConfig:
         embedding_provider = os.getenv("RAG_EMBEDDING_PROVIDER", "local").strip().lower() or "local"
         rerank_provider = os.getenv("RAG_RERANK_PROVIDER", "local").strip().lower() or "local"
         default_embedding_model = "text-embedding-v4" if embedding_provider == "dashscope" else "local-token-cosine"
-        default_rerank_model = "qwen3-rerank" if rerank_provider == "dashscope" else "local-rule-rerank"
+        if rerank_provider == "dashscope":
+            default_rerank_model = "qwen3-rerank"
+        elif rerank_provider in {"bge", "bge-reranker", "baai"}:
+            default_rerank_model = "BAAI/bge-reranker-v2-m3"
+        else:
+            default_rerank_model = "local-rule-rerank"
         embedding_model = os.getenv("RAG_EMBEDDING_MODEL", default_embedding_model).strip() or default_embedding_model
         rerank_model = os.getenv("RAG_RERANK_MODEL", default_rerank_model).strip() or default_rerank_model
         api_key = os.getenv("RAG_API_KEY", os.getenv("DASHSCOPE_API_KEY", "")).strip()
         embedding_endpoint = os.getenv("RAG_EMBEDDING_ENDPOINT", "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings").strip()
-        rerank_endpoint = os.getenv("RAG_RERANK_ENDPOINT", "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank").strip()
+        if rerank_provider in {"bge", "bge-reranker", "baai"}:
+            rerank_endpoint = os.getenv("BGE_RERANK_ENDPOINT", os.getenv("RAG_RERANK_ENDPOINT", "")).strip()
+        else:
+            rerank_endpoint = os.getenv("RAG_RERANK_ENDPOINT", "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank").strip()
         configured = embedding_provider != "local" or rerank_provider != "local"
-        remote_ready = configured and bool(api_key)
+        embedding_ready = embedding_provider == "local" or bool(api_key)
+        rerank_ready = rerank_provider == "local" or (
+            bool(rerank_endpoint) if rerank_provider in {"bge", "bge-reranker", "baai"} else bool(api_key)
+        )
+        remote_ready = configured and embedding_ready and rerank_ready
         remote_calls_enabled = remote_ready and os.getenv("RAG_ENABLE_REMOTE_CALLS", "").strip().lower() in {"1", "true", "yes", "on"}
         if remote_ready:
             status = (
@@ -156,8 +168,15 @@ class RagProviderConfig:
                 else f"外部 provider 已具备 key，但 RAG_ENABLE_REMOTE_CALLS 未开启；当前使用本地 fallback"
             )
         elif configured:
+            missing = []
+            if not embedding_ready:
+                missing.append("RAG_API_KEY 或 DASHSCOPE_API_KEY")
+            if not rerank_ready and rerank_provider in {"bge", "bge-reranker", "baai"}:
+                missing.append("BGE_RERANK_ENDPOINT")
+            elif not rerank_ready:
+                missing.append("RAG_API_KEY 或 DASHSCOPE_API_KEY")
             status = (
-                f"外部 provider 已声明但缺少 RAG_API_KEY 或 DASHSCOPE_API_KEY；"
+                f"外部 provider 已声明但缺少 {', '.join(missing) or '远程配置'}；"
                 f"Embedding={embedding_provider}/{embedding_model}；Rerank={rerank_provider}/{rerank_model}；当前使用本地 fallback"
             )
         else:
@@ -362,6 +381,25 @@ class DashScopeRerankProvider(LocalRerankProvider):
         return tuple(scores)
 
 
+class BGERerankProvider(DashScopeRerankProvider):
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        endpoint: str,
+        transport: Callable[[str, list[str], str, str, str], dict[str, object]] | None = None,
+        stats: RagRuntimeStats | None = None,
+    ):
+        super().__init__(
+            api_key=api_key,
+            model=model,
+            endpoint=endpoint,
+            transport=transport or _open_rerank_transport,
+            stats=stats,
+        )
+        self.provider_name = f"bge:{model}"
+
+
 def providers_from_config(
     config: RagProviderConfig | None = None,
     *,
@@ -388,6 +426,13 @@ def providers_from_config(
     if config.remote_calls_enabled and config.rerank_provider == "dashscope":
         rerank: LocalRerankProvider = DashScopeRerankProvider(
             config.api_key,
+            config.rerank_model,
+            config.rerank_endpoint,
+            stats=stats,
+        )
+    elif config.remote_calls_enabled and config.rerank_provider in {"bge", "bge-reranker", "baai"}:
+        rerank = BGERerankProvider(
+            os.getenv("BGE_RERANK_API_KEY", config.api_key),
             config.rerank_model,
             config.rerank_endpoint,
             stats=stats,
@@ -752,6 +797,11 @@ def _dashscope_embedding_transport(texts: list[str], api_key: str, endpoint: str
 
 def _dashscope_rerank_transport(query: str, documents: list[str], api_key: str, endpoint: str, model: str) -> dict[str, object]:
     payload = {"model": model, "input": {"query": query, "documents": documents}, "parameters": {"return_documents": False}}
+    return _post_json(endpoint, payload, api_key)
+
+
+def _open_rerank_transport(query: str, documents: list[str], api_key: str, endpoint: str, model: str) -> dict[str, object]:
+    payload = {"model": model, "query": query, "documents": documents}
     return _post_json(endpoint, payload, api_key)
 
 

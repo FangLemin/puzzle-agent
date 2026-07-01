@@ -2,6 +2,53 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.89 - Qwen3-Embedding 真实调用验证与 BGE-Reranker-v2 Provider 边界
+
+日期：2026-07-01
+
+阶段目标：
+
+- 确认当前 RAG 是否真实调用 Qwen3-Embedding，而不是停留在本地 fallback 或旧 embedding 配置。
+- 为 BAAI 出品的 BGE-Reranker-v2 增加可接入的 provider 边界，避免“模型名写成 BGE，但实际仍走规则 rerank”的伪装状态。
+
+已完成：
+
+- 真实 Qwen3-Embedding 调用验证：
+  - `.env` 已从 `RAG_EMBEDDING_MODEL=text-embedding-v3` 调整为 `RAG_EMBEDDING_MODEL=text-embedding-v4`。
+  - 使用现有 DashScope/RAG key 做最小 smoke test。
+  - 运行时 provider：`dashscope:text-embedding-v4`。
+  - `embedding_remote_calls=1`，`embedding_fallbacks=0`，确认真实远程调用成功。
+- 新增 BGE-Reranker-v2 Provider：
+  - 新增 `BGERerankProvider`。
+  - 支持通用 `/rerank` 风格 HTTP endpoint，请求体为 `model/query/documents`。
+  - 推荐模型名：`BAAI/bge-reranker-v2-m3`。
+  - 支持环境变量：
+    - `RAG_RERANK_PROVIDER=bge`
+    - `RAG_RERANK_MODEL=BAAI/bge-reranker-v2-m3`
+    - `BGE_RERANK_ENDPOINT=http://.../v1/rerank`
+    - `BGE_RERANK_API_KEY` 可选
+  - 没有 `BGE_RERANK_ENDPOINT` 时，配置会明确标记 not ready，不会假装真实调用 BGE。
+- 配置安全边界：
+  - 当前本机未检测到可用 BGE rerank 服务或本地 FlagEmbedding 环境，所以 `.env` 暂不切换到 `RAG_RERANK_PROVIDER=bge`。
+  - 继续保留当前可真实调用的 DashScope rerank，避免 RAG remote 因 BGE endpoint 缺失整体降级。
+
+验证：
+
+- 真实 smoke test：
+  - `embedding_provider=dashscope:text-embedding-v4`
+  - `remote_calls_enabled=True`
+  - `embedding_remote_calls=1`
+  - `embedding_fallbacks=0`
+- 定向回归：
+  - `PYTHONPATH=. pytest tests/test_rag.py -q -k "bge_rerank or dashscope_config_defaults or providers_from_config"`：5 passed，20 deselected。
+- 全量回归：
+  - `PYTHONPATH=. pytest tests -q`：292 passed。
+
+当前限制：
+
+- BGE-Reranker-v2 需要你后续提供一个真实可访问的 rerank endpoint，例如 Xinference、vLLM、TEI 或其他自托管服务；当前项目不会自动下载大模型并在本机启动服务。
+- 如果现在强行把 `.env` 切到 `RAG_RERANK_PROVIDER=bge` 但不配置 `BGE_RERANK_ENDPOINT`，系统会判定 RAG 远程 provider not ready，不会伪造 BGE 调用。
+
 ## v0.3.88 - Qwen3 Embedding 默认配置、RAG hit@5 评测与 Qdrant 路线
 
 日期：2026-06-30

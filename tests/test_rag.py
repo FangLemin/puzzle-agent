@@ -1,4 +1,5 @@
 from puzzle_ops.rag import (
+    BGERerankProvider,
     DashScopeEmbeddingProvider,
     DashScopeRerankProvider,
     FeedbackAwareRerankProvider,
@@ -156,6 +157,23 @@ def test_qdrant_vector_store_config_reports_ready_endpoint(monkeypatch):
     assert config.configured is True
     assert config.ready is True
     assert "Qdrant" in config.status_text
+
+
+def test_bge_rerank_provider_requires_endpoint_for_remote_calls(monkeypatch):
+    monkeypatch.setenv("RAG_EMBEDDING_PROVIDER", "dashscope")
+    monkeypatch.setenv("RAG_RERANK_PROVIDER", "bge")
+    monkeypatch.setenv("RAG_RERANK_MODEL", "BAAI/bge-reranker-v2-m3")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "dashscope-test")
+    monkeypatch.setenv("RAG_ENABLE_REMOTE_CALLS", "true")
+    monkeypatch.delenv("BGE_RERANK_ENDPOINT", raising=False)
+    monkeypatch.delenv("RAG_RERANK_ENDPOINT", raising=False)
+
+    config = RagProviderConfig.from_env(load_env=False)
+
+    assert config.rerank_provider == "bge"
+    assert config.remote_ready is False
+    assert config.remote_calls_enabled is False
+    assert "BGE_RERANK_ENDPOINT" in config.status_text
 
 
 def test_hybrid_retriever_accepts_pluggable_embedding_and_rerank_providers():
@@ -386,6 +404,30 @@ def test_dashscope_rerank_provider_uses_transport_score():
     assert calls[0][0] == "寿司是否符合日本价值观"
     assert calls[0][1] == ["文化真实性：寿司属于日本本土饮食文化。"]
     assert provider.provider_name == "dashscope:gte-rerank-v2"
+
+
+def test_bge_rerank_provider_uses_open_rerank_transport_score():
+    calls = []
+
+    def fake_transport(query, documents, api_key, endpoint, model):
+        calls.append((query, documents, api_key, endpoint, model))
+        return {"results": [{"index": 0, "relevance_score": 0.93}]}
+
+    chunk = chunk_document(RagDocument("JP_VALUE_001", "日本", "value_rule", "文化真实性", "寿司属于日本本土饮食文化。", {}))[0]
+    provider = BGERerankProvider(
+        api_key="",
+        model="BAAI/bge-reranker-v2-m3",
+        endpoint="http://127.0.0.1:9997/v1/rerank",
+        transport=fake_transport,
+        stats=RagRuntimeStats(),
+    )
+
+    score = provider.rerank("寿司是否符合日本价值观", "日本", chunk, bm25_score=0.2, vector_score=0.3)
+
+    assert score == 0.93
+    assert calls[0][0] == "寿司是否符合日本价值观"
+    assert calls[0][1] == ["文化真实性：寿司属于日本本土饮食文化。"]
+    assert provider.provider_name == "bge:BAAI/bge-reranker-v2-m3"
 
 
 def test_hybrid_retriever_batches_dashscope_rerank_in_one_request():
