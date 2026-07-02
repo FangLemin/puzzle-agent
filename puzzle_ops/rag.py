@@ -497,13 +497,21 @@ class QdrantVectorStore:
         endpoint = f"{self.config.endpoint}/collections/{self.config.collection}/points/delete?wait=true"
         return self.transport(endpoint, {"points": list(point_ids)}, self.config.api_key)
 
-    def restore_points(self, point_ids: tuple[str, ...]) -> dict[str, object]:
-        return {
-            "status": "manifest_pointer_only",
-            "restored_points": 0,
-            "point_ids": point_ids,
-            "note": "Qdrant point-level restore requires stored vectors or a Qdrant snapshot; manifest currently records ids for audit.",
-        }
+    def restore_points(
+        self,
+        point_ids: tuple[str, ...],
+        point_records: tuple[dict[str, object], ...] = (),
+    ) -> dict[str, object]:
+        points = tuple(_qdrant_point_from_record(record) for record in point_records)
+        if not points:
+            return {
+                "status": "manifest_pointer_only",
+                "restored_points": 0,
+                "point_ids": point_ids,
+                "note": "Qdrant point-level restore requires stored vectors or a Qdrant snapshot.",
+            }
+        self.upsert(points)
+        return {"status": "restored", "restored_points": len(points), "point_ids": tuple(point.id for point in points)}
 
     def smoke_diagnostic(self, *, vector_size: int, country: str = "GLOBAL") -> dict[str, object]:
         if vector_size <= 0:
@@ -1122,6 +1130,19 @@ def prepare_qdrant_points(
             )
         )
     return tuple(points)
+
+
+def _qdrant_point_from_record(record: dict[str, object]) -> QdrantPoint:
+    raw_id = str(record.get("id", "")).strip()
+    vector = record.get("vector", ())
+    payload = record.get("payload", {})
+    if not raw_id or not isinstance(vector, (list, tuple)) or not isinstance(payload, dict):
+        raise ValueError("Qdrant point record 不完整")
+    return QdrantPoint(
+        id=raw_id,
+        vector=tuple(float(value) for value in vector),
+        payload=dict(payload),
+    )
 
 
 class HybridRagRetriever:

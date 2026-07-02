@@ -669,6 +669,33 @@ def test_qdrant_vector_store_smoke_diagnostic_writes_searches_and_deletes_temp_p
     assert calls[2][2]["points"] == [result["point_id"]]
 
 
+def test_qdrant_vector_store_restore_points_upserts_stored_point_records():
+    calls = []
+
+    def fake_transport(endpoint, payload, api_key):
+        calls.append((endpoint, payload, api_key))
+        return {"status": "ok"}
+
+    store = QdrantVectorStore(
+        RagVectorStoreConfig(provider="qdrant", endpoint="http://127.0.0.1:6333", collection="puzzle_ops_rag", api_key="qdrant-key", configured=True, ready=True),
+        transport=fake_transport,
+    )
+
+    result = store.restore_points(
+        ("p1",),
+        point_records=(
+            {"id": "p1", "vector": [0.1, 0.2], "payload": {"chunk_id": "c1", "country": "日本"}},
+        ),
+    )
+
+    assert result["status"] == "restored"
+    assert result["restored_points"] == 1
+    assert calls[0][0] == "http://127.0.0.1:6333/collections/puzzle_ops_rag/points?wait=true"
+    assert calls[0][1]["points"][0]["id"] == "p1"
+    assert calls[0][1]["points"][0]["vector"] == [0.1, 0.2]
+    assert calls[0][1]["points"][0]["payload"]["chunk_id"] == "c1"
+
+
 def test_hybrid_retriever_can_use_qdrant_vector_scores_before_rerank():
     class QueryVectorEmbedding(LocalEmbeddingProvider):
         provider_name = "query-vector"

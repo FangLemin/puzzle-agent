@@ -655,6 +655,7 @@ class PuzzleOpsAgent:
             "collection_status": collection_status,
             "qdrant_response": response,
             "point_ids": tuple(point.id for point in points),
+            "point_records": tuple(_qdrant_point_record(point) for point in points),
             **stats.as_dict(),
         }
         result["manifest_path"] = self._write_qdrant_reindex_manifest(country, result)
@@ -682,6 +683,7 @@ class PuzzleOpsAgent:
             "qdrant_collection": result.get("qdrant_collection", ""),
             "collection_status": result.get("collection_status", {}),
             "point_ids": tuple(result.get("point_ids", ()) if isinstance(result.get("point_ids", ()), (list, tuple)) else ()),
+            "point_records": tuple(result.get("point_records", ()) if isinstance(result.get("point_records", ()), (list, tuple)) else ()),
             "hit@5": result.get("hit@5", 0),
             "mrr@5": result.get("mrr@5", 0),
             "passed_threshold": result.get("passed_threshold", False),
@@ -750,9 +752,11 @@ class PuzzleOpsAgent:
         latest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
         raw_point_ids = manifest.get("point_ids", ())
         point_ids = tuple(str(point_id) for point_id in raw_point_ids) if isinstance(raw_point_ids, (list, tuple)) else ()
+        raw_point_records = manifest.get("point_records", ())
+        point_records = tuple(record for record in raw_point_records if isinstance(record, dict)) if isinstance(raw_point_records, (list, tuple)) else ()
         restore_status = {"status": "skipped_no_vector_store", "restored_points": 0}
         if vector_store is not None:
-            restore_status = vector_store.restore_points(point_ids)
+            restore_status = vector_store.restore_points(point_ids, point_records=point_records)
         return {
             "status": "rolled_back",
             "country": country,
@@ -762,6 +766,7 @@ class PuzzleOpsAgent:
             "vector_size": int(manifest.get("vector_size", 0) or 0),
             "upserted_points": int(manifest.get("upserted_points", 0) or 0),
             "point_ids": point_ids,
+            "point_records": point_records,
             "restore_status": restore_status,
         }
 
@@ -2200,6 +2205,14 @@ def _qdrant_reindex_history(root: Path, country: str) -> list[dict[str, object]]
             }
         )
     return rows
+
+
+def _qdrant_point_record(point) -> dict[str, object]:
+    return {
+        "id": point.id,
+        "vector": [float(value) for value in point.vector],
+        "payload": dict(point.payload),
+    }
 
 
 def _row_needs_ai_prelabeled(row: dict[str, str]) -> bool:

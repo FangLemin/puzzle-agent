@@ -1656,6 +1656,9 @@ knowledge_version: unit-test
     assert manifest["vector_size"] == 3
     assert manifest["upserted_points"] == len(store.points)
     assert manifest["point_ids"] == [point.id for point in store.points]
+    assert manifest["point_records"][0]["id"] == store.points[0].id
+    assert manifest["point_records"][0]["vector"] == list(store.points[0].vector)
+    assert any(record["payload"]["parent_id"] == "JP_KB_SUSHI_FOOD" for record in manifest["point_records"])
     summary = agent.value_audit_rag_summary("日本")["knowledge_base"]
     assert summary["qdrant_manifest_exists"] is True
     assert summary["qdrant_manifest_run_id"] == result["run_id"]
@@ -1705,7 +1708,18 @@ def test_agent_rolls_back_qdrant_latest_manifest_to_history_run(monkeypatch, tmp
     runs = indices / "runs"
     runs.mkdir(parents=True)
     old_run = {"run_id": "old-run", "country": "日本", "status": "indexed", "vector_size": 3, "upserted_points": 2}
-    target_run = {"run_id": "target-run", "country": "日本", "status": "indexed", "vector_size": 5, "upserted_points": 9, "point_ids": ["p1", "p2"]}
+    target_run = {
+        "run_id": "target-run",
+        "country": "日本",
+        "status": "indexed",
+        "vector_size": 5,
+        "upserted_points": 9,
+        "point_ids": ["p1", "p2"],
+        "point_records": [
+            {"id": "p1", "vector": [0.1, 0.2], "payload": {"chunk_id": "c1"}},
+            {"id": "p2", "vector": [0.3, 0.4], "payload": {"chunk_id": "c2"}},
+        ],
+    }
     (indices / "qdrant_reindex_日本.json").write_text(json.dumps(old_run, ensure_ascii=False), encoding="utf-8")
     (runs / "qdrant_reindex_日本_old-run.json").write_text(json.dumps(old_run, ensure_ascii=False), encoding="utf-8")
     (runs / "qdrant_reindex_日本_target-run.json").write_text(json.dumps(target_run, ensure_ascii=False), encoding="utf-8")
@@ -1715,10 +1729,12 @@ def test_agent_rolls_back_qdrant_latest_manifest_to_history_run(monkeypatch, tmp
     class FakeQdrantStore:
         def __init__(self):
             self.restored_point_ids = ()
+            self.restored_records = ()
 
-        def restore_points(self, point_ids):
+        def restore_points(self, point_ids, point_records=()):
             self.restored_point_ids = point_ids
-            return {"status": "restored", "restored_points": len(point_ids)}
+            self.restored_records = point_records
+            return {"status": "restored", "restored_points": len(point_records)}
 
     store = FakeQdrantStore()
 
@@ -1727,7 +1743,9 @@ def test_agent_rolls_back_qdrant_latest_manifest_to_history_run(monkeypatch, tmp
     assert result["status"] == "rolled_back"
     assert result["run_id"] == "target-run"
     assert result["restore_status"]["status"] == "restored"
+    assert result["restore_status"]["restored_points"] == 2
     assert store.restored_point_ids == ("p1", "p2")
+    assert store.restored_records[0]["payload"]["chunk_id"] == "c1"
     latest = json.loads((indices / "qdrant_reindex_日本.json").read_text(encoding="utf-8"))
     assert latest["run_id"] == "target-run"
     summary = agent.value_audit_rag_summary("日本")["knowledge_base"]
