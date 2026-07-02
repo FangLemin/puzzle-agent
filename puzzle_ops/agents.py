@@ -654,6 +654,7 @@ class PuzzleOpsAgent:
             "qdrant_collection": self.rag_vector_store_config.collection,
             "collection_status": collection_status,
             "qdrant_response": response,
+            "point_ids": tuple(point.id for point in points),
             **stats.as_dict(),
         }
         result["manifest_path"] = self._write_qdrant_reindex_manifest(country, result)
@@ -680,6 +681,7 @@ class PuzzleOpsAgent:
             "upserted_points": result.get("upserted_points", 0),
             "qdrant_collection": result.get("qdrant_collection", ""),
             "collection_status": result.get("collection_status", {}),
+            "point_ids": tuple(result.get("point_ids", ()) if isinstance(result.get("point_ids", ()), (list, tuple)) else ()),
             "hit@5": result.get("hit@5", 0),
             "mrr@5": result.get("mrr@5", 0),
             "passed_threshold": result.get("passed_threshold", False),
@@ -726,7 +728,13 @@ class PuzzleOpsAgent:
             run_manifest_path.write_text(json.dumps(run_manifest, ensure_ascii=False, indent=2), encoding="utf-8")
         return result
 
-    def rollback_qdrant_manifest(self, country: str, run_id: str) -> dict[str, object]:
+    def rollback_qdrant_manifest(
+        self,
+        country: str,
+        run_id: str,
+        *,
+        vector_store: QdrantVectorStore | None = None,
+    ) -> dict[str, object]:
         cleaned_run_id = run_id.strip()
         if not cleaned_run_id:
             raise ValueError("缺少要回滚的 Qdrant manifest run_id")
@@ -740,6 +748,11 @@ class PuzzleOpsAgent:
         latest_path = root / "indices" / f"qdrant_reindex_{country}.json"
         latest_path.parent.mkdir(parents=True, exist_ok=True)
         latest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        raw_point_ids = manifest.get("point_ids", ())
+        point_ids = tuple(str(point_id) for point_id in raw_point_ids) if isinstance(raw_point_ids, (list, tuple)) else ()
+        restore_status = {"status": "skipped_no_vector_store", "restored_points": 0}
+        if vector_store is not None:
+            restore_status = vector_store.restore_points(point_ids)
         return {
             "status": "rolled_back",
             "country": country,
@@ -748,6 +761,8 @@ class PuzzleOpsAgent:
             "source_manifest_path": str(run_manifest_path),
             "vector_size": int(manifest.get("vector_size", 0) or 0),
             "upserted_points": int(manifest.get("upserted_points", 0) or 0),
+            "point_ids": point_ids,
+            "restore_status": restore_status,
         }
 
     def value_audit_rag_eval_report(self, country: str) -> dict[str, object]:

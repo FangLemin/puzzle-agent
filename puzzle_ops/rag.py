@@ -497,6 +497,14 @@ class QdrantVectorStore:
         endpoint = f"{self.config.endpoint}/collections/{self.config.collection}/points/delete?wait=true"
         return self.transport(endpoint, {"points": list(point_ids)}, self.config.api_key)
 
+    def restore_points(self, point_ids: tuple[str, ...]) -> dict[str, object]:
+        return {
+            "status": "manifest_pointer_only",
+            "restored_points": 0,
+            "point_ids": point_ids,
+            "note": "Qdrant point-level restore requires stored vectors or a Qdrant snapshot; manifest currently records ids for audit.",
+        }
+
     def smoke_diagnostic(self, *, vector_size: int, country: str = "GLOBAL") -> dict[str, object]:
         if vector_size <= 0:
             raise ValueError("Qdrant smoke diagnostic 需要有效向量维度")

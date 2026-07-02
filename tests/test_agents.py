@@ -1655,6 +1655,7 @@ knowledge_version: unit-test
     assert manifest["run_id"] == result["run_id"]
     assert manifest["vector_size"] == 3
     assert manifest["upserted_points"] == len(store.points)
+    assert manifest["point_ids"] == [point.id for point in store.points]
     summary = agent.value_audit_rag_summary("日本")["knowledge_base"]
     assert summary["qdrant_manifest_exists"] is True
     assert summary["qdrant_manifest_run_id"] == result["run_id"]
@@ -1704,17 +1705,29 @@ def test_agent_rolls_back_qdrant_latest_manifest_to_history_run(monkeypatch, tmp
     runs = indices / "runs"
     runs.mkdir(parents=True)
     old_run = {"run_id": "old-run", "country": "日本", "status": "indexed", "vector_size": 3, "upserted_points": 2}
-    target_run = {"run_id": "target-run", "country": "日本", "status": "indexed", "vector_size": 5, "upserted_points": 9}
+    target_run = {"run_id": "target-run", "country": "日本", "status": "indexed", "vector_size": 5, "upserted_points": 9, "point_ids": ["p1", "p2"]}
     (indices / "qdrant_reindex_日本.json").write_text(json.dumps(old_run, ensure_ascii=False), encoding="utf-8")
     (runs / "qdrant_reindex_日本_old-run.json").write_text(json.dumps(old_run, ensure_ascii=False), encoding="utf-8")
     (runs / "qdrant_reindex_日本_target-run.json").write_text(json.dumps(target_run, ensure_ascii=False), encoding="utf-8")
     monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
     agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "rollback.db"))
 
-    result = agent.rollback_qdrant_manifest("日本", "target-run")
+    class FakeQdrantStore:
+        def __init__(self):
+            self.restored_point_ids = ()
+
+        def restore_points(self, point_ids):
+            self.restored_point_ids = point_ids
+            return {"status": "restored", "restored_points": len(point_ids)}
+
+    store = FakeQdrantStore()
+
+    result = agent.rollback_qdrant_manifest("日本", "target-run", vector_store=store)
 
     assert result["status"] == "rolled_back"
     assert result["run_id"] == "target-run"
+    assert result["restore_status"]["status"] == "restored"
+    assert store.restored_point_ids == ("p1", "p2")
     latest = json.loads((indices / "qdrant_reindex_日本.json").read_text(encoding="utf-8"))
     assert latest["run_id"] == "target-run"
     summary = agent.value_audit_rag_summary("日本")["knowledge_base"]

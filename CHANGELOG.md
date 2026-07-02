@@ -2,6 +2,45 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.4.0 - Qdrant Point IDs 与 Restore 边界
+
+日期：2026-07-02
+
+阶段目标：
+
+- 继续补齐工业级 RAG 的数据层回滚基础：manifest 不只记录 run 状态，也记录本次写入的 Qdrant point ids。
+- 让 rollback 明确区分“latest 指针回滚”和“point-level restore 是否执行”，避免运营误以为 Qdrant collection 内容已经完全回退。
+
+已完成：
+
+- Reindex manifest 增强：
+  - `reindex_rag_qdrant_from_raw()` 在 manifest 中记录 `point_ids`。
+  - `point_ids` 来自 `prepare_qdrant_points()` 生成的稳定 point id。
+- Rollback restore 边界：
+  - `rollback_qdrant_manifest(country, run_id, vector_store=...)` 支持注入 vector store。
+  - 如果传入 vector store，会调用 `restore_points(point_ids)`。
+  - 默认 `QdrantVectorStore.restore_points()` 返回 `manifest_pointer_only`，明确说明当前没有保存完整向量/snapshot，不能伪造真实 point 级恢复。
+- Server 可观测：
+  - `/rollback_qdrant_manifest` 消息新增 `restore=...`。
+  - 页面回滚后能看到是 manifest 指针回滚，还是有外部 store 执行了 restore。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py -q -k "reindexes_raw_rag_knowledge_into_qdrant or rolls_back_qdrant_latest_manifest"`：先因 manifest 缺少 `point_ids`、rollback 不接受 `vector_store` 失败。
+  - `PYTHONPATH=. pytest tests/test_server.py -q -k "qdrant_manifest_rollback_action"`：先因 server 消息缺少 `restore=...` 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py -q -k "reindexes_raw_rag_knowledge_into_qdrant or rolls_back_qdrant_latest_manifest"`：2 passed。
+  - `PYTHONPATH=. pytest tests/test_server.py -q -k "qdrant_manifest_rollback_action"`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_rag.py tests/test_agents.py tests/test_server.py tests/test_renderer.py -q`：216 passed。
+  - `PYTHONPATH=. pytest tests -q`：318 passed。
+
+当前限制：
+
+- 当前默认 restore 仍是边界能力：没有保存每个 point 的完整 vector/payload 快照，也没有调用 Qdrant snapshot/alias 机制恢复 collection。
+- 下一步如果要做到真正数据层回滚，需要在 manifest 中保存 point records 或建立 snapshot/collection alias 流程。
+- 这版刻意不伪造“真实恢复成功”，而是把 point ids 和 restore 状态清楚暴露。
+
 ## v0.3.99 - Qdrant Manifest Rollback
 
 日期：2026-07-02

@@ -381,7 +381,8 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
                 "Qdrant manifest 已回滚："
                 f"run_id={result.get('run_id', '')}，"
                 f"vector_size={result.get('vector_size', 0)}，"
-                f"points={result.get('upserted_points', 0)}"
+                f"points={result.get('upserted_points', 0)}，"
+                f"restore={(result.get('restore_status') if isinstance(result.get('restore_status'), dict) else {}).get('status', '')}"
             )
         except Exception as exc:
             state.sync_message = f"Qdrant manifest 回滚失败：{exc}"
