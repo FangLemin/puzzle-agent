@@ -24,6 +24,7 @@ from puzzle_ops.rag import (
     build_rag_prompt,
     build_processed_documents_from_raw,
     export_offline_rag_index,
+    export_rag_acceptance_report,
     chunk_document,
     evaluate_retrieval_report,
     evaluate_retrieval_hit_rate,
@@ -327,6 +328,26 @@ def test_dashscope_config_defaults_to_real_embedding_and_rerank_models(monkeypat
     assert config.remote_calls_enabled is True
 
 
+def test_dashscope_config_reuses_qwen_api_key_for_qwen3_embedding(monkeypatch):
+    monkeypatch.setenv("RAG_EMBEDDING_PROVIDER", "dashscope")
+    monkeypatch.setenv("RAG_RERANK_PROVIDER", "bge")
+    monkeypatch.setenv("QWEN_API_KEY", "qwen-test")
+    monkeypatch.setenv("RAG_API_KEY", "")
+    monkeypatch.setenv("BGE_RERANK_ENDPOINT", "http://127.0.0.1:9997/v1/rerank")
+    monkeypatch.setenv("RAG_ENABLE_REMOTE_CALLS", "true")
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    monkeypatch.delenv("RAG_EMBEDDING_MODEL", raising=False)
+    monkeypatch.delenv("RAG_RERANK_MODEL", raising=False)
+
+    config = RagProviderConfig.from_env(load_env=False)
+
+    assert config.api_key == "qwen-test"
+    assert config.embedding_model == "text-embedding-v4"
+    assert config.rerank_model == "BAAI/bge-reranker-v2-m3"
+    assert config.remote_calls_enabled is True
+    assert "Qwen3-Embedding" in config.status_text
+
+
 def test_qdrant_vector_store_config_reports_ready_endpoint(monkeypatch):
     monkeypatch.setenv("RAG_VECTOR_STORE_PROVIDER", "qdrant")
     monkeypatch.setenv("QDRANT_URL", "http://127.0.0.1:6333")
@@ -531,6 +552,61 @@ def test_evaluate_retrieval_report_includes_hit_mrr_and_threshold_status():
     assert report["mrr@5"] == 1.0
     assert report["passed_threshold"] is True
     assert report["cases"][0]["rank"] == 1
+
+
+def test_export_rag_acceptance_report_writes_hit_at_five_models_routes_and_traces(tmp_path):
+    documents = (
+        RagDocument("JP_SUSHI", "日本", "value_rule", "日本饮食", "寿司、抹茶、和果子属于日本本土饮食文化。", {}),
+        RagDocument("JP_AUDIT", "GLOBAL", "audit_policy", "审核风险", "避免文字水印、热门IP角色、商标和中日韩文化混淆。", {}),
+        RagDocument("FR_LAVENDER", "法国", "value_rule", "法国自然", "薰衣草、石屋、风车体现法国乡村生活艺术。", {}),
+    )
+    chunks = tuple(chunk for document in documents for chunk in chunk_document(document, max_chars=80))
+    retriever = HybridRagRetriever(chunks)
+    cases = (
+        RagRetrievalCase("日本寿司图是否符合本土饮食价值观", "日本", "JP_SUSHI"),
+        RagRetrievalCase("文字水印和IP角色风险怎么审核", "日本", "JP_AUDIT"),
+        RagRetrievalCase("法国薰衣草风车是否符合价值观", "法国", "FR_LAVENDER"),
+    )
+    provider_config = RagProviderConfig(
+        embedding_provider="dashscope",
+        embedding_model="text-embedding-v4",
+        rerank_provider="bge",
+        rerank_model="BAAI/bge-reranker-v2-m3",
+        configured=True,
+        remote_ready=True,
+        remote_calls_enabled=True,
+    )
+    vector_store = RagVectorStoreConfig(
+        provider="qdrant",
+        endpoint="http://127.0.0.1:6333",
+        collection="puzzle_ops_rag",
+        configured=True,
+        ready=True,
+    )
+
+    report = export_rag_acceptance_report(
+        retriever,
+        cases,
+        tmp_path / "rag_acceptance.json",
+        k=5,
+        threshold=0.8,
+        dataset_name="jp_fr_value_audit_gold",
+        knowledge_version="rag-v0.4.8",
+        provider_config=provider_config,
+        vector_store=vector_store,
+    )
+
+    saved = json.loads((tmp_path / "rag_acceptance.json").read_text(encoding="utf-8"))
+    assert report["hit@5"] >= 0.8
+    assert saved["passed_threshold"] is True
+    assert saved["embedding"]["model"] == "text-embedding-v4"
+    assert saved["embedding"]["model_family"] == "Qwen3-Embedding"
+    assert saved["rerank"]["provider"] == "bge"
+    assert saved["vector_store"]["provider"] == "qdrant"
+    assert saved["retrieval_routes"]["bm25"] is True
+    assert saved["retrieval_routes"]["vector"] is True
+    assert saved["retrieval_routes"]["rerank"] is True
+    assert saved["trace_samples"][0]["final_hits"]
 
 
 def test_prepare_qdrant_points_keeps_vector_text_and_parent_payload():

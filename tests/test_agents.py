@@ -3,6 +3,7 @@ from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.vision_llm import MissingVisionLLMConfig, OpenAIVisionLLMClient
 from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.audit import AuditPolicyRetriever
+from puzzle_ops.rag import RagProviderConfig
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.vision_llm import VisionLLMResult
 from datetime import date
@@ -1369,6 +1370,7 @@ def test_agent_rag_summary_marks_remote_ready_only_with_api_key(monkeypatch):
     monkeypatch.setenv("RAG_RERANK_PROVIDER", "dashscope")
     monkeypatch.setenv("RAG_API_KEY", "")
     monkeypatch.setenv("DASHSCOPE_API_KEY", "")
+    monkeypatch.setenv("QWEN_API_KEY", "")
 
     missing_key = PuzzleOpsAgent().value_audit_rag_summary("日本")
     assert missing_key["provider_configured"] is True
@@ -1538,6 +1540,20 @@ def test_agent_value_audit_rag_eval_report_tracks_hit_at_five_threshold(tmp_path
     assert report["passed_threshold"] is True
     assert report["total"] >= 3
     assert report["cases"][0]["expected_parent_id"]
+
+
+def test_agent_exports_value_audit_rag_acceptance_report(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "rag_acceptance.db"))
+    agent.rag_provider_config = RagProviderConfig()
+
+    result = agent.export_value_audit_rag_acceptance_report("日本", tmp_path / "rag_acceptance")
+
+    assert result["path"].endswith("rag_acceptance_日本.json")
+    assert result["hit@5"] >= 0.8
+    assert result["passed_threshold"] is True
+    assert result["embedding"]["model_family"] in {"Qwen3-Embedding", "DashScope-Embedding", "Local"}
+    assert result["retrieval_routes"]["bm25"] is True
+    assert result["retrieval_routes"]["rerank"] is True
 
 
 def test_agent_loads_versioned_knowledge_documents_and_eval_cases(monkeypatch, tmp_path):

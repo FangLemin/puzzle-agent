@@ -612,7 +612,7 @@ class RagProviderConfig:
             default_rerank_model = "local-rule-rerank"
         embedding_model = os.getenv("RAG_EMBEDDING_MODEL", default_embedding_model).strip() or default_embedding_model
         rerank_model = os.getenv("RAG_RERANK_MODEL", default_rerank_model).strip() or default_rerank_model
-        api_key = os.getenv("RAG_API_KEY", os.getenv("DASHSCOPE_API_KEY", "")).strip()
+        api_key = _first_nonempty_env("RAG_API_KEY", "DASHSCOPE_API_KEY", "QWEN_API_KEY")
         embedding_endpoint = os.getenv("RAG_EMBEDDING_ENDPOINT", "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings").strip()
         if rerank_provider in {"bge", "bge-reranker", "baai"}:
             rerank_endpoint = os.getenv("BGE_RERANK_ENDPOINT", os.getenv("RAG_RERANK_ENDPOINT", "")).strip()
@@ -626,8 +626,9 @@ class RagProviderConfig:
         remote_ready = configured and embedding_ready and rerank_ready
         remote_calls_enabled = remote_ready and os.getenv("RAG_ENABLE_REMOTE_CALLS", "").strip().lower() in {"1", "true", "yes", "on"}
         if remote_ready:
+            embedding_family = _embedding_model_family(embedding_model)
             status = (
-                f"外部 provider 可调用：Embedding={embedding_provider}/{embedding_model}；Rerank={rerank_provider}/{rerank_model}"
+                f"外部 provider 可调用：Embedding={embedding_provider}/{embedding_model}（{embedding_family}）；Rerank={rerank_provider}/{rerank_model}"
                 if remote_calls_enabled
                 else f"外部 provider 已具备 key，但 RAG_ENABLE_REMOTE_CALLS 未开启；当前使用本地 fallback"
             )
@@ -1048,6 +1049,78 @@ def evaluate_retrieval_report(
         "total": total,
         "cases": tuple(case_results),
     }
+
+
+def export_rag_acceptance_report(
+    retriever: "HybridRagRetriever",
+    cases: tuple[RagRetrievalCase, ...],
+    output_path: Path | str,
+    *,
+    k: int = 5,
+    threshold: float = 0.8,
+    dataset_name: str = "rag_retrieval_eval",
+    knowledge_version: str = "",
+    provider_config: RagProviderConfig | None = None,
+    vector_store: RagVectorStoreConfig | None = None,
+) -> dict[str, object]:
+    provider_config = provider_config or RagProviderConfig.from_env()
+    vector_store = vector_store or RagVectorStoreConfig.from_env()
+    report = evaluate_retrieval_report(
+        retriever,
+        cases,
+        k=k,
+        threshold=threshold,
+        dataset_name=dataset_name,
+        knowledge_version=knowledge_version,
+    )
+    traces = tuple(
+        retriever.search_with_trace(
+            rewrite_rag_query(case.query, country=case.country),
+            country=case.country,
+            top_k=k,
+        ).as_dict()
+        for case in cases[: min(len(cases), 5)]
+    )
+    enriched: dict[str, object] = {
+        **report,
+        "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "embedding": {
+            "provider": provider_config.embedding_provider,
+            "model": provider_config.embedding_model,
+            "model_family": _embedding_model_family(provider_config.embedding_model),
+            "remote_calls_enabled": provider_config.remote_calls_enabled,
+        },
+        "rerank": {
+            "provider": provider_config.rerank_provider,
+            "model": provider_config.rerank_model,
+            "remote_calls_enabled": provider_config.remote_calls_enabled,
+        },
+        "vector_store": {
+            "provider": vector_store.provider,
+            "endpoint": vector_store.endpoint,
+            "collection": vector_store.collection,
+            "ready": vector_store.ready,
+        },
+        "retrieval_routes": {
+            "query_rewrite": True,
+            "bm25": True,
+            "vector": True,
+            "rerank": True,
+            "parent_child": True,
+            "citation_grounding_prompt": True,
+        },
+        "trace_samples": traces,
+        "industrial_gate": {
+            "metric": f"hit@{k}",
+            "threshold": threshold,
+            "passed": report["passed_threshold"],
+            "use": "低于阈值时不应声称 RAG 检索质量已达业务可用，需要补知识库、调 chunk 或调 rerank。",
+        },
+    }
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(enriched, ensure_ascii=False, indent=2), encoding="utf-8")
+    return enriched
 
 
 def export_offline_rag_index(
@@ -1518,6 +1591,25 @@ def _has_exact_phrase(query: str, text: str) -> bool:
 
 def _reason(chunk: RagChunk, bm25: float, vector: float, embedding_provider: str, rerank_provider: str) -> str:
     return f"{chunk.source_type}命中；BM25={bm25:.2f}；Embedding={embedding_provider}:{vector:.2f}；Rerank={rerank_provider}"
+
+
+def _embedding_model_family(model: str) -> str:
+    normalized = model.lower()
+    if "qwen3" in normalized or normalized == "text-embedding-v4":
+        return "Qwen3-Embedding"
+    if normalized.startswith("text-embedding-v"):
+        return "DashScope-Embedding"
+    if normalized.startswith("local"):
+        return "Local"
+    return "External"
+
+
+def _first_nonempty_env(*keys: str) -> str:
+    for key in keys:
+        value = os.getenv(key, "").strip()
+        if value:
+            return value
+    return ""
 
 
 def _load_env_file(path: Path) -> None:

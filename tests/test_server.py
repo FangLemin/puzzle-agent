@@ -2,7 +2,7 @@ from puzzle_ops.renderer import AppState
 from puzzle_ops.server import APP, classify_generation_error, generation_error_recovery_hint, handle_action, redirect_location, update_state_from_query
 from puzzle_ops.feishu import MockFeishuClient
 from puzzle_ops.image_generation import DerivativeImage, ImageGenerationProvider, MockImageGenerationProvider
-from puzzle_ops.rag import RagVectorStoreConfig
+from puzzle_ops.rag import RagProviderConfig, RagVectorStoreConfig
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.vision_llm import MissingVisionLLMConfig, OpenAIVisionLLMClient, VisionLLMResult
 from PIL import Image
@@ -1309,6 +1309,22 @@ def test_reindex_rag_qdrant_action_reports_upsert(monkeypatch):
     assert "vector_size=3" in APP.state.sync_message
     assert "hit@5=1.0" in APP.state.sync_message
     assert "manifest=/tmp/qdrant_reindex_日本.json" in APP.state.sync_message
+
+
+def test_export_rag_acceptance_report_action_writes_report(monkeypatch):
+    APP.state = AppState(country="日本", view="runtime")
+    monkeypatch.setattr(APP.agent, "rag_provider_config", RagProviderConfig())
+
+    handle_action("/export_rag_acceptance_report", {"country": ["日本"], "view": ["runtime"]})
+
+    assert APP.state.view == "runtime"
+    assert "RAG 工业验收报告已导出" in APP.state.sync_message
+    assert "hit@5=" in APP.state.sync_message
+    export_path = APP.agent._runtime_dir / "rag_acceptance_reports" / "rag_acceptance_日本.json"
+    assert export_path.exists()
+    payload = json.loads(export_path.read_text(encoding="utf-8"))
+    assert payload["hit@5"] >= 0.8
+    assert payload["retrieval_routes"]["bm25"] is True
 
 
 def test_qdrant_smoke_action_reports_search_and_cleanup(monkeypatch):

@@ -361,6 +361,16 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             state.sync_message = f"Qdrant RAG 重建入库失败：{exc}"
         state.sync_url = ""
         state.view = "runtime"
+    elif path == "/export_rag_acceptance_report":
+        output_dir = agent._runtime_dir / "rag_acceptance_reports"
+        result = agent.export_value_audit_rag_acceptance_report(state.country, output_dir)
+        state.sync_message = (
+            "RAG 工业验收报告已导出："
+            f"path={result['path']}；hit@5={result.get('hit@5', 0)}；"
+            f"mrr@5={result.get('mrr@5', 0)}；passed={result.get('passed_threshold', False)}"
+        )
+        state.sync_url = ""
+        state.view = "runtime"
     elif path == "/qdrant_smoke_diagnostic":
         try:
             result = agent.run_qdrant_smoke_diagnostic(state.country)

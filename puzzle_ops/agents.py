@@ -16,7 +16,7 @@ from puzzle_ops.excel_importer import import_history_workbook
 from puzzle_ops.feishu import FeishuClientFactory, MockFeishuClient
 from puzzle_ops.models import AgentTrace, AnalysisReport, AnalysisRow, DemandRow, HolidayRecommendation, ImageProfile, ScheduleItem, TagMeta, ValuePredictionCard, ValueRuleCandidate
 from puzzle_ops.multimodal import ImageFeatureExtractor, SimilarImageRetriever, ValueInsightMiner
-from puzzle_ops.rag import FeedbackAwareRerankProvider, FileDocumentLoaderAdapter, HybridRagRetriever, LocalEmbeddingProvider, QdrantVectorStore, QdrantVectorStoreRetriever, RagChunk, RagChunkingConfig, RagDocument, RagPrompt, RagProviderConfig, RagRetrievalCase, RagRuntimeStats, RagVectorStoreConfig, RetrievalCaseLoaderAdapter, StaticDocumentLoaderAdapter, build_processed_documents_from_raw, build_rag_prompt, chunk_document, evaluate_retrieval_report, export_offline_rag_index, prepare_qdrant_points, providers_from_config, rewrite_rag_query
+from puzzle_ops.rag import FeedbackAwareRerankProvider, FileDocumentLoaderAdapter, HybridRagRetriever, LocalEmbeddingProvider, QdrantVectorStore, QdrantVectorStoreRetriever, RagChunk, RagChunkingConfig, RagDocument, RagPrompt, RagProviderConfig, RagRetrievalCase, RagRuntimeStats, RagVectorStoreConfig, RetrievalCaseLoaderAdapter, StaticDocumentLoaderAdapter, build_processed_documents_from_raw, build_rag_prompt, chunk_document, evaluate_retrieval_report, export_offline_rag_index, export_rag_acceptance_report, prepare_qdrant_points, providers_from_config, rewrite_rag_query
 from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.trulens_eval import TruLensRAGEvaluator
 from puzzle_ops.trial_upload import TrialImageUploadService, _compact_tag_subject
@@ -857,6 +857,43 @@ class PuzzleOpsAgent:
             dataset_name=f"{country}价值观审核RAG {'file' if file_cases else 'smoke'} eval",
             knowledge_version=f"{country}-value-audit-{len(documents)}docs-{len(chunks)}chunks",
         )
+
+    def export_value_audit_rag_acceptance_report(self, country: str, output_dir: Path | str) -> dict[str, object]:
+        documents = StaticDocumentLoaderAdapter(self._rag_documents(country)).load()
+        chunks = tuple(
+            chunk
+            for document in documents
+            for chunk in chunk_document(document, max_chars=None, chunking=self.rag_chunking_config)
+        )
+        stats = RagRuntimeStats()
+        embedding_provider, rerank_provider = providers_from_config(
+            self.rag_provider_config,
+            stats=stats,
+            cache_get=self.repository.get_rag_embedding_cache,
+            cache_set=self.repository.set_rag_embedding_cache,
+        )
+        retriever = HybridRagRetriever(
+            chunks,
+            embedding_provider=embedding_provider,
+            rerank_provider=rerank_provider,
+            vector_store_retriever=self._rag_vector_store_retriever(),
+        )
+        file_cases = self._rag_eval_cases(country)
+        cases = file_cases or _rag_smoke_eval_cases(country, documents)
+        output = Path(output_dir)
+        path = output / f"rag_acceptance_{country}.json"
+        report = export_rag_acceptance_report(
+            retriever,
+            cases,
+            path,
+            k=5,
+            threshold=0.8,
+            dataset_name=f"{country}价值观审核RAG {'file' if file_cases else 'smoke'} acceptance",
+            knowledge_version=f"{country}-value-audit-{len(documents)}docs-{len(chunks)}chunks",
+            provider_config=self.rag_provider_config,
+            vector_store=self.rag_vector_store_config,
+        )
+        return {"path": str(path), **report}
 
     def rag_feedback_summary(self, country: str) -> dict[str, object]:
         by_chunk: dict[str, dict[str, object]] = {}

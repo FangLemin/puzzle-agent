@@ -2,6 +2,48 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.4.8 - RAG Acceptance Report
+
+日期：2026-07-02
+
+阶段目标：
+
+- 把“工业级 RAG”从页面说明推进到可导出的验收证据：真实 provider 配置、Qdrant/BM25/rerank 路由、hit@5 阈值和 trace 样本写入报告。
+- 让阿里/Qwen 账号配置更稳：可复用现有 `QWEN_API_KEY`，避免空 `RAG_API_KEY` 阻断真实 Qwen3-Embedding 调用。
+
+已完成：
+
+- Provider 配置：
+  - `RagProviderConfig` 支持按 `RAG_API_KEY`、`DASHSCOPE_API_KEY`、`QWEN_API_KEY` 顺序取第一个非空 key。
+  - DashScope embedding 默认模型继续使用 `text-embedding-v4`，并在状态里标记为 `Qwen3-Embedding` 家族。
+  - BGE reranker 默认保持 `BAAI/bge-reranker-v2-m3`。
+- RAG 验收报告：
+  - 新增 `export_rag_acceptance_report()`。
+  - 报告包含 `hit@5`、`mrr@5`、阈值通过状态、embedding/rerank 模型、Qdrant 配置、召回路线和 trace samples。
+  - 报告明确记录 `retrieval_routes`：query rewrite、BM25、vector、rerank、parent-child、citation grounding prompt。
+- Agent / Server：
+  - 新增 `PuzzleOpsAgent.export_value_audit_rag_acceptance_report()`。
+  - 新增 `/export_rag_acceptance_report` 动作。
+  - Runtime 的“价值观与审核 RAG”区域新增“导出RAG验收报告”按钮。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_rag.py::test_dashscope_config_reuses_qwen_api_key_for_qwen3_embedding -q`：先因空 `RAG_API_KEY` 无法 fallback 到 `QWEN_API_KEY` 失败。
+  - `PYTHONPATH=. pytest tests/test_rag.py::test_export_rag_acceptance_report_writes_hit_at_five_models_routes_and_traces -q`：先因缺少 `export_rag_acceptance_report` 失败。
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_value_audit_rag_acceptance_report -q`：先因 Agent 缺少导出方法失败。
+  - `PYTHONPATH=. pytest tests/test_server.py::test_export_rag_acceptance_report_action_writes_report -q`：先因 server 路由不存在失败。
+- 定向验证：
+  - 上述 4 项测试：4 passed。
+- 真实配置 smoke：
+  - 读取本地 `.env` 后，RAG 配置为 `dashscope / text-embedding-v4` + `bge / BAAI/bge-reranker-v2-m3`。
+  - 单次 `寿司价值观` embedding 调用成功：vector_dim=1024，remote_calls=1，fallbacks=0。
+
+当前限制：
+
+- 本版本生成“可审计验收报告”，不自动执行外部 `promptfoo eval`。
+- 真实远程 embedding/rerank 调用仍受 `.env`、额度、网络和 BGE endpoint 可用性影响；未开启 `RAG_ENABLE_REMOTE_CALLS` 时会保持本地 fallback。
+
 ## v0.4.7 - Promptfoo YAML Export
 
 日期：2026-07-02
