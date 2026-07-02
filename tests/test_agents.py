@@ -1453,6 +1453,24 @@ def test_agent_rag_summary_exposes_citation_source_parent_and_text():
     assert first["text"]
 
 
+def test_agent_persists_value_audit_rag_trace_for_replay(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "rag_trace.db"))
+    agent._runtime_dir = tmp_path
+
+    answer = agent.value_audit_rag_answer("日本", "寿司是否符合日本本土饮食文化价值观", top_k=2)
+
+    traces = agent.recent_rag_traces("日本")
+    assert traces
+    latest = traces[0]
+    assert latest["country"] == "日本"
+    assert latest["original_query"] == "寿司是否符合日本本土饮食文化价值观"
+    assert latest["rewritten_query"]
+    assert latest["citations"] == answer.citations
+    assert latest["prompt"] == answer.prompt
+    assert latest["retrieval_trace"]["final_hits"]
+    assert Path(str(latest["trace_path"])).exists()
+
+
 def test_agent_exports_value_audit_rag_offline_artifacts(tmp_path):
     agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "rag_artifacts.db"))
 

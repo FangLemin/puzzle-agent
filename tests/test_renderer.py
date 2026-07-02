@@ -216,6 +216,8 @@ def test_runtime_page_shows_rag_feedback_summary(tmp_path):
     assert "BM25 召回候选" in html
     assert "向量召回候选" in html
     assert "精排最终命中" in html
+    assert "最近 RAG Trace" in html
+    assert "可回放 prompt" in html
 
 
 def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):

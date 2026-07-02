@@ -675,6 +675,7 @@ def render_rag_summary(summary: dict[str, object]) -> str:
     )
     citation_rows = render_rag_citation_details(summary.get("citation_details", ()))
     trace_details = render_rag_retrieval_trace_details(trace)
+    recent_trace_rows = render_recent_rag_traces(summary.get("recent_traces", ()))
     feedback = summary.get("feedback_summary", {})
     feedback_card = render_rag_feedback_summary(feedback if isinstance(feedback, dict) else {})
     vector_store_search = "on" if summary.get("vector_store_search_enabled") else "off"
@@ -693,6 +694,8 @@ def render_rag_summary(summary: dict[str, object]) -> str:
 <div class="table-wrap"><table><thead><tr><th>引用ID</th><th>知识来源</th><th>父文档</th><th>标题</th><th>内容</th></tr></thead><tbody>{citation_rows}</tbody></table></div>
 <h3>RAG 检索 Trace</h3>
 {trace_details}
+<h3>最近 RAG Trace</h3>
+<div class="table-wrap"><table><thead><tr><th>Trace</th><th>Query</th><th>引用</th><th>可回放 prompt</th></tr></thead><tbody>{recent_trace_rows}</tbody></table></div>
 """
 
 
@@ -757,6 +760,29 @@ def render_rag_retrieval_trace_details(trace: dict[str, object]) -> str:
 </div>
 <div class="table-wrap"><table><thead><tr><th>精排最终命中</th><th>父文档</th><th>来源</th><th>BM25</th><th>向量</th><th>Rerank</th><th>原因</th></tr></thead><tbody>{final_rows}</tbody></table></div>
 """
+
+
+def render_recent_rag_traces(traces: object) -> str:
+    if not isinstance(traces, (list, tuple)) or not traces:
+        return '<tr><td colspan="4">暂无可回放 RAG trace。</td></tr>'
+    rows = []
+    for item in traces:
+        if not isinstance(item, dict):
+            continue
+        citations = item.get("citations", ())
+        if isinstance(citations, (list, tuple)):
+            citation_text = "、".join(str(citation) for citation in citations[:5])
+        else:
+            citation_text = str(citations)
+        rows.append(
+            "<tr>"
+            f"<td>{escape(str(item.get('trace_id', '')))}</td>"
+            f"<td>{escape(str(item.get('original_query', ''))[:180])}</td>"
+            f"<td>{escape(citation_text or '无')}</td>"
+            f"<td>{escape(str(item.get('trace_path', '')))}</td>"
+            "</tr>"
+        )
+    return "".join(rows) or '<tr><td colspan="4">暂无可回放 RAG trace。</td></tr>'
 
 
 def _trace_id_list(value: object) -> str:

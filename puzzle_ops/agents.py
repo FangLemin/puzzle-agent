@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import date
+from datetime import date, datetime
 import csv
 import json
 import os
@@ -469,10 +469,16 @@ class PuzzleOpsAgent:
             )
             if audit_hits:
                 hits = tuple(list(hits[: max(top_k - 1, 0)]) + [audit_hits[0]])
+        trace_payload = trace.as_dict()
+        if hits != trace.final_hits:
+            trace_payload = dict(trace_payload)
+            trace_payload["final_hits"] = tuple(_rag_hit_trace_payload(hit) for hit in hits)
+        prompt = build_rag_prompt(rewritten_query, hits)
         self._last_rag_stats = stats
         self._last_rag_rewritten_query = rewritten_query
-        self._last_rag_trace = trace.as_dict()
-        return build_rag_prompt(rewritten_query, hits)
+        self._last_rag_trace = trace_payload
+        self._write_rag_trace(country, query, rewritten_query, prompt, trace_payload, stats.as_dict())
+        return prompt
 
     def _rag_rules_for_value_master(self, row: DemandRow) -> tuple[tuple[str, str], ...]:
         query = " ".join(
@@ -549,8 +555,71 @@ class PuzzleOpsAgent:
             "retrieval_eval_report": self.value_audit_rag_eval_report(country),
             "knowledge_base": self._rag_knowledge_summary(country),
             "feedback_summary": self.rag_feedback_summary(country),
+            "recent_traces": self.recent_rag_traces(country, limit=3),
             **self._last_rag_stats.as_dict(),
         }
+
+    def recent_rag_traces(self, country: str, *, limit: int = 5) -> tuple[dict[str, object], ...]:
+        trace_dir = self._rag_trace_dir(country)
+        if not trace_dir.exists():
+            return ()
+        rows = []
+        for path in sorted(trace_dir.glob("*.json"), reverse=True):
+            payload = _read_json_object(path)
+            if not payload:
+                continue
+            citations = payload.get("citations", ())
+            if isinstance(citations, list):
+                payload["citations"] = tuple(str(item) for item in citations)
+            payload["trace_path"] = str(path)
+            rows.append(payload)
+            if len(rows) >= limit:
+                break
+        return tuple(rows)
+
+    def _write_rag_trace(
+        self,
+        country: str,
+        original_query: str,
+        rewritten_query: str,
+        prompt: RagPrompt,
+        retrieval_trace: dict[str, object],
+        runtime_stats: dict[str, object],
+    ) -> str:
+        trace_dir = self._rag_trace_dir(country)
+        trace_dir.mkdir(parents=True, exist_ok=True)
+        created_at = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        path = trace_dir / f"rag_trace_{created_at}_{uuid.uuid4().hex[:8]}.json"
+        payload = {
+            "trace_id": path.stem,
+            "created_at": created_at,
+            "country": country,
+            "original_query": original_query,
+            "rewritten_query": rewritten_query,
+            "context": prompt.context,
+            "citations": prompt.citations,
+            "prompt": prompt.prompt,
+            "retrieval_trace": retrieval_trace,
+            "runtime_stats": runtime_stats,
+            "embedding_provider": self.rag_provider_config.embedding_provider,
+            "embedding_model": self.rag_provider_config.embedding_model,
+            "rerank_provider": self.rag_provider_config.rerank_provider,
+            "rerank_model": self.rag_provider_config.rerank_model,
+            "vector_store": self.rag_vector_store_config.provider,
+            "vector_store_collection": self.rag_vector_store_config.collection,
+        }
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        self._prune_rag_traces(trace_dir, keep=30)
+        return str(path)
+
+    def _rag_trace_dir(self, country: str) -> Path:
+        safe_country = re.sub(r"[^A-Za-z0-9\u4e00-\u9fff_-]+", "_", country).strip("_") or "GLOBAL"
+        return self._runtime_dir / "rag_traces" / safe_country
+
+    def _prune_rag_traces(self, trace_dir: Path, *, keep: int) -> None:
+        paths = sorted(trace_dir.glob("*.json"), reverse=True)
+        for path in paths[keep:]:
+            path.unlink(missing_ok=True)
 
     def _rag_vector_store_search_enabled(self) -> bool:
         enabled = os.getenv("RAG_QDRANT_SEARCH_ENABLED", os.getenv("RAG_VECTOR_STORE_SEARCH_ENABLED", ""))
@@ -2212,6 +2281,20 @@ def _qdrant_point_record(point) -> dict[str, object]:
         "id": point.id,
         "vector": [float(value) for value in point.vector],
         "payload": dict(point.payload),
+    }
+
+
+def _rag_hit_trace_payload(hit) -> dict[str, object]:
+    return {
+        "chunk_id": hit.chunk.chunk_id,
+        "parent_id": hit.chunk.parent_id,
+        "country": hit.chunk.country,
+        "source_type": hit.chunk.source_type,
+        "title": hit.chunk.title,
+        "bm25_score": hit.bm25_score,
+        "vector_score": hit.vector_score,
+        "rerank_score": hit.rerank_score,
+        "reason": hit.reason,
     }
 
 

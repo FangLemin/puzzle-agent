@@ -2,6 +2,42 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.4.3 - RAG Online Trace Replay
+
+日期：2026-07-02
+
+阶段目标：
+
+- 继续补齐工业级 RAG 在线阶段：每次价值观/审核 RAG 回答都能落盘为可回放 trace。
+- 让 Runtime 页面不只展示“当前一次”的 trace，还能看到最近 trace 文件，便于复盘 prompt、引用和召回路径。
+
+已完成：
+
+- RAG trace 持久化：
+  - `value_audit_rag_answer()` 每次生成答案后写入 `runtime/rag_traces/<country>/rag_trace_*.json`。
+  - trace JSON 包含原始 query、改写 query、context、citations、完整 prompt、retrieval_trace、runtime_stats、embedding/rerank/vector store 配置。
+  - 当审核 query 触发额外 audit policy 补召回时，持久化 trace 会同步最终命中列表。
+  - 每个国家默认保留最近 30 份 trace，避免 runtime 目录无限增长。
+- 可回放入口：
+  - 新增 `recent_rag_traces(country)` 读取最近 trace 文件。
+  - Runtime 页面新增 `最近 RAG Trace` 表格，展示 trace id、query、引用和可回放 prompt 文件路径。
+- 页面可观测性：
+  - `价值观与审核 RAG` 现在同时覆盖离线建库、在线召回、精排明细、最近 trace 文件。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_persists_value_audit_rag_trace_for_replay tests/test_renderer.py::test_runtime_page_shows_rag_feedback_summary -q`：先因缺少 `recent_rag_traces()` 和页面最近 trace 展示失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_persists_value_audit_rag_trace_for_replay tests/test_renderer.py::test_runtime_page_shows_rag_feedback_summary -q`：2 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py tests/test_rag.py -q`：158 passed。
+
+当前限制：
+
+- trace 已持久化为本地 JSON，但还没有提供页面内直接展开完整 prompt/response 的详情页。
+- trace 目前跟 runtime 临时目录绑定；如果要作为长期实验资产，后续应导出到 `knowledge/runs` 或 Harness run artifacts。
+- 还未接 Phoenix/Promptfoo exporter，只是保留了本地可回放数据形态。
+
 ## v0.4.2 - Runtime Qdrant Restore Control 与 RAG Trace
 
 日期：2026-07-02
