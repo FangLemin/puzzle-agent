@@ -2,6 +2,7 @@ from puzzle_ops.renderer import AppState
 from puzzle_ops.server import APP, classify_generation_error, generation_error_recovery_hint, handle_action, redirect_location, update_state_from_query
 from puzzle_ops.feishu import MockFeishuClient
 from puzzle_ops.image_generation import DerivativeImage, ImageGenerationProvider, MockImageGenerationProvider
+from puzzle_ops.rag import RagVectorStoreConfig
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.vision_llm import MissingVisionLLMConfig, OpenAIVisionLLMClient, VisionLLMResult
 from PIL import Image
@@ -1310,9 +1311,10 @@ def test_qdrant_smoke_action_reports_search_and_cleanup(monkeypatch):
 def test_qdrant_manifest_rollback_action_sets_latest_run(monkeypatch):
     APP.state = AppState(country="日本", view="runtime")
 
-    def fake_rollback(country, run_id):
+    def fake_rollback(country, run_id, *, vector_store=None):
         assert country == "日本"
         assert run_id == "target-run"
+        assert vector_store is None
         return {
             "status": "rolled_back",
             "run_id": run_id,
@@ -1330,6 +1332,49 @@ def test_qdrant_manifest_rollback_action_sets_latest_run(monkeypatch):
     assert "run_id=target-run" in APP.state.sync_message
     assert "points=9" in APP.state.sync_message
     assert "restore=manifest_pointer_only" in APP.state.sync_message
+
+
+def test_qdrant_manifest_rollback_action_can_restore_points_when_confirmed(monkeypatch):
+    APP.state = AppState(country="日本", view="runtime")
+    monkeypatch.setattr(
+        APP.agent,
+        "rag_vector_store_config",
+        RagVectorStoreConfig(
+            provider="qdrant",
+            endpoint="http://127.0.0.1:6333",
+            collection="puzzle_ops_rag",
+            configured=True,
+            ready=True,
+            status_text="Qdrant ready：http://127.0.0.1:6333 / puzzle_ops_rag",
+        ),
+    )
+    captured = {}
+
+    def fake_rollback(country, run_id, *, vector_store=None):
+        captured["has_vector_store"] = vector_store is not None
+        return {
+            "status": "rolled_back",
+            "run_id": run_id,
+            "vector_size": 5,
+            "upserted_points": 9,
+            "restore_status": {"status": "restored", "restored_points": 9},
+        }
+
+    monkeypatch.setattr(APP.agent, "rollback_qdrant_manifest", fake_rollback)
+
+    handle_action(
+        "/rollback_qdrant_manifest",
+        {
+            "country": ["日本"],
+            "view": ["runtime"],
+            "run_id": ["target-run"],
+            "restore_points": ["1"],
+        },
+    )
+
+    assert captured["has_vector_store"] is True
+    assert "restore=restored" in APP.state.sync_message
+    assert "restored_points=9" in APP.state.sync_message
 
 
 def test_record_rag_feedback_action_writes_working_memory():

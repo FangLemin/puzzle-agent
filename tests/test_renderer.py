@@ -210,6 +210,12 @@ def test_runtime_page_shows_rag_feedback_summary(tmp_path):
     assert "Qdrant Smoke" in html
     assert 'action="/rollback_qdrant_manifest"' in html
     assert "回滚Qdrant Run" in html
+    assert 'name="restore_points"' in html
+    assert "真实恢复 Qdrant points" in html
+    assert "RAG 检索 Trace" in html
+    assert "BM25 召回候选" in html
+    assert "向量召回候选" in html
+    assert "精排最终命中" in html
 
 
 def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):

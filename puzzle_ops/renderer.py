@@ -546,7 +546,7 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
 </section>
 <section class="panel"><h2>四层 Memory 概览</h2><div class="memory-grid">{memory_overview_cards}</div></section>
 <section class="panel"><h2>Memory Debug</h2><div class="table-wrap"><table><thead><tr><th>ID</th><th>层级/类型</th><th>状态</th><th>RAG Source</th><th>命中分</th><th>RAG Ready</th><th>来源</th><th>记忆内容</th><th>治理</th></tr></thead><tbody>{memory_debug_rows}</tbody></table></div></section>
-<section class="panel"><div class="section-line"><h2>价值观与审核 RAG</h2><div class="actions"><form method="post" action="/rebuild_rag_knowledge">{hidden_context(state, view="runtime")}<button>重建RAG知识库</button></form><form method="post" action="/reindex_rag_qdrant">{hidden_context(state, view="runtime")}<button>重建并入库Qdrant</button></form><form method="post" action="/qdrant_smoke_diagnostic">{hidden_context(state, view="runtime")}<button>Qdrant Smoke</button></form><form method="post" action="/rollback_qdrant_manifest">{hidden_context(state, view="runtime")}<input name="run_id" placeholder="run_id"><button>回滚Qdrant Run</button></form></div></div>{rag_cards}</section>
+<section class="panel"><div class="section-line"><h2>价值观与审核 RAG</h2><div class="actions"><form method="post" action="/rebuild_rag_knowledge">{hidden_context(state, view="runtime")}<button>重建RAG知识库</button></form><form method="post" action="/reindex_rag_qdrant">{hidden_context(state, view="runtime")}<button>重建并入库Qdrant</button></form><form method="post" action="/qdrant_smoke_diagnostic">{hidden_context(state, view="runtime")}<button>Qdrant Smoke</button></form><form method="post" action="/rollback_qdrant_manifest">{hidden_context(state, view="runtime")}<input name="run_id" placeholder="run_id"><label class="inline-check"><input type="checkbox" name="restore_points" value="1">真实恢复 Qdrant points</label><button>回滚Qdrant Run</button></form></div></div>{rag_cards}</section>
 """
 
 
@@ -674,6 +674,7 @@ def render_rag_summary(summary: dict[str, object]) -> str:
         f"{Path(str(knowledge.get('eval_cases_path', ''))).name}"
     )
     citation_rows = render_rag_citation_details(summary.get("citation_details", ()))
+    trace_details = render_rag_retrieval_trace_details(trace)
     feedback = summary.get("feedback_summary", {})
     feedback_card = render_rag_feedback_summary(feedback if isinstance(feedback, dict) else {})
     vector_store_search = "on" if summary.get("vector_store_search_enabled") else "off"
@@ -690,6 +691,8 @@ def render_rag_summary(summary: dict[str, object]) -> str:
 </div>
 <h3>引用明细</h3>
 <div class="table-wrap"><table><thead><tr><th>引用ID</th><th>知识来源</th><th>父文档</th><th>标题</th><th>内容</th></tr></thead><tbody>{citation_rows}</tbody></table></div>
+<h3>RAG 检索 Trace</h3>
+{trace_details}
 """
 
 
@@ -726,6 +729,61 @@ def render_rag_citation_details(details: object) -> str:
         for item in details
         if isinstance(item, dict)
     )
+
+
+def render_rag_retrieval_trace_details(trace: dict[str, object]) -> str:
+    bm25 = trace.get("bm25_candidates", ())
+    vector = trace.get("vector_candidates", ())
+    exact = trace.get("exact_match_candidates", ())
+    hits = trace.get("final_hits", ())
+    bm25_text = _trace_id_list(bm25)
+    vector_text = _trace_id_list(vector)
+    exact_text = _trace_id_list(exact)
+    final_rows = _trace_final_hit_rows(hits)
+    meta = (
+        f"query={trace.get('query', '')}；"
+        f"eligible={trace.get('eligible_chunk_count', 0)}；"
+        f"merged={trace.get('merged_candidate_count', 0)}；"
+        f"bm25_top_k={trace.get('bm25_top_k', 0)}；"
+        f"vector_top_k={trace.get('vector_top_k', 0)}；"
+        f"rerank_top_k={trace.get('rerank_top_k', 0)}"
+    )
+    return f"""
+<div class="trace-grid">
+  <article><strong>检索参数</strong><small>{escape(meta)}</small></article>
+  <article><strong>BM25 召回候选</strong><small>{escape(bm25_text)}</small></article>
+  <article><strong>向量召回候选</strong><small>{escape(vector_text)}</small></article>
+  <article><strong>精确规则候选</strong><small>{escape(exact_text)}</small></article>
+</div>
+<div class="table-wrap"><table><thead><tr><th>精排最终命中</th><th>父文档</th><th>来源</th><th>BM25</th><th>向量</th><th>Rerank</th><th>原因</th></tr></thead><tbody>{final_rows}</tbody></table></div>
+"""
+
+
+def _trace_id_list(value: object) -> str:
+    if not isinstance(value, (list, tuple)) or not value:
+        return "无"
+    return "、".join(str(item) for item in value[:8])
+
+
+def _trace_final_hit_rows(value: object) -> str:
+    if not isinstance(value, (list, tuple)) or not value:
+        return '<tr><td colspan="7">暂无精排命中。</td></tr>'
+    rows = []
+    for item in value[:8]:
+        if not isinstance(item, dict):
+            continue
+        rows.append(
+            "<tr>"
+            f"<td>{escape(str(item.get('chunk_id', '')))}</td>"
+            f"<td>{escape(str(item.get('parent_id', '')))}</td>"
+            f"<td>{escape(str(item.get('source_type', '')))}</td>"
+            f"<td>{escape(str(round(float(item.get('bm25_score', 0) or 0), 4)))}</td>"
+            f"<td>{escape(str(round(float(item.get('vector_score', 0) or 0), 4)))}</td>"
+            f"<td>{escape(str(round(float(item.get('rerank_score', 0) or 0), 4)))}</td>"
+            f"<td>{escape(str(item.get('reason', '')))}</td>"
+            "</tr>"
+        )
+    return "".join(rows) or '<tr><td colspan="7">暂无精排命中。</td></tr>'
 
 
 def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
@@ -1366,6 +1424,9 @@ nav { display:grid; gap:8px; margin:18px 0; }
 .rag-grid article { display:grid; gap:6px; padding:12px; border:1px solid var(--line); border-radius:8px; background:#f6faf8; }
 .rag-grid span { color:var(--brand); font-weight:900; overflow-wrap:anywhere; }
 .rag-grid small { line-height:1.5; overflow-wrap:anywhere; }
+.trace-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:8px 0 12px; }
+.trace-grid article { display:grid; gap:4px; padding:10px; border:1px solid var(--line); border-radius:8px; background:#fffdf7; }
+.trace-grid small { line-height:1.45; overflow-wrap:anywhere; }
 .mode-grid, .reference-row { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
 .reference-row { grid-template-columns:repeat(3,minmax(0,1fr)); margin-top:12px; }
 .mode-card { display:grid; gap:6px; padding:14px; border:1px solid var(--line); border-radius:10px; background:#fffdf7; }
@@ -1495,5 +1556,5 @@ textarea { min-height:58px; resize:vertical; }
 .grade.D { background:#ef6b5b; color:#fff; }
 .pos { display:inline-block; padding:3px 8px; border-radius:999px; background:#ffe1de; color:var(--red); font-weight:900; }
 .empty { color:var(--muted); background:#f8faf9; padding:12px; border-radius:8px; }
-@media (max-width: 900px) { body { grid-template-columns:1fr; } aside { border-right:0; border-bottom:1px solid var(--line); } .metrics, .grid.two, .grid.three, .detail, .memory-grid, .rag-grid, .gold-coverage { grid-template-columns:1fr; } }
+@media (max-width: 900px) { body { grid-template-columns:1fr; } aside { border-right:0; border-bottom:1px solid var(--line); } .metrics, .grid.two, .grid.three, .detail, .memory-grid, .rag-grid, .trace-grid, .gold-coverage { grid-template-columns:1fr; } }
 """

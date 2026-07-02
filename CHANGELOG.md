@@ -2,6 +2,43 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.4.2 - Runtime Qdrant Restore Control 与 RAG Trace
+
+日期：2026-07-02
+
+阶段目标：
+
+- 把 v0.4.1 的 point record restore 从底层能力推进到页面可控能力。
+- 强化工业级 RAG 在线阶段可观测性：运营和面试官能看到 BM25、向量召回、精排最终命中，而不是只看到摘要指标。
+
+已完成：
+
+- Runtime 真实 restore 开关：
+  - `/rollback_qdrant_manifest` 表单新增 `真实恢复 Qdrant points` 确认项。
+  - 默认仍只回滚 latest manifest 指针，避免误写 Qdrant。
+  - 只有用户勾选确认，且 `RAG_VECTOR_STORE_PROVIDER=qdrant`、`QDRANT_URL`、`QDRANT_COLLECTION` ready 时，server 才注入真实 `QdrantVectorStore`。
+  - 同步消息展示 `restore=...` 与 `restored_points=...`。
+- RAG trace 展示：
+  - Runtime 页面新增 `RAG 检索 Trace` 区块。
+  - 展示检索参数、BM25 召回候选、向量召回候选、精确规则候选。
+  - 展示精排最终命中的 chunk、父文档、来源、BM25/vector/rerank 分数和原因。
+- 页面体验：
+  - 新增 trace-grid 响应式样式，避免 trace 文本撑爆页面。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_server.py::test_qdrant_manifest_rollback_action_can_restore_points_when_confirmed tests/test_renderer.py::test_runtime_page_shows_rag_feedback_summary -q`：先因 server 未传 `vector_store`、页面缺少 restore 确认和 trace 明细失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_server.py::test_qdrant_manifest_rollback_action_sets_latest_run tests/test_server.py::test_qdrant_manifest_rollback_action_can_restore_points_when_confirmed tests/test_renderer.py::test_runtime_page_shows_rag_feedback_summary -q`：3 passed。
+  - `PYTHONPATH=. pytest tests/test_server.py tests/test_renderer.py tests/test_agents.py tests/test_rag.py -q`：218 passed。
+
+当前限制：
+
+- 页面真实 restore 仍依赖 Qdrant 配置 ready；未配置时会拒绝恢复 points 并提示配置状态。
+- Qdrant snapshot/alias 级别的 collection 回滚尚未实现，目前是基于 manifest 中 `point_records` 的 upsert restore。
+- trace 已展示召回与精排细节，但还未把每次线上价值观判断的完整 prompt/request/response 持久化成可回放 trace 文件。
+
 ## v0.4.1 - Qdrant Point Record Snapshot Restore
 
 日期：2026-07-02

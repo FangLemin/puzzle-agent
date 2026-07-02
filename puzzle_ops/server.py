@@ -6,6 +6,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 from puzzle_ops.agents import PuzzleOpsAgent
 from puzzle_ops.data import COUNTRIES
+from puzzle_ops.rag import QdrantVectorStore
 from puzzle_ops.renderer import AppState, render_page
 
 
@@ -376,13 +377,24 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         state.view = "runtime"
     elif path == "/rollback_qdrant_manifest":
         try:
-            result = agent.rollback_qdrant_manifest(state.country, value(form, "run_id", ""))
+            restore_points = value(form, "restore_points", "") == "1"
+            vector_store = None
+            if restore_points:
+                if agent.rag_vector_store_config.provider != "qdrant" or not agent.rag_vector_store_config.ready:
+                    state.sync_message = f"Qdrant points 未恢复：{agent.rag_vector_store_config.status_text}"
+                    state.sync_url = ""
+                    state.view = "runtime"
+                    return None
+                vector_store = QdrantVectorStore(agent.rag_vector_store_config)
+            result = agent.rollback_qdrant_manifest(state.country, value(form, "run_id", ""), vector_store=vector_store)
+            restore_status = result.get("restore_status") if isinstance(result.get("restore_status"), dict) else {}
             state.sync_message = (
                 "Qdrant manifest 已回滚："
                 f"run_id={result.get('run_id', '')}，"
                 f"vector_size={result.get('vector_size', 0)}，"
                 f"points={result.get('upserted_points', 0)}，"
-                f"restore={(result.get('restore_status') if isinstance(result.get('restore_status'), dict) else {}).get('status', '')}"
+                f"restore={restore_status.get('status', '')}，"
+                f"restored_points={restore_status.get('restored_points', 0)}"
             )
         except Exception as exc:
             state.sync_message = f"Qdrant manifest 回滚失败：{exc}"
