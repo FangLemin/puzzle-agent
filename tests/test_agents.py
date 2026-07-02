@@ -1502,11 +1502,16 @@ def test_agent_exports_harness_external_eval_artifacts(tmp_path):
 
     assert paths["phoenix"].name == "phoenix_harness_日本.json"
     assert paths["promptfoo"].name == "promptfoo_harness_日本.json"
+    assert paths["promptfoo_yaml"].name == "promptfoo_harness_日本.yaml"
     assert paths["deepeval"].name == "deepeval_harness_日本.json"
     phoenix = json.loads(paths["phoenix"].read_text(encoding="utf-8"))
     promptfoo = json.loads(paths["promptfoo"].read_text(encoding="utf-8"))
     assert phoenix["rag_trace_artifacts"][0]["trace_path"]
     assert promptfoo["metadata"]["rag_trace_artifacts"][0]["trace_id"]
+    promptfoo_yaml = paths["promptfoo_yaml"].read_text(encoding="utf-8")
+    assert "providers:" in promptfoo_yaml
+    assert "tests:" in promptfoo_yaml
+    assert "rag_trace_artifacts:" in promptfoo_yaml
 
 
 def test_agent_exports_value_audit_rag_offline_artifacts(tmp_path):

@@ -2,6 +2,40 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.4.7 - Promptfoo YAML Export
+
+日期：2026-07-02
+
+阶段目标：
+
+- 在 v0.4.5 的外部评测 JSON 导出基础上，补齐更贴近 Promptfoo CLI 使用习惯的 YAML 配置文件。
+- 保持 Python 标准库实现，不引入 PyYAML 等新依赖。
+
+已完成：
+
+- Promptfoo YAML：
+  - `PromptfooExporter.export_yaml(run)` 输出 YAML 文本。
+  - 新增轻量 `to_simple_yaml()` 序列化器，支持 dict/list/tuple/str/number/bool/null。
+  - YAML key 在安全情况下使用裸 key，如 `providers:`、`tests:`、`rag_trace_artifacts:`。
+- Agent 导出：
+  - `export_harness_external_eval_artifacts()` 新增 `promptfoo_yaml`。
+  - 写出 `promptfoo_harness_<country>.yaml`。
+- Server：
+  - `/export_harness_external_eval` 同步消息新增 Promptfoo YAML 文件路径。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_harness_external_eval_artifacts tests/test_server.py::test_export_harness_external_eval_action_writes_eval_tool_files -q`：先因缺少 `promptfoo_yaml` 与 YAML 文件失败。
+- 定向验证：
+  - 上述 2 项测试：2 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_server.py tests/test_harness.py tests/test_external_adapters.py -q`：185 passed。
+
+当前限制：
+
+- YAML 序列化器是面向本项目 Promptfoo config 的轻量实现，不是通用 YAML 全功能库。
+- 还未直接调用 `promptfoo eval`，只生成可交给 CLI 的配置文件。
+
 ## v0.4.6 - Inline RAG Trace Replay
 
 日期：2026-07-02

@@ -966,6 +966,7 @@ def test_export_harness_external_eval_action_writes_eval_tool_files():
     export_dir = APP.agent._runtime_dir / "harness_external_eval_exports"
     assert (export_dir / "phoenix_harness_日本.json").exists()
     assert (export_dir / "promptfoo_harness_日本.json").exists()
+    assert (export_dir / "promptfoo_harness_日本.yaml").exists()
     assert (export_dir / "deepeval_harness_日本.json").exists()
 
 

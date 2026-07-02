@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import re
+
 from puzzle_ops.cms import MockCMSClient
 from puzzle_ops.runtime import ToolRegistry
 
@@ -97,6 +100,9 @@ class PromptfooExporter:
             ],
         }
 
+    def export_yaml(self, run) -> str:
+        return to_simple_yaml(self.export(run))
+
 
 class ArgillaExporter:
     def export(self, run) -> dict[str, object]:
@@ -129,3 +135,53 @@ class LabelStudioExporter(ArgillaExporter):
 def _case_rag_trace(case) -> dict[str, object]:
     evidence = getattr(case, "evidence_trace", {})
     return evidence if isinstance(evidence, dict) else {}
+
+
+def to_simple_yaml(value: object, indent: int = 0) -> str:
+    lines = _yaml_lines(value, indent)
+    return "\n".join(lines) + "\n"
+
+
+def _yaml_lines(value: object, indent: int) -> list[str]:
+    prefix = " " * indent
+    if isinstance(value, dict):
+        lines: list[str] = []
+        for key, item in value.items():
+            rendered_key = _yaml_key(str(key))
+            if isinstance(item, (dict, list, tuple)):
+                lines.append(f"{prefix}{rendered_key}:")
+                lines.extend(_yaml_lines(item, indent + 2))
+            else:
+                lines.append(f"{prefix}{rendered_key}: {_yaml_scalar(item)}")
+        return lines
+    if isinstance(value, (list, tuple)):
+        lines = []
+        for item in value:
+            if isinstance(item, dict):
+                lines.append(f"{prefix}-")
+                lines.extend(_yaml_lines(item, indent + 2))
+            elif isinstance(item, (list, tuple)):
+                lines.append(f"{prefix}-")
+                lines.extend(_yaml_lines(item, indent + 2))
+            else:
+                lines.append(f"{prefix}- {_yaml_scalar(item)}")
+        return lines
+    return [f"{prefix}{_yaml_scalar(value)}"]
+
+
+def _yaml_scalar(value: object) -> str:
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    if value is None:
+        return "null"
+    if isinstance(value, (int, float)):
+        return str(value)
+    return json.dumps(str(value), ensure_ascii=False)
+
+
+def _yaml_key(value: str) -> str:
+    if re.match(r"^[A-Za-z_][A-Za-z0-9_-]*$", value):
+        return value
+    return json.dumps(value, ensure_ascii=False)

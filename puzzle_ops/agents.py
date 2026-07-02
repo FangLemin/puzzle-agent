@@ -1380,15 +1380,20 @@ class PuzzleOpsAgent:
         paths = {
             "phoenix": output / f"phoenix_harness_{country}.json",
             "promptfoo": output / f"promptfoo_harness_{country}.json",
+            "promptfoo_yaml": output / f"promptfoo_harness_{country}.yaml",
             "deepeval": output / f"deepeval_harness_{country}.json",
         }
+        promptfoo_exporter = PromptfooExporter()
         payloads = {
             "phoenix": PhoenixExporter().export(run),
-            "promptfoo": PromptfooExporter().export(run),
+            "promptfoo": promptfoo_exporter.export(run),
             "deepeval": DeepEvalAdapter().export(run),
         }
         for key, path in paths.items():
+            if key == "promptfoo_yaml":
+                continue
             path.write_text(json.dumps(payloads[key], ensure_ascii=False, indent=2), encoding="utf-8")
+        paths["promptfoo_yaml"].write_text(promptfoo_exporter.export_yaml(run), encoding="utf-8")
         return paths
 
     def _harness_override_map(self, country: str) -> dict[tuple[str, str], str]:
