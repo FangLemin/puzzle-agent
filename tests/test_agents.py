@@ -1554,6 +1554,8 @@ def test_agent_exports_value_audit_rag_acceptance_report(tmp_path):
     assert result["embedding"]["model_family"] in {"Qwen3-Embedding", "DashScope-Embedding", "Local"}
     assert result["retrieval_routes"]["bm25"] is True
     assert result["retrieval_routes"]["rerank"] is True
+    assert result["observed_retrieval"]["embedding_provider"]
+    assert "embedding_remote_calls" in result["runtime_stats"]
 
 
 def test_agent_loads_versioned_knowledge_documents_and_eval_cases(monkeypatch, tmp_path):

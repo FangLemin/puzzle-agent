@@ -609,6 +609,74 @@ def test_export_rag_acceptance_report_writes_hit_at_five_models_routes_and_trace
     assert saved["trace_samples"][0]["final_hits"]
 
 
+def test_export_rag_acceptance_report_records_observed_runtime_routes_and_stats(tmp_path):
+    class QueryVectorEmbedding(LocalEmbeddingProvider):
+        provider_name = "dashscope:text-embedding-v4"
+
+        def __init__(self):
+            self.stats = RagRuntimeStats()
+
+        def similarities(self, query: str, texts: tuple[str, ...]) -> tuple[float, ...]:
+            self.stats.embedding_remote_calls += 1
+            return tuple(0.7 if "寿司" in text else 0.1 for text in texts)
+
+        def query_vector(self, query: str) -> tuple[float, ...]:
+            self.stats.embedding_remote_calls += 1
+            return (1.0, 0.0)
+
+    class FakeQdrantStore:
+        provider_name = "qdrant"
+
+        def search(self, query_vector, *, country, top_k):
+            return {"JP_SUSHI#chunk-1": 0.99}
+
+    def fake_rerank_transport(query, documents, api_key, endpoint, model):
+        return {"results": [{"index": index, "relevance_score": 0.95 - index * 0.01} for index, _ in enumerate(documents)]}
+
+    documents = (
+        RagDocument("JP_SUSHI", "日本", "value_rule", "日本饮食", "寿司、抹茶、和果子属于日本本土饮食文化。", {}),
+        RagDocument("JP_AUDIT", "GLOBAL", "audit_policy", "审核风险", "避免文字水印、热门IP角色、商标和中日韩文化混淆。", {}),
+    )
+    chunks = tuple(chunk for document in documents for chunk in chunk_document(document, max_chars=80))
+    embedding = QueryVectorEmbedding()
+    rerank = BGERerankProvider(
+        api_key="",
+        model="BAAI/bge-reranker-v2-m3",
+        endpoint="http://127.0.0.1:9997/v1/rerank",
+        transport=fake_rerank_transport,
+        stats=RagRuntimeStats(),
+    )
+    retriever = HybridRagRetriever(
+        chunks,
+        embedding_provider=embedding,
+        rerank_provider=rerank,
+        vector_store_retriever=QdrantVectorStoreRetriever(FakeQdrantStore()),
+    )
+
+    saved = export_rag_acceptance_report(
+        retriever,
+        (RagRetrievalCase("日本寿司价值观", "日本", "JP_SUSHI"),),
+        tmp_path / "rag_acceptance_observed.json",
+        provider_config=RagProviderConfig(
+            embedding_provider="dashscope",
+            embedding_model="text-embedding-v4",
+            rerank_provider="bge",
+            rerank_model="BAAI/bge-reranker-v2-m3",
+            configured=True,
+            remote_ready=True,
+            remote_calls_enabled=True,
+        ),
+        vector_store=RagVectorStoreConfig(provider="qdrant", endpoint="http://127.0.0.1:6333", collection="puzzle_ops_rag", configured=True, ready=True),
+    )
+
+    assert saved["observed_retrieval"]["embedding_provider"] == "dashscope:text-embedding-v4"
+    assert saved["observed_retrieval"]["vector_store_provider"] == "qdrant"
+    assert saved["observed_retrieval"]["rerank_provider"] == "bge:BAAI/bge-reranker-v2-m3"
+    assert saved["observed_retrieval"]["qdrant_vector_hits"] is True
+    assert saved["runtime_stats"]["embedding_remote_calls"] >= 1
+    assert saved["runtime_stats"]["rerank_remote_calls"] >= 1
+
+
 def test_prepare_qdrant_points_keeps_vector_text_and_parent_payload():
     chunk = chunk_document(
         RagDocument("JP_SUSHI", "日本", "value_rule", "日本饮食", "寿司属于日本本土饮食文化。", {"source": "rules"})
@@ -985,6 +1053,32 @@ def test_bge_rerank_provider_uses_open_rerank_transport_score():
     assert calls[0][0] == "寿司是否符合日本价值观"
     assert calls[0][1] == ["文化真实性：寿司属于日本本土饮食文化。"]
     assert provider.provider_name == "bge:BAAI/bge-reranker-v2-m3"
+
+
+def test_bge_rerank_provider_healthcheck_records_probe_score():
+    calls = []
+
+    def fake_transport(query, documents, api_key, endpoint, model):
+        calls.append((query, documents, api_key, endpoint, model))
+        return {"results": [{"index": 0, "relevance_score": 0.88}]}
+
+    provider = BGERerankProvider(
+        api_key="bge-key",
+        model="BAAI/bge-reranker-v2-m3",
+        endpoint="http://127.0.0.1:9997/v1/rerank",
+        transport=fake_transport,
+        stats=RagRuntimeStats(),
+    )
+
+    status = provider.healthcheck()
+
+    assert status["provider"] == "bge"
+    assert status["configured"] is True
+    assert status["ready"] is True
+    assert status["model"] == "BAAI/bge-reranker-v2-m3"
+    assert status["probe_score"] == 0.88
+    assert provider.stats.rerank_remote_calls == 1
+    assert calls[0][0] == "寿司是否符合日本价值观"
 
 
 def test_hybrid_retriever_batches_dashscope_rerank_in_one_request():

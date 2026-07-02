@@ -809,6 +809,35 @@ class DashScopeRerankProvider(LocalRerankProvider):
         self.provider_name = f"dashscope:{model}"
         self.stats = stats or RagRuntimeStats()
 
+    def healthcheck(self) -> dict[str, object]:
+        configured = bool(self.endpoint and self.model)
+        status: dict[str, object] = {
+            "provider": "dashscope",
+            "configured": configured,
+            "ready": False,
+            "model": self.model,
+            "endpoint": self.endpoint,
+        }
+        if not configured:
+            status["error"] = "missing endpoint or model"
+            return status
+        try:
+            self.stats.rerank_remote_calls += 1
+            response = self.transport(
+                "寿司是否符合日本价值观",
+                ["日本饮食：寿司属于日本本土饮食文化。"],
+                self.api_key,
+                self.endpoint,
+                self.model,
+            )
+            score = _extract_rerank_score(response)
+        except Exception as exc:
+            status["error"] = str(exc)
+            return status
+        status["ready"] = score is not None
+        status["probe_score"] = score if score is not None else 0.0
+        return status
+
     def rerank(self, query: str, country: str, chunk: RagChunk, bm25_score: float, vector_score: float) -> float:
         document = f"{chunk.title}：{chunk.text}"
         try:
@@ -869,6 +898,11 @@ class BGERerankProvider(DashScopeRerankProvider):
             stats=stats,
         )
         self.provider_name = f"bge:{model}"
+
+    def healthcheck(self) -> dict[str, object]:
+        status = super().healthcheck()
+        status["provider"] = "bge"
+        return status
 
 
 def providers_from_config(
@@ -1081,6 +1115,7 @@ def export_rag_acceptance_report(
         ).as_dict()
         for case in cases[: min(len(cases), 5)]
     )
+    observed = _observed_retrieval_summary(traces)
     enriched: dict[str, object] = {
         **report,
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -1109,6 +1144,8 @@ def export_rag_acceptance_report(
             "parent_child": True,
             "citation_grounding_prompt": True,
         },
+        "observed_retrieval": observed,
+        "runtime_stats": _retriever_runtime_stats(retriever),
         "trace_samples": traces,
         "industrial_gate": {
             "metric": f"hit@{k}",
@@ -1203,6 +1240,39 @@ def prepare_qdrant_points(
             )
         )
     return tuple(points)
+
+
+def _observed_retrieval_summary(traces: tuple[dict[str, object], ...]) -> dict[str, object]:
+    first = traces[0] if traces else {}
+    vector_candidate_count = sum(len(trace.get("vector_candidates", ())) for trace in traces if isinstance(trace, dict))
+    bm25_candidate_count = sum(len(trace.get("bm25_candidates", ())) for trace in traces if isinstance(trace, dict))
+    return {
+        "embedding_provider": str(first.get("embedding_provider", "")),
+        "vector_store_provider": str(first.get("vector_store_provider", "")),
+        "rerank_provider": str(first.get("rerank_provider", "")),
+        "bm25_candidate_count": bm25_candidate_count,
+        "vector_candidate_count": vector_candidate_count,
+        "qdrant_vector_hits": any(
+            isinstance(trace, dict)
+            and trace.get("vector_store_provider") == "qdrant"
+            and bool(trace.get("vector_candidates"))
+            for trace in traces
+        ),
+    }
+
+
+def _retriever_runtime_stats(retriever: "HybridRagRetriever") -> dict[str, int]:
+    total = RagRuntimeStats()
+    for provider in (getattr(retriever, "embedding_provider", None), getattr(retriever, "rerank_provider", None)):
+        stats = getattr(provider, "stats", None)
+        if not isinstance(stats, RagRuntimeStats):
+            continue
+        total.embedding_cache_hits += stats.embedding_cache_hits
+        total.embedding_remote_calls += stats.embedding_remote_calls
+        total.embedding_fallbacks += stats.embedding_fallbacks
+        total.rerank_remote_calls += stats.rerank_remote_calls
+        total.rerank_fallbacks += stats.rerank_fallbacks
+    return total.as_dict()
 
 
 def _qdrant_point_from_record(record: dict[str, object]) -> QdrantPoint:

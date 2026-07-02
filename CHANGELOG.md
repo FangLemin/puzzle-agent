@@ -2,6 +2,41 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.4.9 - Observed RAG Runtime Evidence
+
+日期：2026-07-03
+
+阶段目标：
+
+- 继续补强工业级 RAG 的可观测性：报告不能只写“配置了 Qdrant/BGE”，还要记录当次验收实际观察到的检索路线和 provider runtime stats。
+- 给 BGE reranker 增加 healthcheck，便于确认 BGE endpoint、模型名和 probe score。
+
+已完成：
+
+- BGE reranker healthcheck：
+  - `DashScopeRerankProvider.healthcheck()` 会发起一次轻量 probe，并返回 `configured`、`ready`、`model`、`endpoint`、`probe_score`。
+  - `BGERerankProvider.healthcheck()` 标记 provider 为 `bge`，复用 open-rerank transport。
+- RAG 验收报告增强：
+  - `export_rag_acceptance_report()` 新增 `observed_retrieval`。
+  - 记录当次 trace 观察到的 `embedding_provider`、`vector_store_provider`、`rerank_provider`。
+  - 记录 `bm25_candidate_count`、`vector_candidate_count`、`qdrant_vector_hits`。
+  - 新增 `runtime_stats`，聚合 embedding/rerank remote calls、cache hits、fallbacks。
+- Agent 导出：
+  - `PuzzleOpsAgent.export_value_audit_rag_acceptance_report()` 导出的报告现在包含 observed/runtime 字段。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_rag.py::test_bge_rerank_provider_healthcheck_records_probe_score tests/test_rag.py::test_export_rag_acceptance_report_records_observed_runtime_routes_and_stats -q`：先因缺少 `healthcheck` 与 `observed_retrieval` 失败。
+- 定向验证：
+  - 上述 2 项测试：2 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_value_audit_rag_acceptance_report -q`：1 passed。
+
+当前限制：
+
+- BGE healthcheck 能验证 endpoint 形式和 probe 调用；真实可用性仍取决于你本机或云端是否部署了兼容 `/v1/rerank` 的服务。
+- Qdrant 是否真正命中会以 `observed_retrieval.qdrant_vector_hits` 标记，避免只看配置误判为已经走向量库。
+
 ## v0.4.8 - RAG Acceptance Report
 
 日期：2026-07-02
