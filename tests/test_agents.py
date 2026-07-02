@@ -1659,6 +1659,31 @@ knowledge_version: unit-test
     assert any(point.payload["parent_id"] == "JP_KB_SUSHI_FOOD" for point in store.points)
 
 
+def test_agent_runs_qdrant_smoke_diagnostic_from_latest_manifest(monkeypatch, tmp_path):
+    knowledge_dir = tmp_path / "knowledge"
+    indices = knowledge_dir / "indices"
+    indices.mkdir(parents=True)
+    (indices / "qdrant_reindex_日本.json").write_text(
+        json.dumps({"country": "日本", "status": "indexed", "vector_size": 3}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "qdrant_smoke.db"))
+
+    class FakeQdrantStore:
+        def smoke_diagnostic(self, *, vector_size: int, country: str):
+            assert vector_size == 3
+            assert country == "日本"
+            return {"status": "passed", "search_hit": True, "cleanup_status": "deleted", "vector_size": vector_size}
+
+    result = agent.run_qdrant_smoke_diagnostic("日本", vector_store=FakeQdrantStore())
+
+    assert result["status"] == "passed"
+    summary = agent.value_audit_rag_summary("日本")["knowledge_base"]
+    assert summary["qdrant_manifest_smoke_status"] == "passed"
+    assert summary["qdrant_manifest_smoke_cleanup_status"] == "deleted"
+
+
 def test_agent_exports_harness_annotation_files_for_label_tools(monkeypatch, tmp_path):
     image_path = tmp_path / "real-sushi.png"
     image_path.write_bytes(b"fake-png")

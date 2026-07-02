@@ -197,6 +197,7 @@ def test_runtime_page_shows_rag_feedback_summary(tmp_path):
     assert "VectorStore search=off" in html
     assert "向量库=local" in html
     assert "qdrant manifest=none" in html
+    assert "smoke=none" in html
     assert "版本化知识库" in html
     assert "value_audit_cases.jsonl" in html
     assert "raw=" in html
@@ -204,6 +205,8 @@ def test_runtime_page_shows_rag_feedback_summary(tmp_path):
     assert "重建RAG知识库" in html
     assert 'action="/reindex_rag_qdrant"' in html
     assert "重建并入库Qdrant" in html
+    assert 'action="/qdrant_smoke_diagnostic"' in html
+    assert "Qdrant Smoke" in html
 
 
 def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):

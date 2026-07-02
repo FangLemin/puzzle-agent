@@ -2,6 +2,54 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.97 - Qdrant Smoke Diagnostics
+
+日期：2026-07-02
+
+阶段目标：
+
+- 继续补齐工业级 RAG 的线上诊断能力：不仅校验 Qdrant collection 配置，还要能证明真实写入、检索、清理链路可用。
+- 让运营后台能一键跑 Qdrant smoke，不需要到终端手动排查。
+
+已完成：
+
+- Qdrant adapter smoke：
+  - 新增 `QdrantVectorStore.delete_points()`。
+  - 新增 `QdrantVectorStore.smoke_diagnostic(vector_size, country)`。
+  - smoke 流程：写入临时 point -> 用同向量 search -> 校验命中临时 chunk -> 删除临时 point。
+  - 返回 `status`、`search_hit`、`search_score`、`cleanup_status`、`point_id`、`vector_size`。
+- Agent 诊断入口：
+  - 新增 `run_qdrant_smoke_diagnostic(country)`。
+  - 从最近一次 `knowledge/indices/qdrant_reindex_{country}.json` 读取 `vector_size`。
+  - 如果没有可用 vector size，返回 `skipped_no_manifest_vector_size`，不猜测维度。
+  - smoke 结果会回写同一个 manifest 的 `smoke_diagnostic` 字段。
+- Runtime 操作入口：
+  - Server 新增 `/qdrant_smoke_diagnostic` action。
+  - Runtime RAG 面板新增 `Qdrant Smoke` 按钮。
+  - 成功后页面提示 `status`、`search_hit`、`cleanup`、`vector_size`。
+  - 版本化知识库卡片展示 `smoke` 与 `cleanup` 最新状态。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_rag.py -q -k "smoke_diagnostic"`：先因缺少 `QdrantVectorStore.smoke_diagnostic` 失败。
+  - `PYTHONPATH=. pytest tests/test_agents.py -q -k "qdrant_smoke_diagnostic"`：先因缺少 `run_qdrant_smoke_diagnostic` 失败。
+  - `PYTHONPATH=. pytest tests/test_server.py -q -k "qdrant_smoke_action"`：先因缺少 `/qdrant_smoke_diagnostic` action 失败。
+  - `PYTHONPATH=. pytest tests/test_renderer.py -q -k "runtime_page_shows_rag_feedback_summary"`：先因页面缺少 `smoke=none` 与按钮失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_rag.py -q -k "smoke_diagnostic"`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py -q -k "qdrant_smoke_diagnostic"`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_server.py -q -k "qdrant_smoke_action"`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_renderer.py -q -k "runtime_page_shows_rag_feedback_summary"`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_rag.py tests/test_agents.py tests/test_server.py tests/test_renderer.py -q`：214 passed。
+  - `PYTHONPATH=. pytest tests -q`：316 passed。
+
+当前限制：
+
+- smoke diagnostic 依赖最近一次 reindex manifest 的 `vector_size`；如果未执行过 Qdrant reindex，会明确跳过。
+- smoke 当前只诊断单 collection 单向量链路，不做高并发、批量写入、过滤条件组合或延迟统计。
+- 临时点删除失败时会抛错给页面，后续可增加孤儿 smoke point 清理任务。
+
 ## v0.3.96 - Qdrant Collection Guard 与 Reindex Manifest
 
 日期：2026-07-02

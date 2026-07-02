@@ -546,7 +546,7 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
 </section>
 <section class="panel"><h2>四层 Memory 概览</h2><div class="memory-grid">{memory_overview_cards}</div></section>
 <section class="panel"><h2>Memory Debug</h2><div class="table-wrap"><table><thead><tr><th>ID</th><th>层级/类型</th><th>状态</th><th>RAG Source</th><th>命中分</th><th>RAG Ready</th><th>来源</th><th>记忆内容</th><th>治理</th></tr></thead><tbody>{memory_debug_rows}</tbody></table></div></section>
-<section class="panel"><div class="section-line"><h2>价值观与审核 RAG</h2><div class="actions"><form method="post" action="/rebuild_rag_knowledge">{hidden_context(state, view="runtime")}<button>重建RAG知识库</button></form><form method="post" action="/reindex_rag_qdrant">{hidden_context(state, view="runtime")}<button>重建并入库Qdrant</button></form></div></div>{rag_cards}</section>
+<section class="panel"><div class="section-line"><h2>价值观与审核 RAG</h2><div class="actions"><form method="post" action="/rebuild_rag_knowledge">{hidden_context(state, view="runtime")}<button>重建RAG知识库</button></form><form method="post" action="/reindex_rag_qdrant">{hidden_context(state, view="runtime")}<button>重建并入库Qdrant</button></form><form method="post" action="/qdrant_smoke_diagnostic">{hidden_context(state, view="runtime")}<button>Qdrant Smoke</button></form></div></div>{rag_cards}</section>
 """
 
 
@@ -664,6 +664,8 @@ def render_rag_summary(summary: dict[str, object]) -> str:
         f"documents={knowledge.get('file_document_count', 0)}；"
         f"eval cases={knowledge.get('file_eval_case_count', 0)}；"
         f"qdrant manifest={knowledge.get('qdrant_manifest_status') or 'none'}；"
+        f"smoke={knowledge.get('qdrant_manifest_smoke_status') or 'none'}；"
+        f"cleanup={knowledge.get('qdrant_manifest_smoke_cleanup_status') or 'none'}；"
         f"vector_size={knowledge.get('qdrant_manifest_vector_size', 0)}；"
         f"points={knowledge.get('qdrant_manifest_upserted_points', 0)}；"
         f"{Path(str(knowledge.get('documents_path', ''))).name}；"

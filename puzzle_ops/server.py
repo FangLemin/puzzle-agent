@@ -360,6 +360,20 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             state.sync_message = f"Qdrant RAG 重建入库失败：{exc}"
         state.sync_url = ""
         state.view = "runtime"
+    elif path == "/qdrant_smoke_diagnostic":
+        try:
+            result = agent.run_qdrant_smoke_diagnostic(state.country)
+            state.sync_message = (
+                "Qdrant smoke 诊断完成："
+                f"status={result.get('status', '')}，"
+                f"search_hit={result.get('search_hit', False)}，"
+                f"cleanup={result.get('cleanup_status', '')}，"
+                f"vector_size={result.get('vector_size', 0)}"
+            )
+        except Exception as exc:
+            state.sync_message = f"Qdrant smoke 诊断失败：{exc}"
+        state.sync_url = ""
+        state.view = "runtime"
     elif path == "/run_harness":
         execute_models = value(form, "run_real_models", "") == "1"
         execute_generation = value(form, "include_generation", "") == "1"

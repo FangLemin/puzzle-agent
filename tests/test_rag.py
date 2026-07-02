@@ -638,6 +638,37 @@ def test_qdrant_vector_store_rejects_collection_vector_size_mismatch():
         raise AssertionError("expected vector size mismatch")
 
 
+def test_qdrant_vector_store_smoke_diagnostic_writes_searches_and_deletes_temp_point():
+    calls = []
+
+    def fake_transport(endpoint, payload, api_key):
+        calls.append(("POST", endpoint, payload, api_key))
+        if endpoint.endswith("/points/search"):
+            return {"result": [{"score": 1.0, "payload": {"chunk_id": "SMOKE#chunk-1"}}]}
+        return {"status": "ok"}
+
+    def fake_management(method, endpoint, payload, api_key):
+        calls.append((method, endpoint, payload, api_key))
+        return {"status": "ok"}
+
+    store = QdrantVectorStore(
+        RagVectorStoreConfig(provider="qdrant", endpoint="http://127.0.0.1:6333", collection="puzzle_ops_rag", api_key="qdrant-key", configured=True, ready=True),
+        transport=fake_transport,
+        management_transport=fake_management,
+    )
+
+    result = store.smoke_diagnostic(vector_size=3, country="日本")
+
+    assert result["status"] == "passed"
+    assert result["search_hit"] is True
+    assert result["cleanup_status"] == "deleted"
+    assert calls[0][1] == "http://127.0.0.1:6333/collections/puzzle_ops_rag/points?wait=true"
+    assert calls[1][1] == "http://127.0.0.1:6333/collections/puzzle_ops_rag/points/search"
+    assert calls[2][0] == "POST"
+    assert calls[2][1] == "http://127.0.0.1:6333/collections/puzzle_ops_rag/points/delete?wait=true"
+    assert calls[2][2]["points"] == [result["point_id"]]
+
+
 def test_hybrid_retriever_can_use_qdrant_vector_scores_before_rerank():
     class QueryVectorEmbedding(LocalEmbeddingProvider):
         provider_name = "query-vector"

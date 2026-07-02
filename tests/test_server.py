@@ -1290,6 +1290,23 @@ def test_reindex_rag_qdrant_action_reports_upsert(monkeypatch):
     assert "manifest=/tmp/qdrant_reindex_日本.json" in APP.state.sync_message
 
 
+def test_qdrant_smoke_action_reports_search_and_cleanup(monkeypatch):
+    APP.state = AppState(country="日本", view="runtime")
+
+    def fake_smoke(country):
+        assert country == "日本"
+        return {"status": "passed", "search_hit": True, "cleanup_status": "deleted", "vector_size": 3}
+
+    monkeypatch.setattr(APP.agent, "run_qdrant_smoke_diagnostic", fake_smoke)
+
+    handle_action("/qdrant_smoke_diagnostic", {"country": ["日本"], "view": ["runtime"]})
+
+    assert APP.state.view == "runtime"
+    assert "Qdrant smoke 诊断完成" in APP.state.sync_message
+    assert "status=passed" in APP.state.sync_message
+    assert "cleanup=deleted" in APP.state.sync_message
+
+
 def test_record_rag_feedback_action_writes_working_memory():
     APP.state = AppState(country="日本", view="trial", trial_mode="parse")
 

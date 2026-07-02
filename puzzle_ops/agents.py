@@ -682,6 +682,34 @@ class PuzzleOpsAgent:
         manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
         return str(manifest_path)
 
+    def run_qdrant_smoke_diagnostic(
+        self,
+        country: str,
+        *,
+        vector_store: QdrantVectorStore | None = None,
+    ) -> dict[str, object]:
+        manifest_path = _rag_knowledge_dir() / "indices" / f"qdrant_reindex_{country}.json"
+        manifest = _read_json_object(manifest_path)
+        vector_size = int(manifest.get("vector_size", 0) or 0)
+        if vector_size <= 0:
+            result = {
+                "status": "skipped_no_manifest_vector_size",
+                "country": country,
+                "vector_size": 0,
+                "search_hit": False,
+                "cleanup_status": "not_started",
+            }
+        else:
+            store = vector_store or QdrantVectorStore(self.rag_vector_store_config)
+            result = {
+                "country": country,
+                **store.smoke_diagnostic(vector_size=vector_size, country=country),
+            }
+        manifest["smoke_diagnostic"] = result
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        return result
+
     def value_audit_rag_eval_report(self, country: str) -> dict[str, object]:
         documents = StaticDocumentLoaderAdapter(self._rag_documents(country)).load()
         chunks = tuple(
@@ -963,6 +991,12 @@ class PuzzleOpsAgent:
             "qdrant_manifest_status": qdrant_manifest.get("status", ""),
             "qdrant_manifest_vector_size": int(qdrant_manifest.get("vector_size", 0) or 0),
             "qdrant_manifest_upserted_points": int(qdrant_manifest.get("upserted_points", 0) or 0),
+            "qdrant_manifest_smoke_status": str(
+                (qdrant_manifest.get("smoke_diagnostic") if isinstance(qdrant_manifest.get("smoke_diagnostic"), dict) else {}).get("status", "")
+            ),
+            "qdrant_manifest_smoke_cleanup_status": str(
+                (qdrant_manifest.get("smoke_diagnostic") if isinstance(qdrant_manifest.get("smoke_diagnostic"), dict) else {}).get("cleanup_status", "")
+            ),
             "raw_file_count": len(tuple(raw_dir.rglob("*"))) if raw_dir.exists() else 0,
             "documents_exists": documents_path.exists(),
             "eval_cases_exists": eval_cases_path.exists(),

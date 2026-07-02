@@ -489,6 +489,55 @@ class QdrantVectorStore:
                 continue
         return scores
 
+    def delete_points(self, point_ids: tuple[str, ...]) -> dict[str, object]:
+        if self.config.provider != "qdrant" or not self.config.ready:
+            raise RuntimeError("Qdrant vector store 未就绪")
+        if not point_ids:
+            return {"status": "skipped_empty"}
+        endpoint = f"{self.config.endpoint}/collections/{self.config.collection}/points/delete?wait=true"
+        return self.transport(endpoint, {"points": list(point_ids)}, self.config.api_key)
+
+    def smoke_diagnostic(self, *, vector_size: int, country: str = "GLOBAL") -> dict[str, object]:
+        if vector_size <= 0:
+            raise ValueError("Qdrant smoke diagnostic 需要有效向量维度")
+        point_id = f"puzzleops-rag-smoke-{uuid.uuid4()}"
+        chunk_id = "SMOKE#chunk-1"
+        vector = tuple(1.0 if index == 0 else 0.0 for index in range(vector_size))
+        point = QdrantPoint(
+            id=point_id,
+            vector=vector,
+            payload={
+                "chunk_id": chunk_id,
+                "parent_id": "SMOKE",
+                "country": country,
+                "source_type": "qdrant_smoke",
+                "title": "Qdrant smoke diagnostic",
+                "text": "temporary diagnostic point",
+                "chunk_index": 1,
+                "metadata": {"temporary": True},
+            },
+        )
+        self.upsert((point,))
+        search_scores: dict[str, float] = {}
+        cleanup_status = "not_started"
+        try:
+            search_scores = self.search(vector, country=country, top_k=1)
+            search_hit = chunk_id in search_scores
+            status = "passed" if search_hit else "failed_no_hit"
+        finally:
+            self.delete_points((point_id,))
+            cleanup_status = "deleted"
+        return {
+            "status": status,
+            "point_id": point_id,
+            "chunk_id": chunk_id,
+            "country": country,
+            "vector_size": vector_size,
+            "search_hit": search_hit,
+            "search_score": search_scores.get(chunk_id, 0.0),
+            "cleanup_status": cleanup_status,
+        }
+
 
 class QdrantVectorStoreRetriever:
     provider_name = "qdrant"
