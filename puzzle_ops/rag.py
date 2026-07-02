@@ -395,9 +395,45 @@ class QdrantVectorStore:
         self,
         config: RagVectorStoreConfig,
         transport: Callable[[str, dict[str, object], str], dict[str, object]] | None = None,
+        management_transport: Callable[[str, str, dict[str, object] | None, str], dict[str, object]] | None = None,
     ):
         self.config = config
         self.transport = transport or _post_json
+        self.management_transport = management_transport or _qdrant_json_request
+
+    def healthcheck(self) -> dict[str, object]:
+        if self.config.provider != "qdrant" or not self.config.ready:
+            return {"provider": self.config.provider, "configured": self.config.configured, "ready": False, "exists": False}
+        endpoint = f"{self.config.endpoint}/collections/{self.config.collection}"
+        try:
+            response = self.management_transport("GET", endpoint, None, self.config.api_key)
+        except Exception as exc:
+            return {"provider": "qdrant", "configured": True, "ready": False, "exists": False, "error": str(exc)}
+        vector_size = _qdrant_vector_size(response)
+        return {
+            "provider": "qdrant",
+            "configured": True,
+            "ready": True,
+            "exists": bool(response.get("result")),
+            "collection": self.config.collection,
+            "vector_size": vector_size,
+        }
+
+    def ensure_collection(self, vector_size: int, *, distance: str = "Cosine") -> dict[str, object]:
+        if self.config.provider != "qdrant" or not self.config.ready:
+            raise RuntimeError("Qdrant vector store 未就绪")
+        if vector_size <= 0:
+            raise ValueError("Qdrant collection 向量维度必须大于 0")
+        endpoint = f"{self.config.endpoint}/collections/{self.config.collection}"
+        response = self.management_transport("GET", endpoint, None, self.config.api_key)
+        existing_size = _qdrant_vector_size(response)
+        if existing_size is not None:
+            if existing_size != vector_size:
+                raise ValueError(f"Qdrant collection 向量维度不匹配：existing={existing_size}，new={vector_size}")
+            return {"status": "exists", "collection": self.config.collection, "vector_size": existing_size}
+        payload = {"vectors": {"size": int(vector_size), "distance": distance}}
+        self.management_transport("PUT", endpoint, payload, self.config.api_key)
+        return {"status": "created", "collection": self.config.collection, "vector_size": vector_size}
 
     def upsert(self, points: tuple[QdrantPoint, ...]) -> dict[str, object]:
         if self.config.provider != "qdrant" or not self.config.ready:
@@ -1445,6 +1481,44 @@ def _post_json(endpoint: str, payload: dict[str, object], api_key: str) -> dict[
     )
     with request.urlopen(req, timeout=20) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
+
+def _qdrant_json_request(method: str, endpoint: str, payload: dict[str, object] | None, api_key: str) -> dict[str, object]:
+    data = None if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+        headers["api-key"] = api_key
+    req = request.Request(endpoint, data=data, headers=headers, method=method)
+    with request.urlopen(req, timeout=20) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _qdrant_vector_size(response: dict[str, object]) -> int | None:
+    result = response.get("result")
+    if not isinstance(result, dict):
+        return None
+    config = result.get("config")
+    if not isinstance(config, dict):
+        return None
+    params = config.get("params")
+    if not isinstance(params, dict):
+        return None
+    vectors = params.get("vectors")
+    if isinstance(vectors, dict):
+        raw_size = vectors.get("size")
+        if raw_size is not None:
+            try:
+                return int(raw_size)
+            except (TypeError, ValueError):
+                return None
+        for value in vectors.values():
+            if isinstance(value, dict) and value.get("size") is not None:
+                try:
+                    return int(value["size"])
+                except (TypeError, ValueError):
+                    return None
+    return None
 
 
 def _extract_embedding_vectors(response: dict[str, object]) -> tuple[tuple[float, ...], ...]:

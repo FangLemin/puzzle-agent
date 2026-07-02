@@ -351,8 +351,10 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
                 f"status={result.get('status', '')}，"
                 f"points={result.get('upserted_points', 0)}，"
                 f"chunks={result.get('chunk_count', 0)}，"
+                f"vector_size={result.get('vector_size', 0)}，"
                 f"hit@5={result.get('hit@5', 0)}，"
-                f"collection={result.get('qdrant_collection', '')}"
+                f"collection={result.get('qdrant_collection', '')}，"
+                f"manifest={result.get('manifest_path', '')}"
             )
         except Exception as exc:
             state.sync_message = f"Qdrant RAG 重建入库失败：{exc}"

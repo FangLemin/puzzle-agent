@@ -627,27 +627,60 @@ class PuzzleOpsAgent:
                 vectors_by_chunk_id[chunk.chunk_id] = tuple(float(value) for value in vector)
         points = prepare_qdrant_points(chunks, vectors_by_chunk_id)
         if not points:
-            return {
+            result = {
                 **rebuild,
                 "status": "skipped_no_vectors",
                 "chunk_count": len(chunks),
                 "vector_count": 0,
                 "upserted_points": 0,
+                "vector_size": 0,
                 "qdrant_collection": self.rag_vector_store_config.collection,
                 **stats.as_dict(),
             }
+            result["manifest_path"] = self._write_qdrant_reindex_manifest(country, result)
+            return result
         store = vector_store or QdrantVectorStore(self.rag_vector_store_config)
+        vector_size = len(points[0].vector)
+        collection_status = store.ensure_collection(vector_size)
         response = store.upsert(points)
-        return {
+        result = {
             **rebuild,
             "status": "indexed",
             "chunk_count": len(chunks),
             "vector_count": len(vectors_by_chunk_id),
             "upserted_points": len(points),
+            "vector_size": vector_size,
             "qdrant_collection": self.rag_vector_store_config.collection,
+            "collection_status": collection_status,
             "qdrant_response": response,
             **stats.as_dict(),
         }
+        result["manifest_path"] = self._write_qdrant_reindex_manifest(country, result)
+        return result
+
+    def _write_qdrant_reindex_manifest(self, country: str, result: dict[str, object]) -> str:
+        indices_dir = _rag_knowledge_dir() / "indices"
+        indices_dir.mkdir(parents=True, exist_ok=True)
+        manifest_path = indices_dir / f"qdrant_reindex_{country}.json"
+        manifest = {
+            "created_at": date.today().isoformat(),
+            "country": country,
+            "status": result.get("status", ""),
+            "processed_path": result.get("processed_path", ""),
+            "document_count": result.get("document_count", 0),
+            "chunk_count": result.get("chunk_count", 0),
+            "vector_count": result.get("vector_count", 0),
+            "vector_size": result.get("vector_size", 0),
+            "upserted_points": result.get("upserted_points", 0),
+            "qdrant_collection": result.get("qdrant_collection", ""),
+            "collection_status": result.get("collection_status", {}),
+            "hit@5": result.get("hit@5", 0),
+            "mrr@5": result.get("mrr@5", 0),
+            "passed_threshold": result.get("passed_threshold", False),
+            "eval_total": result.get("eval_total", 0),
+        }
+        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        return str(manifest_path)
 
     def value_audit_rag_eval_report(self, country: str) -> dict[str, object]:
         documents = StaticDocumentLoaderAdapter(self._rag_documents(country)).load()
@@ -918,11 +951,18 @@ class PuzzleOpsAgent:
         raw_dir = root / "raw"
         documents_path = root / "processed" / "value_audit_documents.jsonl"
         eval_cases_path = root / "eval" / "value_audit_cases.jsonl"
+        qdrant_manifest_path = root / "indices" / f"qdrant_reindex_{country}.json"
+        qdrant_manifest = _read_json_object(qdrant_manifest_path)
         return {
             "root": str(root),
             "raw_dir": str(raw_dir),
             "documents_path": str(documents_path),
             "eval_cases_path": str(eval_cases_path),
+            "qdrant_manifest_path": str(qdrant_manifest_path),
+            "qdrant_manifest_exists": qdrant_manifest_path.exists(),
+            "qdrant_manifest_status": qdrant_manifest.get("status", ""),
+            "qdrant_manifest_vector_size": int(qdrant_manifest.get("vector_size", 0) or 0),
+            "qdrant_manifest_upserted_points": int(qdrant_manifest.get("upserted_points", 0) or 0),
             "raw_file_count": len(tuple(raw_dir.rglob("*"))) if raw_dir.exists() else 0,
             "documents_exists": documents_path.exists(),
             "eval_cases_exists": eval_cases_path.exists(),
@@ -2031,6 +2071,16 @@ def _rag_knowledge_dir() -> Path:
     if configured:
         return Path(configured).expanduser()
     return Path(__file__).resolve().parent.parent / "knowledge"
+
+
+def _read_json_object(path: Path) -> dict[str, object]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def _row_needs_ai_prelabeled(row: dict[str, str]) -> bool:

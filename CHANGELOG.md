@@ -2,6 +2,55 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.96 - Qdrant Collection Guard 与 Reindex Manifest
+
+日期：2026-07-02
+
+阶段目标：
+
+- 继续补齐工业级 RAG 的生产化风险控制：避免 Qdrant collection 不存在、向量维度不匹配或入库后无记录可追溯。
+- 让每次 Qdrant reindex 都能留下 manifest，便于回放、排障和面试展示。
+
+已完成：
+
+- Qdrant collection 管理：
+  - `QdrantVectorStore.healthcheck()` 新增 collection 状态读取。
+  - `QdrantVectorStore.ensure_collection(vector_size)` 新增 collection 创建/校验。
+  - collection 不存在时自动 PUT 创建，默认 distance 为 `Cosine`。
+  - collection 已存在但向量维度不一致时抛出明确错误，避免错误向量写入。
+- Reindex 入库保护：
+  - `reindex_rag_qdrant_from_raw()` 在 upsert 前调用 `ensure_collection(vector_size)`。
+  - reindex 结果新增 `vector_size`、`collection_status`。
+  - 无向量时仍返回 `skipped_no_vectors`，并写 manifest 记录失败原因。
+- Reindex manifest：
+  - 新增 `knowledge/indices/qdrant_reindex_{country}.json`。
+  - manifest 记录国家、processed path、document/chunk/vector/upsert 点数、vector size、collection status、hit@5、mrr@5、threshold 是否通过。
+  - `value_audit_rag_summary()` 会读取最近一次 Qdrant manifest。
+- Runtime 可观测：
+  - `/reindex_rag_qdrant` 成功消息新增 `vector_size` 和 `manifest` 路径。
+  - Runtime “版本化知识库”卡片显示 `qdrant manifest`、`vector_size` 和 `points`。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_rag.py -q -k "ensures_missing_collection or rejects_collection_vector_size_mismatch"`：先因 `QdrantVectorStore.__init__()` 缺少 `management_transport` 失败。
+  - `PYTHONPATH=. pytest tests/test_agents.py -q -k "reindexes_raw_rag_knowledge_into_qdrant"`：先因 reindex 结果缺少 `vector_size` 与 manifest 字段失败。
+  - `PYTHONPATH=. pytest tests/test_server.py -q -k "reindex_rag_qdrant_action"`：先因 server 消息缺少 `vector_size` 与 `manifest` 失败。
+  - `PYTHONPATH=. pytest tests/test_renderer.py -q -k "runtime_page_shows_rag_feedback_summary"`：先因 Runtime 页面缺少 `qdrant manifest=none` 展示失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_rag.py -q -k "ensures_missing_collection or rejects_collection_vector_size_mismatch"`：2 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py -q -k "reindexes_raw_rag_knowledge_into_qdrant"`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_server.py -q -k "reindex_rag_qdrant_action"`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_renderer.py -q -k "runtime_page_shows_rag_feedback_summary"`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_rag.py tests/test_agents.py tests/test_server.py tests/test_renderer.py -q`：211 passed。
+  - `PYTHONPATH=. pytest tests -q`：313 passed。
+
+当前限制：
+
+- 当前 collection ensure 是单向保护：能创建和校验维度，但还没有做删除过期 point、增量 diff 或别名切换。
+- Qdrant healthcheck 只读取 collection 配置，不做真实 query smoke；下一步可以增加 “写入临时 point -> search -> 清理” 的可选诊断。
+- Manifest 目前每个国家保留一份最新文件；后续可改成按 timestamp/run_id 多版本保留。
+
 ## v0.3.95 - RAG Qdrant Reindex 闭环
 
 日期：2026-07-02

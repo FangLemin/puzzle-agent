@@ -1271,9 +1271,11 @@ def test_reindex_rag_qdrant_action_reports_upsert(monkeypatch):
             "status": "indexed",
             "upserted_points": 12,
             "chunk_count": 12,
+            "vector_size": 3,
             "hit@5": 1.0,
             "mrr@5": 0.9,
             "qdrant_collection": "puzzle_ops_rag",
+            "manifest_path": "/tmp/qdrant_reindex_日本.json",
         }
 
     monkeypatch.setattr(APP.agent, "reindex_rag_qdrant_from_raw", fake_reindex)
@@ -1283,7 +1285,9 @@ def test_reindex_rag_qdrant_action_reports_upsert(monkeypatch):
     assert APP.state.view == "runtime"
     assert "Qdrant RAG 已重建入库" in APP.state.sync_message
     assert "points=12" in APP.state.sync_message
+    assert "vector_size=3" in APP.state.sync_message
     assert "hit@5=1.0" in APP.state.sync_message
+    assert "manifest=/tmp/qdrant_reindex_日本.json" in APP.state.sync_message
 
 
 def test_record_rag_feedback_action_writes_working_memory():

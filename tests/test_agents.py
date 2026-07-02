@@ -1624,6 +1624,11 @@ knowledge_version: unit-test
     class FakeQdrantStore:
         def __init__(self):
             self.points = ()
+            self.ensure_vector_size = 0
+
+        def ensure_collection(self, vector_size):
+            self.ensure_vector_size = vector_size
+            return {"status": "created", "vector_size": vector_size, "collection": "puzzle_ops_rag"}
 
         def upsert(self, points):
             self.points = points
@@ -1639,6 +1644,18 @@ knowledge_version: unit-test
     assert result["vector_count"] == len(store.points)
     assert result["upserted_points"] == len(store.points)
     assert result["hit@5"] == 1.0
+    assert result["vector_size"] == 3
+    assert result["collection_status"]["status"] == "created"
+    assert result["manifest_path"].endswith("indices/qdrant_reindex_日本.json")
+    assert store.ensure_vector_size == 3
+    manifest = json.loads(Path(result["manifest_path"]).read_text(encoding="utf-8"))
+    assert manifest["country"] == "日本"
+    assert manifest["vector_size"] == 3
+    assert manifest["upserted_points"] == len(store.points)
+    summary = agent.value_audit_rag_summary("日本")["knowledge_base"]
+    assert summary["qdrant_manifest_exists"] is True
+    assert summary["qdrant_manifest_vector_size"] == 3
+    assert summary["qdrant_manifest_upserted_points"] == len(store.points)
     assert any(point.payload["parent_id"] == "JP_KB_SUSHI_FOOD" for point in store.points)
 
 

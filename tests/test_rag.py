@@ -598,6 +598,46 @@ def test_qdrant_vector_store_search_returns_chunk_scores_with_country_filter():
     assert calls[0][2] == "qdrant-key"
 
 
+def test_qdrant_vector_store_ensures_missing_collection_with_vector_size():
+    calls = []
+
+    def fake_management(method, endpoint, payload, api_key):
+        calls.append((method, endpoint, payload, api_key))
+        if method == "GET":
+            return {"result": None}
+        return {"status": "ok", "result": True}
+
+    store = QdrantVectorStore(
+        RagVectorStoreConfig(provider="qdrant", endpoint="http://127.0.0.1:6333", collection="puzzle_ops_rag", api_key="qdrant-key", configured=True, ready=True),
+        management_transport=fake_management,
+    )
+
+    status = store.ensure_collection(vector_size=3)
+
+    assert status["status"] == "created"
+    assert calls[0] == ("GET", "http://127.0.0.1:6333/collections/puzzle_ops_rag", None, "qdrant-key")
+    assert calls[1][0] == "PUT"
+    assert calls[1][2]["vectors"]["size"] == 3
+    assert calls[1][2]["vectors"]["distance"] == "Cosine"
+
+
+def test_qdrant_vector_store_rejects_collection_vector_size_mismatch():
+    def fake_management(method, endpoint, payload, api_key):
+        return {"result": {"config": {"params": {"vectors": {"size": 4, "distance": "Cosine"}}}}}
+
+    store = QdrantVectorStore(
+        RagVectorStoreConfig(provider="qdrant", endpoint="http://127.0.0.1:6333", collection="puzzle_ops_rag", configured=True, ready=True),
+        management_transport=fake_management,
+    )
+
+    try:
+        store.ensure_collection(vector_size=3)
+    except ValueError as exc:
+        assert "维度不匹配" in str(exc)
+    else:
+        raise AssertionError("expected vector size mismatch")
+
+
 def test_hybrid_retriever_can_use_qdrant_vector_scores_before_rerank():
     class QueryVectorEmbedding(LocalEmbeddingProvider):
         provider_name = "query-vector"
