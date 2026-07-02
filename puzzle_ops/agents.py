@@ -15,7 +15,7 @@ from puzzle_ops.excel_importer import import_history_workbook
 from puzzle_ops.feishu import FeishuClientFactory, MockFeishuClient
 from puzzle_ops.models import AgentTrace, AnalysisReport, AnalysisRow, DemandRow, HolidayRecommendation, ImageProfile, ScheduleItem, TagMeta, ValuePredictionCard, ValueRuleCandidate
 from puzzle_ops.multimodal import ImageFeatureExtractor, SimilarImageRetriever, ValueInsightMiner
-from puzzle_ops.rag import FeedbackAwareRerankProvider, FileDocumentLoaderAdapter, HybridRagRetriever, QdrantVectorStore, QdrantVectorStoreRetriever, RagChunk, RagChunkingConfig, RagDocument, RagPrompt, RagProviderConfig, RagRetrievalCase, RagRuntimeStats, RagVectorStoreConfig, RetrievalCaseLoaderAdapter, StaticDocumentLoaderAdapter, build_processed_documents_from_raw, build_rag_prompt, chunk_document, evaluate_retrieval_report, export_offline_rag_index, providers_from_config, rewrite_rag_query
+from puzzle_ops.rag import FeedbackAwareRerankProvider, FileDocumentLoaderAdapter, HybridRagRetriever, LocalEmbeddingProvider, QdrantVectorStore, QdrantVectorStoreRetriever, RagChunk, RagChunkingConfig, RagDocument, RagPrompt, RagProviderConfig, RagRetrievalCase, RagRuntimeStats, RagVectorStoreConfig, RetrievalCaseLoaderAdapter, StaticDocumentLoaderAdapter, build_processed_documents_from_raw, build_rag_prompt, chunk_document, evaluate_retrieval_report, export_offline_rag_index, prepare_qdrant_points, providers_from_config, rewrite_rag_query
 from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.trulens_eval import TruLensRAGEvaluator
 from puzzle_ops.trial_upload import TrialImageUploadService, _compact_tag_subject
@@ -600,6 +600,53 @@ class PuzzleOpsAgent:
             "mrr@5": report.get("mrr@5", 0),
             "passed_threshold": report.get("passed_threshold", False),
             "eval_total": report.get("total", 0),
+        }
+
+    def reindex_rag_qdrant_from_raw(
+        self,
+        country: str,
+        *,
+        embedding_provider: LocalEmbeddingProvider | None = None,
+        vector_store: QdrantVectorStore | None = None,
+    ) -> dict[str, object]:
+        rebuild = self.rebuild_rag_knowledge_from_raw(country)
+        chunks = tuple(_rag_chunk_from_row(row) for row in self.repository.rag_chunks(country))
+        provider = embedding_provider
+        stats = RagRuntimeStats()
+        if provider is None:
+            provider, _ = providers_from_config(
+                self.rag_provider_config,
+                stats=stats,
+                cache_get=self.repository.get_rag_embedding_cache,
+                cache_set=self.repository.set_rag_embedding_cache,
+            )
+        vectors_by_chunk_id: dict[str, tuple[float, ...]] = {}
+        for chunk in chunks:
+            vector = provider.query_vector(f"{chunk.title}：{chunk.text}")
+            if vector:
+                vectors_by_chunk_id[chunk.chunk_id] = tuple(float(value) for value in vector)
+        points = prepare_qdrant_points(chunks, vectors_by_chunk_id)
+        if not points:
+            return {
+                **rebuild,
+                "status": "skipped_no_vectors",
+                "chunk_count": len(chunks),
+                "vector_count": 0,
+                "upserted_points": 0,
+                "qdrant_collection": self.rag_vector_store_config.collection,
+                **stats.as_dict(),
+            }
+        store = vector_store or QdrantVectorStore(self.rag_vector_store_config)
+        response = store.upsert(points)
+        return {
+            **rebuild,
+            "status": "indexed",
+            "chunk_count": len(chunks),
+            "vector_count": len(vectors_by_chunk_id),
+            "upserted_points": len(points),
+            "qdrant_collection": self.rag_vector_store_config.collection,
+            "qdrant_response": response,
+            **stats.as_dict(),
         }
 
     def value_audit_rag_eval_report(self, country: str) -> dict[str, object]:

@@ -201,6 +201,8 @@ def test_runtime_page_shows_rag_feedback_summary(tmp_path):
     assert "raw=" in html
     assert 'action="/rebuild_rag_knowledge"' in html
     assert "重建RAG知识库" in html
+    assert 'action="/reindex_rag_qdrant"' in html
+    assert "重建并入库Qdrant" in html
 
 
 def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):

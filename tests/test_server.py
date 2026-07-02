@@ -1262,6 +1262,30 @@ knowledge_version: unit-test
     assert "hit@5=1.0" in APP.state.sync_message
 
 
+def test_reindex_rag_qdrant_action_reports_upsert(monkeypatch):
+    APP.state = AppState(country="日本", view="runtime")
+
+    def fake_reindex(country):
+        assert country == "日本"
+        return {
+            "status": "indexed",
+            "upserted_points": 12,
+            "chunk_count": 12,
+            "hit@5": 1.0,
+            "mrr@5": 0.9,
+            "qdrant_collection": "puzzle_ops_rag",
+        }
+
+    monkeypatch.setattr(APP.agent, "reindex_rag_qdrant_from_raw", fake_reindex)
+
+    handle_action("/reindex_rag_qdrant", {"country": ["日本"], "view": ["runtime"]})
+
+    assert APP.state.view == "runtime"
+    assert "Qdrant RAG 已重建入库" in APP.state.sync_message
+    assert "points=12" in APP.state.sync_message
+    assert "hit@5=1.0" in APP.state.sync_message
+
+
 def test_record_rag_feedback_action_writes_working_memory():
     APP.state = AppState(country="日本", view="trial", trial_mode="parse")
 

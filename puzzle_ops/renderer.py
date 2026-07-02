@@ -546,7 +546,7 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
 </section>
 <section class="panel"><h2>四层 Memory 概览</h2><div class="memory-grid">{memory_overview_cards}</div></section>
 <section class="panel"><h2>Memory Debug</h2><div class="table-wrap"><table><thead><tr><th>ID</th><th>层级/类型</th><th>状态</th><th>RAG Source</th><th>命中分</th><th>RAG Ready</th><th>来源</th><th>记忆内容</th><th>治理</th></tr></thead><tbody>{memory_debug_rows}</tbody></table></div></section>
-<section class="panel"><div class="section-line"><h2>价值观与审核 RAG</h2><form method="post" action="/rebuild_rag_knowledge">{hidden_context(state, view="runtime")}<button>重建RAG知识库</button></form></div>{rag_cards}</section>
+<section class="panel"><div class="section-line"><h2>价值观与审核 RAG</h2><div class="actions"><form method="post" action="/rebuild_rag_knowledge">{hidden_context(state, view="runtime")}<button>重建RAG知识库</button></form><form method="post" action="/reindex_rag_qdrant">{hidden_context(state, view="runtime")}<button>重建并入库Qdrant</button></form></div></div>{rag_cards}</section>
 """
 
 

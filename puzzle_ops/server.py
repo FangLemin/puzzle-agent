@@ -343,6 +343,21 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             state.sync_message = f"RAG 知识库重建失败：{exc}"
         state.sync_url = ""
         state.view = "runtime"
+    elif path == "/reindex_rag_qdrant":
+        try:
+            result = agent.reindex_rag_qdrant_from_raw(state.country)
+            state.sync_message = (
+                "Qdrant RAG 已重建入库："
+                f"status={result.get('status', '')}，"
+                f"points={result.get('upserted_points', 0)}，"
+                f"chunks={result.get('chunk_count', 0)}，"
+                f"hit@5={result.get('hit@5', 0)}，"
+                f"collection={result.get('qdrant_collection', '')}"
+            )
+        except Exception as exc:
+            state.sync_message = f"Qdrant RAG 重建入库失败：{exc}"
+        state.sync_url = ""
+        state.view = "runtime"
     elif path == "/run_harness":
         execute_models = value(form, "run_real_models", "") == "1"
         execute_generation = value(form, "include_generation", "") == "1"

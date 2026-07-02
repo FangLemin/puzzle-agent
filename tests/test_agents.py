@@ -1580,6 +1580,68 @@ knowledge_version: unit-test
     assert (knowledge_dir / "processed" / "value_audit_documents.jsonl").exists()
 
 
+def test_agent_reindexes_raw_rag_knowledge_into_qdrant(monkeypatch, tmp_path):
+    knowledge_dir = tmp_path / "knowledge"
+    raw = knowledge_dir / "raw"
+    eval_dir = knowledge_dir / "eval"
+    raw.mkdir(parents=True)
+    eval_dir.mkdir(parents=True)
+    (raw / "japan.md").write_text(
+        """---
+country: 日本
+source_type: value_rule
+knowledge_version: unit-test
+---
+# 日本价值观
+
+## 寿司文化 {#JP_KB_SUSHI_FOOD}
+寿司属于日本本土饮食文化，适合清爽餐桌近景。
+""",
+        encoding="utf-8",
+    )
+    (eval_dir / "value_audit_cases.jsonl").write_text(
+        json.dumps(
+            {
+                "query": "日本寿司图是否符合本土饮食价值观",
+                "country": "日本",
+                "expected_parent_id": "JP_KB_SUSHI_FOOD",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "qdrant_reindex.db"))
+
+    class FakeEmbedding:
+        provider_name = "dashscope:text-embedding-v4"
+
+        def query_vector(self, text: str):
+            assert text
+            return (0.1, 0.2, 0.3)
+
+    class FakeQdrantStore:
+        def __init__(self):
+            self.points = ()
+
+        def upsert(self, points):
+            self.points = points
+            return {"status": "ok", "result": {"operation_id": 42}}
+
+    store = FakeQdrantStore()
+
+    result = agent.reindex_rag_qdrant_from_raw("日本", embedding_provider=FakeEmbedding(), vector_store=store)
+
+    assert result["status"] == "indexed"
+    assert result["document_count"] >= 1
+    assert result["chunk_count"] == len(store.points)
+    assert result["vector_count"] == len(store.points)
+    assert result["upserted_points"] == len(store.points)
+    assert result["hit@5"] == 1.0
+    assert any(point.payload["parent_id"] == "JP_KB_SUSHI_FOOD" for point in store.points)
+
+
 def test_agent_exports_harness_annotation_files_for_label_tools(monkeypatch, tmp_path):
     image_path = tmp_path / "real-sushi.png"
     image_path.write_bytes(b"fake-png")

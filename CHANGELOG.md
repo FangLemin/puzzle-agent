@@ -2,6 +2,52 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.95 - RAG Qdrant Reindex 闭环
+
+日期：2026-07-02
+
+阶段目标：
+
+- 继续补齐工业级 RAG：把 `raw -> processed -> chunk -> embedding -> Qdrant upsert -> hit@5 eval` 串成受控闭环。
+- 让 Qdrant 不只是“可 search”，还具备从当前知识库重建并入库的操作入口。
+
+已完成：
+
+- Agent reindex 能力：
+  - 新增 `reindex_rag_qdrant_from_raw(country)`。
+  - 先复用 `rebuild_rag_knowledge_from_raw()` 从 raw 文档生成 processed JSONL。
+  - 再构建当前国家的完整 RAG index，包含文件知识、内置价值观、审核规则、Memory 和 human gold 样本。
+  - 对每个 chunk 生成 embedding vector，并调用 `prepare_qdrant_points()` 生成 Qdrant payload。
+  - 调用 `QdrantVectorStore.upsert()` 写入 Qdrant。
+  - 返回 `status`、chunk 数、vector 数、upsert 点数、collection、hit@5、mrr@5 和 provider runtime stats。
+- Runtime 操作入口：
+  - Server 新增 `/reindex_rag_qdrant` action。
+  - Runtime “价值观与审核 RAG”面板新增“重建并入库Qdrant”按钮。
+  - 成功后页面提示 `points`、`chunks`、`hit@5` 和 collection。
+- 工程边界：
+  - 支持测试注入 fake embedding provider / fake Qdrant store，避免单测真实打外部服务。
+  - 默认真实入库仍依赖 `RAG_VECTOR_STORE_PROVIDER=qdrant`、Qdrant 配置和可生成真实向量的 embedding provider。
+  - 如果 embedding provider 没有 query vector，会返回 `skipped_no_vectors`，不伪造入库成功。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py -q -k "reindexes_raw_rag_knowledge_into_qdrant"`：先因缺少 `reindex_rag_qdrant_from_raw` 失败。
+  - `PYTHONPATH=. pytest tests/test_server.py -q -k "reindex_rag_qdrant_action"`：先因缺少 `/reindex_rag_qdrant` action 失败。
+  - `PYTHONPATH=. pytest tests/test_renderer.py -q -k "runtime_page_shows_rag_feedback_summary"`：先因页面缺少 Qdrant reindex 按钮失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py -q -k "reindexes_raw_rag_knowledge_into_qdrant"`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_server.py -q -k "reindex_rag_qdrant_action"`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_renderer.py -q -k "runtime_page_shows_rag_feedback_summary"`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_rag.py tests/test_agents.py tests/test_server.py tests/test_renderer.py -q`：209 passed。
+  - `PYTHONPATH=. pytest tests -q`：311 passed。
+
+当前限制：
+
+- 本轮补齐的是受控 reindex 能力；还没有做 Qdrant collection 自动创建、向量维度校验、增量 upsert 或删除过期 point。
+- 真正生产使用前，需要确认 Qdrant 服务、collection vector size 与当前 Qwen/DashScope embedding 维度一致。
+- 下一步建议补 `qdrant_healthcheck + collection ensure + index manifest`，把每次 reindex 的知识版本、chunk 数、向量维度和 upsert 结果持久化。
+
 ## v0.3.94 - Qdrant 在线检索路径与 Trace 可观测
 
 日期：2026-07-02
