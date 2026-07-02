@@ -380,7 +380,8 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         stats = report.get("runtime_stats", {}) if isinstance(report.get("runtime_stats"), dict) else {}
         state.sync_message = (
             "RAG 工业全链路验收完成："
-            f"status={result.get('status')}；points={reindex.get('upserted_points', 0)}；"
+            f"status={result.get('status')}；stage={result.get('failure_stage', '')}；"
+            f"error={result.get('error', '')}；points={reindex.get('upserted_points', 0)}；"
             f"vector_size={reindex.get('vector_size', 0)}；hit@5={report.get('hit@5', 0)}；"
             f"mrr@5={report.get('mrr@5', 0)}；qdrant_hit={observed.get('qdrant_vector_hits', False)}；"
             f"embedding_remote={stats.get('embedding_remote_calls', 0)}；rerank_remote={stats.get('rerank_remote_calls', 0)}；"

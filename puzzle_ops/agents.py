@@ -914,15 +914,27 @@ class PuzzleOpsAgent:
         embedding = embedding_provider or default_embedding
         rerank = rerank_provider or default_rerank
         store = vector_store or QdrantVectorStore(self.rag_vector_store_config)
-        reindex = self.reindex_rag_qdrant_from_raw(
-            country,
-            embedding_provider=embedding,
-            vector_store=store,
-        )
+        output = Path(output_dir)
+        summary_path = output / f"rag_acceptance_full_summary_{country}.json"
+        try:
+            reindex = self.reindex_rag_qdrant_from_raw(
+                country,
+                embedding_provider=embedding,
+                vector_store=store,
+            )
+        except Exception as exc:
+            return self._full_rag_acceptance_failure(
+                country,
+                summary_path,
+                stage="qdrant_reindex",
+                error=exc,
+                embedding_provider=embedding,
+                rerank_provider=rerank,
+                vector_store=store,
+            )
         documents = StaticDocumentLoaderAdapter(self._rag_documents(country)).load()
         chunks = tuple(_rag_chunk_from_row(row) for row in self.repository.rag_chunks(country))
         cases = self._rag_eval_cases(country) or _rag_smoke_eval_cases(country, documents)
-        output = Path(output_dir)
         path = output / f"rag_acceptance_full_{country}.json"
         retriever = HybridRagRetriever(
             chunks,
@@ -930,17 +942,29 @@ class PuzzleOpsAgent:
             rerank_provider=rerank,
             vector_store_retriever=QdrantVectorStoreRetriever(store),
         )
-        report = export_rag_acceptance_report(
-            retriever,
-            cases,
-            path,
-            k=5,
-            threshold=0.8,
-            dataset_name=f"{country}价值观审核RAG full industrial acceptance",
-            knowledge_version=f"{country}-value-audit-{len(documents)}docs-{len(chunks)}chunks",
-            provider_config=self.rag_provider_config,
-            vector_store=self.rag_vector_store_config,
-        )
+        try:
+            report = export_rag_acceptance_report(
+                retriever,
+                cases,
+                path,
+                k=5,
+                threshold=0.8,
+                dataset_name=f"{country}价值观审核RAG full industrial acceptance",
+                knowledge_version=f"{country}-value-audit-{len(documents)}docs-{len(chunks)}chunks",
+                provider_config=self.rag_provider_config,
+                vector_store=self.rag_vector_store_config,
+            )
+        except Exception as exc:
+            return self._full_rag_acceptance_failure(
+                country,
+                summary_path,
+                stage="acceptance_report",
+                error=exc,
+                embedding_provider=embedding,
+                rerank_provider=rerank,
+                vector_store=store,
+                reindex=reindex,
+            )
         status = "passed" if reindex.get("status") == "indexed" and report.get("passed_threshold") else "failed"
         result = {
             "status": status,
@@ -948,12 +972,103 @@ class PuzzleOpsAgent:
             "reindex": reindex,
             "report_path": str(path),
             "report": report,
+            "failure_stage": "" if status == "passed" else "hit_rate_threshold",
+            "error": "" if status == "passed" else "RAG hit@5 未达到阈值或 Qdrant reindex 未完成 indexed 状态",
+            "diagnostics": self._rag_acceptance_diagnostics(
+                embedding_provider=embedding,
+                rerank_provider=rerank,
+                vector_store=store,
+                reindex=reindex,
+                report=report,
+            ),
         }
-        summary_path = output / f"rag_acceptance_full_summary_{country}.json"
         output.mkdir(parents=True, exist_ok=True)
         summary_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
         result["summary_path"] = str(summary_path)
         return result
+
+    def _full_rag_acceptance_failure(
+        self,
+        country: str,
+        summary_path: Path,
+        *,
+        stage: str,
+        error: Exception,
+        embedding_provider,
+        rerank_provider,
+        vector_store,
+        reindex: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        result = {
+            "status": "failed",
+            "country": country,
+            "failure_stage": stage,
+            "error": str(error),
+            "reindex": reindex or {},
+            "report_path": "",
+            "report": {},
+            "diagnostics": self._rag_acceptance_diagnostics(
+                embedding_provider=embedding_provider,
+                rerank_provider=rerank_provider,
+                vector_store=vector_store,
+                reindex=reindex or {},
+                report={},
+                failed_component=_failure_component_for_stage(stage),
+                error=str(error),
+            ),
+        }
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        summary_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        result["summary_path"] = str(summary_path)
+        return result
+
+    def _rag_acceptance_diagnostics(
+        self,
+        *,
+        embedding_provider,
+        rerank_provider,
+        vector_store,
+        reindex: dict[str, object],
+        report: dict[str, object],
+        failed_component: str = "",
+        error: str = "",
+    ) -> tuple[dict[str, object], ...]:
+        observed = report.get("observed_retrieval", {}) if isinstance(report.get("observed_retrieval"), dict) else {}
+        runtime_stats = report.get("runtime_stats", {}) if isinstance(report.get("runtime_stats"), dict) else {}
+        rows = (
+            {
+                "component": "embedding",
+                "status": "failed" if failed_component == "embedding" else "ok",
+                "provider": getattr(embedding_provider, "provider_name", self.rag_provider_config.embedding_provider),
+                "remote_calls": runtime_stats.get("embedding_remote_calls", 0),
+                "fallbacks": runtime_stats.get("embedding_fallbacks", 0),
+                "message": error if failed_component == "embedding" else "Embedding provider 已配置；remote_calls 可用于判断是否真实远程调用。",
+            },
+            {
+                "component": "qdrant",
+                "status": "failed" if failed_component == "qdrant" else ("ok" if reindex.get("status") == "indexed" else "warning"),
+                "provider": getattr(vector_store, "provider_name", self.rag_vector_store_config.provider),
+                "upserted_points": reindex.get("upserted_points", 0),
+                "qdrant_vector_hits": observed.get("qdrant_vector_hits", False),
+                "message": error if failed_component == "qdrant" else "Qdrant 入库与检索命中由 upserted_points/qdrant_vector_hits 判断。",
+            },
+            {
+                "component": "rerank",
+                "status": "failed" if failed_component == "rerank" else "ok",
+                "provider": getattr(rerank_provider, "provider_name", self.rag_provider_config.rerank_provider),
+                "remote_calls": runtime_stats.get("rerank_remote_calls", 0),
+                "fallbacks": runtime_stats.get("rerank_fallbacks", 0),
+                "message": error if failed_component == "rerank" else "Rerank provider 已配置；remote_calls/fallbacks 可用于判断 BGE 是否生效。",
+            },
+            {
+                "component": "hit_rate",
+                "status": "ok" if report.get("passed_threshold") else "warning",
+                "hit@5": report.get("hit@5", 0),
+                "threshold": report.get("threshold", 0.8),
+                "message": "hit@5 达标" if report.get("passed_threshold") else "hit@5 未达标或报告未生成。",
+            },
+        )
+        return rows
 
     def rag_feedback_summary(self, country: str) -> dict[str, object]:
         by_chunk: dict[str, dict[str, object]] = {}
@@ -2410,6 +2525,16 @@ def _qdrant_point_record(point) -> dict[str, object]:
         "vector": [float(value) for value in point.vector],
         "payload": dict(point.payload),
     }
+
+
+def _failure_component_for_stage(stage: str) -> str:
+    if "qdrant" in stage:
+        return "qdrant"
+    if "rerank" in stage:
+        return "rerank"
+    if "embedding" in stage:
+        return "embedding"
+    return "hit_rate"
 
 
 def _rag_hit_trace_payload(hit) -> dict[str, object]:

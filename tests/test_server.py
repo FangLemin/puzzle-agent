@@ -1357,6 +1357,31 @@ def test_run_full_rag_acceptance_action_reports_reindex_and_hit_rate(monkeypatch
     assert "qdrant_hit=True" in APP.state.sync_message
 
 
+def test_run_full_rag_acceptance_action_reports_failure_stage(monkeypatch):
+    APP.state = AppState(country="日本", view="runtime")
+
+    def fake_full_acceptance(country, output_dir):
+        return {
+            "status": "failed",
+            "failure_stage": "qdrant_reindex",
+            "error": "Qdrant refused connection",
+            "report_path": "",
+            "summary_path": str(output_dir / "rag_acceptance_full_summary_日本.json"),
+            "reindex": {},
+            "report": {},
+            "diagnostics": [{"component": "qdrant", "status": "failed", "message": "Qdrant refused connection"}],
+        }
+
+    monkeypatch.setattr(APP.agent, "run_full_rag_industrial_acceptance", fake_full_acceptance)
+
+    handle_action("/run_full_rag_acceptance", {"country": ["日本"], "view": ["runtime"]})
+
+    assert APP.state.view == "runtime"
+    assert "status=failed" in APP.state.sync_message
+    assert "stage=qdrant_reindex" in APP.state.sync_message
+    assert "Qdrant refused connection" in APP.state.sync_message
+
+
 def test_qdrant_smoke_action_reports_search_and_cleanup(monkeypatch):
     APP.state = AppState(country="日本", view="runtime")
 

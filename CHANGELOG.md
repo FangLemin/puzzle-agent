@@ -2,6 +2,41 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.5.1 - Full RAG Failure Diagnostics
+
+日期：2026-07-03
+
+阶段目标：
+
+- 让“一键RAG全链路验收”失败时不再黑盒：明确失败阶段、错误信息和组件级诊断。
+- 帮运营/面试官快速判断问题是在 Qwen embedding、Qdrant、BGE rerank、还是 hit@5 阈值。
+
+已完成：
+
+- Agent：
+  - `run_full_rag_industrial_acceptance()` 增加 `qdrant_reindex` 和 `acceptance_report` 两个阶段的异常捕获。
+  - 失败时返回 `status=failed`、`failure_stage`、`error`、`diagnostics`。
+  - 失败时仍写出 `rag_acceptance_full_summary_<国家>.json`，保留排查证据。
+- 诊断结构：
+  - `embedding`：provider、remote_calls、fallbacks。
+  - `qdrant`：upserted_points、qdrant_vector_hits、错误信息。
+  - `rerank`：provider、remote_calls、fallbacks。
+  - `hit_rate`：hit@5、threshold。
+- Server：
+  - `/run_full_rag_acceptance` 同步消息新增 `stage` 和 `error`。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_full_rag_acceptance_returns_diagnostics_when_qdrant_fails tests/test_server.py::test_run_full_rag_acceptance_action_reports_failure_stage -q`：先因 Qdrant 异常直接抛出、server 不显示 stage 失败。
+- 定向验证：
+  - 上述 2 项测试：2 passed。
+  - 成功路径回归：`PYTHONPATH=. pytest tests/test_agents.py::test_agent_runs_full_rag_industrial_acceptance_with_qdrant_and_bge tests/test_server.py::test_run_full_rag_acceptance_action_reports_reindex_and_hit_rate tests/test_renderer.py::test_runtime_page_shows_rag_feedback_summary -q`：3 passed。
+
+当前限制：
+
+- 本版本优先覆盖 Qdrant/reindex 阶段和报告阶段的失败诊断；后续还可以把真实 BGE healthcheck 与 Qwen embedding smoke 合入一键验收前置检查。
+
 ## v0.5.0 - Full RAG Industrial Acceptance
 
 日期：2026-07-03
