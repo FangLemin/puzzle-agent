@@ -1486,6 +1486,9 @@ def test_harness_run_links_rag_trace_artifacts_for_replay(tmp_path):
     assert artifact["trace_path"]
     assert Path(str(artifact["trace_path"])).exists()
     assert artifact["citations"]
+    assert "只基于引用依据回答" in artifact["prompt"]
+    assert artifact["context"]
+    assert artifact["retrieval_trace"]["final_hits"]
     value_case = next(case for case in run.cases if case.task_type == "value_match_eval")
     assert value_case.evidence_trace["rag_trace_path"] == artifact["trace_path"]
 

@@ -308,6 +308,9 @@ class AgentHarness:
                         "original_query": latest.get("original_query", query),
                         "rewritten_query": latest.get("rewritten_query", ""),
                         "citations": latest.get("citations", ()),
+                        "context": latest.get("context", ""),
+                        "prompt": latest.get("prompt", ""),
+                        "retrieval_trace": latest.get("retrieval_trace", {}),
                     }
             except (RuntimeError, ValueError):
                 continue

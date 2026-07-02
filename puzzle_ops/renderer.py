@@ -695,7 +695,7 @@ def render_rag_summary(summary: dict[str, object]) -> str:
 <h3>RAG 检索 Trace</h3>
 {trace_details}
 <h3>最近 RAG Trace</h3>
-<div class="table-wrap"><table><thead><tr><th>Trace</th><th>Query</th><th>引用</th><th>可回放 prompt</th></tr></thead><tbody>{recent_trace_rows}</tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Trace</th><th>Query</th><th>引用</th><th>可回放 prompt</th><th>详情</th></tr></thead><tbody>{recent_trace_rows}</tbody></table></div>
 """
 
 
@@ -764,7 +764,7 @@ def render_rag_retrieval_trace_details(trace: dict[str, object]) -> str:
 
 def render_recent_rag_traces(traces: object) -> str:
     if not isinstance(traces, (list, tuple)) or not traces:
-        return '<tr><td colspan="4">暂无可回放 RAG trace。</td></tr>'
+        return '<tr><td colspan="5">暂无可回放 RAG trace。</td></tr>'
     rows = []
     for item in traces:
         if not isinstance(item, dict):
@@ -780,9 +780,39 @@ def render_recent_rag_traces(traces: object) -> str:
             f"<td>{escape(str(item.get('original_query', ''))[:180])}</td>"
             f"<td>{escape(citation_text or '无')}</td>"
             f"<td>{escape(str(item.get('trace_path', '')))}</td>"
+            f"<td>{render_rag_trace_replay_details(item)}</td>"
             "</tr>"
         )
-    return "".join(rows) or '<tr><td colspan="4">暂无可回放 RAG trace。</td></tr>'
+    return "".join(rows) or '<tr><td colspan="5">暂无可回放 RAG trace。</td></tr>'
+
+
+def render_rag_trace_replay_details(item: dict[str, object]) -> str:
+    prompt = str(item.get("prompt", ""))
+    context = str(item.get("context", ""))
+    retrieval_trace = item.get("retrieval_trace", {})
+    final_hits = retrieval_trace.get("final_hits", ()) if isinstance(retrieval_trace, dict) else ()
+    hit_summary = _trace_replay_hit_summary(final_hits)
+    return (
+        "<details class='trace-replay'><summary>Prompt 回放详情</summary>"
+        f"<h4>引用上下文</h4><pre>{escape(context[:1600] or '暂无引用上下文')}</pre>"
+        f"<h4>Prompt</h4><pre>{escape(prompt[:2200] or '暂无 prompt')}</pre>"
+        f"<h4>检索命中详情</h4><pre>{escape(hit_summary)}</pre>"
+        "</details>"
+    )
+
+
+def _trace_replay_hit_summary(value: object) -> str:
+    if not isinstance(value, (list, tuple)) or not value:
+        return "暂无 final hits"
+    lines = []
+    for item in value[:8]:
+        if not isinstance(item, dict):
+            continue
+        lines.append(
+            f"{item.get('chunk_id', '')} | parent={item.get('parent_id', '')} | "
+            f"source={item.get('source_type', '')} | rerank={round(float(item.get('rerank_score', 0) or 0), 4)}"
+        )
+    return "\n".join(lines) or "暂无 final hits"
 
 
 def _trace_id_list(value: object) -> str:
@@ -922,7 +952,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
   <div class="panel"><h2>Case 证据链</h2><div class="table-wrap"><table><thead><tr><th>样本/任务</th><th>RAG 引用</th><th>RAG Trace</th><th>视觉证据</th><th>Memory 证据</th></tr></thead><tbody>{case_evidence_rows}</tbody></table></div></div>
   <div class="panel"><h2>失败分类</h2><div class="table-wrap"><table><thead><tr><th>分类</th><th>次数</th></tr></thead><tbody>{failure_category_rows}</tbody></table></div></div>
 </section>
-<section class="panel"><h2>Harness RAG Artifacts</h2><div class="table-wrap"><table><thead><tr><th>国家</th><th>Trace</th><th>Query</th><th>引用</th><th>文件</th></tr></thead><tbody>{rag_artifact_rows}</tbody></table></div></section>
+<section class="panel"><h2>Harness RAG Artifacts</h2><div class="table-wrap"><table><thead><tr><th>国家</th><th>Trace</th><th>Query</th><th>引用</th><th>文件</th><th>详情</th></tr></thead><tbody>{rag_artifact_rows}</tbody></table></div></section>
 <section class="metrics">{metric_cards}</section>
 <section class="panel">
   <h2>任务目标</h2>
@@ -1060,7 +1090,7 @@ def render_harness_case_evidence_rows(cases) -> str:
 
 def render_harness_rag_artifact_rows(artifacts) -> str:
     if not isinstance(artifacts, (list, tuple)) or not artifacts:
-        return '<tr><td colspan="5">暂无 Harness RAG artifacts。</td></tr>'
+        return '<tr><td colspan="6">暂无 Harness RAG artifacts。</td></tr>'
     rows = []
     for item in artifacts:
         if not isinstance(item, dict):
@@ -1074,9 +1104,10 @@ def render_harness_rag_artifact_rows(artifacts) -> str:
             f"<td>{escape(str(item.get('original_query', ''))[:180])}</td>"
             f"<td>{escape(citation_text or '无')}</td>"
             f"<td>{escape(str(item.get('trace_path', '')))}</td>"
+            f"<td>{render_rag_trace_replay_details(item)}</td>"
             "</tr>"
         )
-    return "".join(rows) or '<tr><td colspan="5">暂无 Harness RAG artifacts。</td></tr>'
+    return "".join(rows) or '<tr><td colspan="6">暂无 Harness RAG artifacts。</td></tr>'
 
 
 def render_harness_failure_categories(failures) -> str:
@@ -1478,6 +1509,9 @@ nav { display:grid; gap:8px; margin:18px 0; }
 .trace-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:8px 0 12px; }
 .trace-grid article { display:grid; gap:4px; padding:10px; border:1px solid var(--line); border-radius:8px; background:#fffdf7; }
 .trace-grid small { line-height:1.45; overflow-wrap:anywhere; }
+.trace-replay { min-width:260px; }
+.trace-replay summary { cursor:pointer; font-weight:900; color:#17644e; }
+.trace-replay pre { max-width:620px; max-height:260px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; padding:10px; border:1px solid var(--line); border-radius:8px; background:#f8fbfa; font-size:12px; line-height:1.45; }
 .mode-grid, .reference-row { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
 .reference-row { grid-template-columns:repeat(3,minmax(0,1fr)); margin-top:12px; }
 .mode-card { display:grid; gap:6px; padding:14px; border:1px solid var(--line); border-radius:10px; background:#fffdf7; }

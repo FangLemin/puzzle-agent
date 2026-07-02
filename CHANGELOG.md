@@ -2,6 +2,41 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.4.6 - Inline RAG Trace Replay
+
+日期：2026-07-02
+
+阶段目标：
+
+- 让 RAG trace / prompt 不只作为 JSON 文件路径存在，而是在 Runtime 与 Harness Dashboard 页面内可直接展开查看。
+- 提升面试演示与运营复盘效率：可在页面内看到 prompt、引用上下文、精排命中摘要。
+
+已完成：
+
+- Harness artifact 增强：
+  - `rag_trace_artifacts` 新增 `context`、`prompt`、`retrieval_trace`。
+  - `Harness RAG Artifacts` 表格新增详情折叠区。
+- Runtime RAG trace 回放：
+  - `最近 RAG Trace` 表格新增详情列。
+  - 每条 trace 可展开 `Prompt 回放详情`。
+  - 展示 `引用上下文`、完整 prompt 摘要、`检索命中详情`。
+- 页面体验：
+  - 新增 `.trace-replay` 样式，限制 prompt/context 的高度和宽度，避免撑爆页面。
+  - 使用 `<details>` 原生折叠，默认不挤占页面空间。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_harness_run_links_rag_trace_artifacts_for_replay tests/test_renderer.py::test_runtime_page_shows_rag_feedback_summary tests/test_renderer.py::test_eval_page_shows_case_evidence_trace_and_failure_categories -q`：先因 artifact 缺少 `prompt`、页面缺少 prompt/context/final hits 详情失败。
+- 定向验证：
+  - 上述 3 项测试：3 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py tests/test_harness.py tests/test_server.py -q`：206 passed。
+
+当前限制：
+
+- 页面内展示的是 trace 摘要与截断 prompt，不是完整 JSON 编辑器。
+- 仍未直接调用 Phoenix/Promptfoo CLI；当前是本地导出 + 页面回放。
+
 ## v0.4.5 - External Eval Exporters for Harness
 
 日期：2026-07-02

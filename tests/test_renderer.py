@@ -218,6 +218,10 @@ def test_runtime_page_shows_rag_feedback_summary(tmp_path):
     assert "精排最终命中" in html
     assert "最近 RAG Trace" in html
     assert "可回放 prompt" in html
+    assert "Prompt 回放详情" in html
+    assert "引用上下文" in html
+    assert "检索命中详情" in html
+    assert "只基于引用依据回答" in html
 
 
 def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):
@@ -777,6 +781,8 @@ def test_eval_page_shows_case_evidence_trace_and_failure_categories():
     assert "RAG 引用" in html
     assert "RAG Trace" in html
     assert "Harness RAG Artifacts" in html
+    assert "Prompt 回放详情" in html
+    assert "引用上下文" in html
     assert "Memory 证据" in html
     assert "失败分类" in html
 
