@@ -664,6 +664,8 @@ def render_rag_summary(summary: dict[str, object]) -> str:
         f"documents={knowledge.get('file_document_count', 0)}；"
         f"eval cases={knowledge.get('file_eval_case_count', 0)}；"
         f"qdrant manifest={knowledge.get('qdrant_manifest_status') or 'none'}；"
+        f"run_id={knowledge.get('qdrant_manifest_run_id') or 'none'}；"
+        f"runs={knowledge.get('qdrant_manifest_history_count', 0)}；"
         f"smoke={knowledge.get('qdrant_manifest_smoke_status') or 'none'}；"
         f"cleanup={knowledge.get('qdrant_manifest_smoke_cleanup_status') or 'none'}；"
         f"vector_size={knowledge.get('qdrant_manifest_vector_size', 0)}；"

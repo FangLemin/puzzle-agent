@@ -2,6 +2,48 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.98 - Qdrant Manifest 多版本与 Latest 指针
+
+日期：2026-07-02
+
+阶段目标：
+
+- 继续补齐工业级 RAG 的可回放能力：Qdrant reindex manifest 不再只覆盖最新文件，而是按 `run_id` 多版本保留。
+- 保持旧页面/旧逻辑兼容：仍保留 `qdrant_reindex_{country}.json` 作为 latest 指针。
+
+已完成：
+
+- Reindex manifest 多版本：
+  - 每次 `reindex_rag_qdrant_from_raw()` 生成独立 `run_id`。
+  - 历史 manifest 写入 `knowledge/indices/runs/qdrant_reindex_{country}_{run_id}.json`。
+  - latest 指针继续写入 `knowledge/indices/qdrant_reindex_{country}.json`。
+  - reindex result 新增 `run_id` 与 `latest_manifest_path`。
+- Smoke 结果回写历史 run：
+  - `run_qdrant_smoke_diagnostic()` 读取 latest manifest 的 `run_id`。
+  - smoke 结果同时写回 latest manifest 和对应历史 run manifest。
+- Runtime 可观测：
+  - `value_audit_rag_summary()` 新增 `qdrant_manifest_run_id`、`qdrant_manifest_history_count`、`qdrant_manifest_recent_runs`。
+  - Runtime “版本化知识库”卡片展示 latest `run_id` 和 `runs` 数量。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py -q -k "reindexes_raw_rag_knowledge_into_qdrant"`：先因 reindex result 缺少 `run_id` 失败。
+  - `PYTHONPATH=. pytest tests/test_agents.py -q -k "qdrant_smoke_diagnostic"`：先因 smoke 未写回历史 run manifest 失败。
+  - `PYTHONPATH=. pytest tests/test_renderer.py -q -k "runtime_page_shows_rag_feedback_summary"`：先因页面缺少 `runs=0` 展示失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py -q -k "reindexes_raw_rag_knowledge_into_qdrant"`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py -q -k "qdrant_smoke_diagnostic"`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_renderer.py -q -k "runtime_page_shows_rag_feedback_summary"`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_rag.py tests/test_agents.py tests/test_server.py tests/test_renderer.py -q`：214 passed。
+  - `PYTHONPATH=. pytest tests -q`：316 passed。
+
+当前限制：
+
+- 当前实现保留多版本 manifest，但还没有提供 UI 选择旧 run 回滚。
+- latest 指针是文件覆盖写入；如果未来多人并发 reindex，需要增加文件锁或数据库事务。
+- 历史 manifest 暂不自动清理，后续可增加保留策略，例如保留最近 50 次或最近 30 天。
+
 ## v0.3.97 - Qdrant Smoke Diagnostics
 
 日期：2026-07-02

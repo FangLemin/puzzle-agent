@@ -197,6 +197,7 @@ def test_runtime_page_shows_rag_feedback_summary(tmp_path):
     assert "VectorStore search=off" in html
     assert "向量库=local" in html
     assert "qdrant manifest=none" in html
+    assert "runs=0" in html
     assert "smoke=none" in html
     assert "版本化知识库" in html
     assert "value_audit_cases.jsonl" in html

@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 from tempfile import gettempdir
+import uuid
 
 from puzzle_ops.data import COUNTRIES, SYNC_ROWS
 from puzzle_ops.adapters import MCPToolAdapter
@@ -660,9 +661,14 @@ class PuzzleOpsAgent:
 
     def _write_qdrant_reindex_manifest(self, country: str, result: dict[str, object]) -> str:
         indices_dir = _rag_knowledge_dir() / "indices"
+        runs_dir = indices_dir / "runs"
         indices_dir.mkdir(parents=True, exist_ok=True)
-        manifest_path = indices_dir / f"qdrant_reindex_{country}.json"
+        runs_dir.mkdir(parents=True, exist_ok=True)
+        run_id = _manifest_run_id()
+        manifest_path = runs_dir / f"qdrant_reindex_{country}_{run_id}.json"
+        latest_path = indices_dir / f"qdrant_reindex_{country}.json"
         manifest = {
+            "run_id": run_id,
             "created_at": date.today().isoformat(),
             "country": country,
             "status": result.get("status", ""),
@@ -680,6 +686,9 @@ class PuzzleOpsAgent:
             "eval_total": result.get("eval_total", 0),
         }
         manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        latest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        result["run_id"] = run_id
+        result["latest_manifest_path"] = str(latest_path)
         return str(manifest_path)
 
     def run_qdrant_smoke_diagnostic(
@@ -708,6 +717,13 @@ class PuzzleOpsAgent:
         manifest["smoke_diagnostic"] = result
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
         manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        run_id = str(manifest.get("run_id", "")).strip()
+        if run_id:
+            run_manifest_path = manifest_path.parent / "runs" / f"qdrant_reindex_{country}_{run_id}.json"
+            run_manifest = _read_json_object(run_manifest_path) or dict(manifest)
+            run_manifest["smoke_diagnostic"] = result
+            run_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            run_manifest_path.write_text(json.dumps(run_manifest, ensure_ascii=False, indent=2), encoding="utf-8")
         return result
 
     def value_audit_rag_eval_report(self, country: str) -> dict[str, object]:
@@ -981,6 +997,7 @@ class PuzzleOpsAgent:
         eval_cases_path = root / "eval" / "value_audit_cases.jsonl"
         qdrant_manifest_path = root / "indices" / f"qdrant_reindex_{country}.json"
         qdrant_manifest = _read_json_object(qdrant_manifest_path)
+        qdrant_history = _qdrant_reindex_history(root, country)
         return {
             "root": str(root),
             "raw_dir": str(raw_dir),
@@ -988,9 +1005,12 @@ class PuzzleOpsAgent:
             "eval_cases_path": str(eval_cases_path),
             "qdrant_manifest_path": str(qdrant_manifest_path),
             "qdrant_manifest_exists": qdrant_manifest_path.exists(),
+            "qdrant_manifest_run_id": str(qdrant_manifest.get("run_id", "")),
             "qdrant_manifest_status": qdrant_manifest.get("status", ""),
             "qdrant_manifest_vector_size": int(qdrant_manifest.get("vector_size", 0) or 0),
             "qdrant_manifest_upserted_points": int(qdrant_manifest.get("upserted_points", 0) or 0),
+            "qdrant_manifest_history_count": len(qdrant_history),
+            "qdrant_manifest_recent_runs": qdrant_history[:3],
             "qdrant_manifest_smoke_status": str(
                 (qdrant_manifest.get("smoke_diagnostic") if isinstance(qdrant_manifest.get("smoke_diagnostic"), dict) else {}).get("status", "")
             ),
@@ -2115,6 +2135,32 @@ def _read_json_object(path: Path) -> dict[str, object]:
     except (OSError, json.JSONDecodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _manifest_run_id() -> str:
+    return f"{date.today().strftime('%Y%m%d')}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+
+
+def _qdrant_reindex_history(root: Path, country: str) -> list[dict[str, object]]:
+    runs_dir = root / "indices" / "runs"
+    if not runs_dir.exists():
+        return []
+    rows: list[dict[str, object]] = []
+    for path in sorted(runs_dir.glob(f"qdrant_reindex_{country}_*.json"), reverse=True):
+        payload = _read_json_object(path)
+        if not payload:
+            continue
+        rows.append(
+            {
+                "run_id": str(payload.get("run_id", "")),
+                "status": str(payload.get("status", "")),
+                "vector_size": int(payload.get("vector_size", 0) or 0),
+                "upserted_points": int(payload.get("upserted_points", 0) or 0),
+                "hit@5": payload.get("hit@5", 0),
+                "manifest_path": str(path),
+            }
+        )
+    return rows
 
 
 def _row_needs_ai_prelabeled(row: dict[str, str]) -> bool:

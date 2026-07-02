@@ -1646,14 +1646,20 @@ knowledge_version: unit-test
     assert result["hit@5"] == 1.0
     assert result["vector_size"] == 3
     assert result["collection_status"]["status"] == "created"
-    assert result["manifest_path"].endswith("indices/qdrant_reindex_日本.json")
+    assert result["run_id"]
+    assert result["manifest_path"].endswith(f"indices/runs/qdrant_reindex_日本_{result['run_id']}.json")
+    assert result["latest_manifest_path"].endswith("indices/qdrant_reindex_日本.json")
     assert store.ensure_vector_size == 3
     manifest = json.loads(Path(result["manifest_path"]).read_text(encoding="utf-8"))
     assert manifest["country"] == "日本"
+    assert manifest["run_id"] == result["run_id"]
     assert manifest["vector_size"] == 3
     assert manifest["upserted_points"] == len(store.points)
     summary = agent.value_audit_rag_summary("日本")["knowledge_base"]
     assert summary["qdrant_manifest_exists"] is True
+    assert summary["qdrant_manifest_run_id"] == result["run_id"]
+    assert summary["qdrant_manifest_history_count"] >= 1
+    assert summary["qdrant_manifest_recent_runs"][0]["run_id"] == result["run_id"]
     assert summary["qdrant_manifest_vector_size"] == 3
     assert summary["qdrant_manifest_upserted_points"] == len(store.points)
     assert any(point.payload["parent_id"] == "JP_KB_SUSHI_FOOD" for point in store.points)
@@ -1662,9 +1668,16 @@ knowledge_version: unit-test
 def test_agent_runs_qdrant_smoke_diagnostic_from_latest_manifest(monkeypatch, tmp_path):
     knowledge_dir = tmp_path / "knowledge"
     indices = knowledge_dir / "indices"
-    indices.mkdir(parents=True)
+    runs = indices / "runs"
+    runs.mkdir(parents=True)
+    run_id = "20260702-test1234"
     (indices / "qdrant_reindex_日本.json").write_text(
-        json.dumps({"country": "日本", "status": "indexed", "vector_size": 3}, ensure_ascii=False),
+        json.dumps({"run_id": run_id, "country": "日本", "status": "indexed", "vector_size": 3}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    run_manifest = runs / f"qdrant_reindex_日本_{run_id}.json"
+    run_manifest.write_text(
+        json.dumps({"run_id": run_id, "country": "日本", "status": "indexed", "vector_size": 3}, ensure_ascii=False),
         encoding="utf-8",
     )
     monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
@@ -1679,6 +1692,7 @@ def test_agent_runs_qdrant_smoke_diagnostic_from_latest_manifest(monkeypatch, tm
     result = agent.run_qdrant_smoke_diagnostic("日本", vector_store=FakeQdrantStore())
 
     assert result["status"] == "passed"
+    assert json.loads(run_manifest.read_text(encoding="utf-8"))["smoke_diagnostic"]["status"] == "passed"
     summary = agent.value_audit_rag_summary("日本")["knowledge_base"]
     assert summary["qdrant_manifest_smoke_status"] == "passed"
     assert summary["qdrant_manifest_smoke_cleanup_status"] == "deleted"
