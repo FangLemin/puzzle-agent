@@ -2,6 +2,44 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.93 - Docx Raw Ingest 与受控重建 RAG 知识库
+
+日期：2026-07-02
+
+阶段目标：
+
+- 继续补齐工业级 RAG 离线阶段：让 `.docx` 原始知识文档也能进入 raw ingest。
+- 增加受控重建入口，避免只能通过代码调用 raw -> processed 管线。
+
+已完成：
+
+- Raw ingest 增强：
+  - `build_processed_documents_from_raw()` 支持 `.docx`。
+  - 使用标准库读取 `word/document.xml` 段落，无新增依赖。
+  - `.docx` 可用开头连续 `country/source_type/knowledge_version` 行作为 metadata。
+  - `.docx` 同样支持 `## 标题 {#DOC_ID}` 稳定 gold parent id。
+- Agent 受控重建：
+  - 新增 `rebuild_rag_knowledge_from_raw(country)`。
+  - 显式从 `knowledge/raw` 生成 `knowledge/processed/value_audit_documents.jsonl`。
+  - 重建后立即跑 `value_audit_rag_eval_report()`，返回 `hit@5`、`mrr@5`、case 数和 processed 路径。
+- Runtime 页面入口：
+  - “价值观与审核 RAG”面板新增“重建RAG知识库”按钮。
+  - Server 新增 `/rebuild_rag_knowledge` action。
+  - 成功后在页面提示 document 数、`hit@5`、`mrr@5` 和 processed 文件路径。
+
+验证：
+
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_rag.py tests/test_agents.py tests/test_server.py tests/test_renderer.py -q -k "raw_docx or rebuilds_processed_rag or rebuild_rag_knowledge_action or runtime_page_shows_rag_feedback_summary"`：4 passed。
+  - `PYTHONPATH=. pytest tests/test_rag.py tests/test_agents.py tests/test_server.py tests/test_renderer.py -q`：204 passed。
+  - `PYTHONPATH=. pytest tests -q`：306 passed。
+
+当前限制：
+
+- 受控重建会覆盖当前 processed JSONL，因此仍建议在真实业务使用前先检查 raw 文档和 eval case。
+- `.docx` loader 目前读取正文段落，不解析表格、批注、图片 OCR 或复杂样式。
+- Qdrant 仍未作为默认在线 search 后端。
+
 ## v0.3.92 - RAG Raw 文档离线 Ingest 与稳定 Gold ID
 
 日期：2026-07-02

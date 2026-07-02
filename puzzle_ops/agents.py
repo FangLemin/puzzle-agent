@@ -15,7 +15,7 @@ from puzzle_ops.excel_importer import import_history_workbook
 from puzzle_ops.feishu import FeishuClientFactory, MockFeishuClient
 from puzzle_ops.models import AgentTrace, AnalysisReport, AnalysisRow, DemandRow, HolidayRecommendation, ImageProfile, ScheduleItem, TagMeta, ValuePredictionCard, ValueRuleCandidate
 from puzzle_ops.multimodal import ImageFeatureExtractor, SimilarImageRetriever, ValueInsightMiner
-from puzzle_ops.rag import FeedbackAwareRerankProvider, FileDocumentLoaderAdapter, HybridRagRetriever, RagChunk, RagChunkingConfig, RagDocument, RagPrompt, RagProviderConfig, RagRetrievalCase, RagRuntimeStats, RagVectorStoreConfig, RetrievalCaseLoaderAdapter, StaticDocumentLoaderAdapter, build_rag_prompt, chunk_document, evaluate_retrieval_report, export_offline_rag_index, providers_from_config, rewrite_rag_query
+from puzzle_ops.rag import FeedbackAwareRerankProvider, FileDocumentLoaderAdapter, HybridRagRetriever, RagChunk, RagChunkingConfig, RagDocument, RagPrompt, RagProviderConfig, RagRetrievalCase, RagRuntimeStats, RagVectorStoreConfig, RetrievalCaseLoaderAdapter, StaticDocumentLoaderAdapter, build_processed_documents_from_raw, build_rag_prompt, chunk_document, evaluate_retrieval_report, export_offline_rag_index, providers_from_config, rewrite_rag_query
 from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.trulens_eval import TruLensRAGEvaluator
 from puzzle_ops.trial_upload import TrialImageUploadService, _compact_tag_subject
@@ -563,6 +563,23 @@ class PuzzleOpsAgent:
             "vector_store": artifacts.manifest["vector_store"]["provider"],
             "vector_store_ready": artifacts.manifest["vector_store"]["ready"],
             "parent_child_count": len(artifacts.manifest["parent_child"]),
+        }
+
+    def rebuild_rag_knowledge_from_raw(self, country: str) -> dict[str, object]:
+        root = _rag_knowledge_dir()
+        raw_dir = root / "raw"
+        processed_path = root / "processed" / "value_audit_documents.jsonl"
+        documents = build_processed_documents_from_raw(raw_dir, processed_path)
+        self.build_value_audit_rag_index(country)
+        report = self.value_audit_rag_eval_report(country)
+        return {
+            "raw_dir": str(raw_dir),
+            "processed_path": str(processed_path),
+            "document_count": len(documents),
+            "hit@5": report.get("hit@5", 0),
+            "mrr@5": report.get("mrr@5", 0),
+            "passed_threshold": report.get("passed_threshold", False),
+            "eval_total": report.get("total", 0),
         }
 
     def value_audit_rag_eval_report(self, country: str) -> dict[str, object]:

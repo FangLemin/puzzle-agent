@@ -1,4 +1,5 @@
 import json
+from zipfile import ZipFile
 
 from puzzle_ops.rag import (
     BGERerankProvider,
@@ -182,6 +183,50 @@ knowledge_version: unit-test
     assert documents[0].metadata["source_file"].endswith("japan_values.md")
     loaded = load_rag_documents_jsonl(processed_path)
     assert loaded == documents
+
+
+def test_build_processed_documents_from_raw_docx_paragraphs(tmp_path):
+    raw_dir = tmp_path / "knowledge" / "raw"
+    processed_path = tmp_path / "knowledge" / "processed" / "value_audit_documents.jsonl"
+    raw_dir.mkdir(parents=True)
+    docx = raw_dir / "audit_rules.docx"
+    _write_minimal_docx(
+        docx,
+        (
+            "country: GLOBAL",
+            "source_type: audit_policy",
+            "knowledge_version: unit-test",
+            "# 审核规则",
+            "## 版权风险 {#GLOBAL_KB_AUDIT_IP_TEXT}",
+            "避免文字水印、商标和热门IP角色。",
+            "## AI质量风险 {#GLOBAL_KB_AUDIT_QUALITY}",
+            "检查畸形肢体、文字乱码和透视错误。",
+        ),
+    )
+
+    documents = build_processed_documents_from_raw(raw_dir, processed_path)
+
+    assert [document.document_id for document in documents] == [
+        "GLOBAL_KB_AUDIT_IP_TEXT",
+        "GLOBAL_KB_AUDIT_QUALITY",
+    ]
+    assert documents[0].country == "GLOBAL"
+    assert documents[0].source_type == "audit_policy"
+    assert documents[0].metadata["source_file"].endswith("audit_rules.docx")
+
+
+def _write_minimal_docx(path, paragraphs):
+    body = "".join(
+        f"<w:p><w:r><w:t>{paragraph}</w:t></w:r></w:p>"
+        for paragraph in paragraphs
+    )
+    document_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        f"<w:body>{body}</w:body></w:document>"
+    )
+    with ZipFile(path, "w") as archive:
+        archive.writestr("word/document.xml", document_xml)
 
 
 def test_token_chunk_document_uses_sentence_boundaries_and_overlap_metadata():

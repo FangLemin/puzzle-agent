@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Callable
 from urllib import request
 import uuid
+from zipfile import ZipFile
+from xml.etree import ElementTree as ET
 
 
 @dataclass(frozen=True)
@@ -216,9 +218,7 @@ def build_processed_documents_from_raw(raw_dir: Path | str, output_path: Path | 
     raw_root = Path(raw_dir)
     documents: list[RagDocument] = []
     if raw_root.exists():
-        paths = tuple(
-            child for child in raw_root.rglob("*") if child.is_file() and child.suffix.lower() in {".md", ".markdown", ".txt"}
-        )
+        paths = tuple(child for child in raw_root.rglob("*") if child.is_file() and child.suffix.lower() in _RAW_EXTENSIONS)
         for path in sorted(paths, key=_raw_file_sort_key):
             documents.extend(_raw_text_file_to_documents(path))
     output = Path(output_path)
@@ -228,7 +228,7 @@ def build_processed_documents_from_raw(raw_dir: Path | str, output_path: Path | 
 
 
 def _raw_file_sort_key(path: Path) -> tuple[int, str]:
-    text = path.read_text(encoding="utf-8")
+    text = _raw_file_text(path)
     metadata, _ = _parse_front_matter(text)
     source_type = str(metadata.get("source_type", ""))
     country = str(metadata.get("country", ""))
@@ -237,7 +237,7 @@ def _raw_file_sort_key(path: Path) -> tuple[int, str]:
 
 
 def _raw_text_file_to_documents(path: Path) -> tuple[RagDocument, ...]:
-    raw_text = path.read_text(encoding="utf-8")
+    raw_text = _raw_file_text(path)
     metadata, body = _parse_front_matter(raw_text)
     country = str(metadata.get("country", "GLOBAL")).strip() or "GLOBAL"
     source_type = str(metadata.get("source_type", "value_rule")).strip() or "value_rule"
@@ -267,6 +267,28 @@ def _raw_text_file_to_documents(path: Path) -> tuple[RagDocument, ...]:
     return tuple(documents)
 
 
+_RAW_EXTENSIONS = {".md", ".markdown", ".txt", ".docx"}
+
+
+def _raw_file_text(path: Path) -> str:
+    if path.suffix.lower() == ".docx":
+        return "\n".join(_docx_paragraphs(path))
+    return path.read_text(encoding="utf-8")
+
+
+def _docx_paragraphs(path: Path) -> tuple[str, ...]:
+    with ZipFile(path) as archive:
+        xml = archive.read("word/document.xml")
+    root = ET.fromstring(xml)
+    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    paragraphs = []
+    for paragraph in root.findall(".//w:p", ns):
+        text = "".join(node.text or "" for node in paragraph.findall(".//w:t", ns)).strip()
+        if text:
+            paragraphs.append(text)
+    return tuple(paragraphs)
+
+
 def _section_title_and_explicit_id(title: str) -> tuple[str, str]:
     match = re.search(r"\s*\{#([A-Za-z0-9_\-]+)\}\s*$", title)
     if not match:
@@ -277,7 +299,7 @@ def _section_title_and_explicit_id(title: str) -> tuple[str, str]:
 
 def _parse_front_matter(text: str) -> tuple[dict[str, str], str]:
     if not text.startswith("---"):
-        return {}, text
+        return _parse_loose_metadata_header(text)
     match = re.match(r"^---\s*\n(.*?)\n---\s*\n?(.*)$", text, flags=re.DOTALL)
     if not match:
         return {}, text
@@ -288,6 +310,30 @@ def _parse_front_matter(text: str) -> tuple[dict[str, str], str]:
         key, value = line.split(":", 1)
         metadata[key.strip()] = value.strip().strip('"').strip("'")
     return metadata, match.group(2)
+
+
+def _parse_loose_metadata_header(text: str) -> tuple[dict[str, str], str]:
+    metadata: dict[str, str] = {}
+    body_start = 0
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if ":" not in stripped or stripped.startswith("#"):
+            body_start = index
+            break
+        key, value = stripped.split(":", 1)
+        normalized_key = key.strip()
+        if normalized_key not in {"country", "source_type", "knowledge_version"}:
+            body_start = index
+            break
+        metadata[normalized_key] = value.strip().strip('"').strip("'")
+    else:
+        body_start = len(lines)
+    if not metadata:
+        return {}, text
+    return metadata, "\n".join(lines[body_start:])
 
 
 def _markdown_sections(text: str) -> tuple[tuple[str, str], ...]:

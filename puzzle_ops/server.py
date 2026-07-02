@@ -329,6 +329,20 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             state.sync_message = f"RAG 依据反馈记录失败：{exc}"
         state.sync_url = ""
         state.view = "trial"
+    elif path == "/rebuild_rag_knowledge":
+        try:
+            result = agent.rebuild_rag_knowledge_from_raw(state.country)
+            state.sync_message = (
+                "RAG 知识库已重建："
+                f"documents={result.get('document_count', 0)}，"
+                f"hit@5={result.get('hit@5', 0)}，"
+                f"mrr@5={result.get('mrr@5', 0)}，"
+                f"processed={result.get('processed_path', '')}"
+            )
+        except Exception as exc:
+            state.sync_message = f"RAG 知识库重建失败：{exc}"
+        state.sync_url = ""
+        state.view = "runtime"
     elif path == "/run_harness":
         execute_models = value(form, "run_real_models", "") == "1"
         execute_generation = value(form, "include_generation", "") == "1"

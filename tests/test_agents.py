@@ -1523,6 +1523,48 @@ def test_agent_loads_versioned_knowledge_documents_and_eval_cases(monkeypatch, t
     assert report["hit@5"] == 1.0
 
 
+def test_agent_rebuilds_processed_rag_knowledge_from_raw(monkeypatch, tmp_path):
+    knowledge_dir = tmp_path / "knowledge"
+    raw = knowledge_dir / "raw"
+    eval_dir = knowledge_dir / "eval"
+    raw.mkdir(parents=True)
+    eval_dir.mkdir(parents=True)
+    (raw / "japan.md").write_text(
+        """---
+country: 日本
+source_type: value_rule
+knowledge_version: unit-test
+---
+# 日本价值观
+
+## 寿司文化 {#JP_KB_SUSHI_FOOD}
+寿司属于日本本土饮食文化。
+""",
+        encoding="utf-8",
+    )
+    (eval_dir / "value_audit_cases.jsonl").write_text(
+        json.dumps(
+            {
+                "query": "日本寿司图是否符合本土饮食价值观",
+                "country": "日本",
+                "expected_parent_id": "JP_KB_SUSHI_FOOD",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "rebuild.db"))
+
+    result = agent.rebuild_rag_knowledge_from_raw("日本")
+
+    assert result["document_count"] == 1
+    assert result["processed_path"].endswith("processed/value_audit_documents.jsonl")
+    assert result["hit@5"] == 1.0
+    assert (knowledge_dir / "processed" / "value_audit_documents.jsonl").exists()
+
+
 def test_agent_exports_harness_annotation_files_for_label_tools(monkeypatch, tmp_path):
     image_path = tmp_path / "real-sushi.png"
     image_path.write_bytes(b"fake-png")

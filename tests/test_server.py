@@ -1221,6 +1221,47 @@ def test_memory_governance_actions_promote_and_retire_memory():
     assert "不再进入 RAG" in APP.state.sync_message
 
 
+def test_rebuild_rag_knowledge_action_reports_file_eval(monkeypatch, tmp_path):
+    knowledge_dir = tmp_path / "knowledge"
+    raw = knowledge_dir / "raw"
+    eval_dir = knowledge_dir / "eval"
+    raw.mkdir(parents=True)
+    eval_dir.mkdir(parents=True)
+    (raw / "japan.md").write_text(
+        """---
+country: 日本
+source_type: value_rule
+knowledge_version: unit-test
+---
+# 日本价值观
+
+## 寿司文化 {#JP_KB_SUSHI_FOOD}
+寿司属于日本本土饮食文化。
+""",
+        encoding="utf-8",
+    )
+    (eval_dir / "value_audit_cases.jsonl").write_text(
+        json.dumps(
+            {
+                "query": "日本寿司图是否符合本土饮食价值观",
+                "country": "日本",
+                "expected_parent_id": "JP_KB_SUSHI_FOOD",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
+    APP.state = AppState(country="日本", view="runtime")
+
+    handle_action("/rebuild_rag_knowledge", {"country": ["日本"], "view": ["runtime"]})
+
+    assert APP.state.view == "runtime"
+    assert "RAG 知识库已重建" in APP.state.sync_message
+    assert "hit@5=1.0" in APP.state.sync_message
+
+
 def test_record_rag_feedback_action_writes_working_memory():
     APP.state = AppState(country="日本", view="trial", trial_mode="parse")
 
