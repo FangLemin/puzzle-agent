@@ -374,6 +374,19 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             state.sync_message = f"Qdrant smoke 诊断失败：{exc}"
         state.sync_url = ""
         state.view = "runtime"
+    elif path == "/rollback_qdrant_manifest":
+        try:
+            result = agent.rollback_qdrant_manifest(state.country, value(form, "run_id", ""))
+            state.sync_message = (
+                "Qdrant manifest 已回滚："
+                f"run_id={result.get('run_id', '')}，"
+                f"vector_size={result.get('vector_size', 0)}，"
+                f"points={result.get('upserted_points', 0)}"
+            )
+        except Exception as exc:
+            state.sync_message = f"Qdrant manifest 回滚失败：{exc}"
+        state.sync_url = ""
+        state.view = "runtime"
     elif path == "/run_harness":
         execute_models = value(form, "run_real_models", "") == "1"
         execute_generation = value(form, "include_generation", "") == "1"

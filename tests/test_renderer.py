@@ -208,6 +208,8 @@ def test_runtime_page_shows_rag_feedback_summary(tmp_path):
     assert "重建并入库Qdrant" in html
     assert 'action="/qdrant_smoke_diagnostic"' in html
     assert "Qdrant Smoke" in html
+    assert 'action="/rollback_qdrant_manifest"' in html
+    assert "回滚Qdrant Run" in html
 
 
 def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):

@@ -1307,6 +1307,24 @@ def test_qdrant_smoke_action_reports_search_and_cleanup(monkeypatch):
     assert "cleanup=deleted" in APP.state.sync_message
 
 
+def test_qdrant_manifest_rollback_action_sets_latest_run(monkeypatch):
+    APP.state = AppState(country="日本", view="runtime")
+
+    def fake_rollback(country, run_id):
+        assert country == "日本"
+        assert run_id == "target-run"
+        return {"status": "rolled_back", "run_id": run_id, "vector_size": 5, "upserted_points": 9}
+
+    monkeypatch.setattr(APP.agent, "rollback_qdrant_manifest", fake_rollback)
+
+    handle_action("/rollback_qdrant_manifest", {"country": ["日本"], "view": ["runtime"], "run_id": ["target-run"]})
+
+    assert APP.state.view == "runtime"
+    assert "Qdrant manifest 已回滚" in APP.state.sync_message
+    assert "run_id=target-run" in APP.state.sync_message
+    assert "points=9" in APP.state.sync_message
+
+
 def test_record_rag_feedback_action_writes_working_memory():
     APP.state = AppState(country="日本", view="trial", trial_mode="parse")
 

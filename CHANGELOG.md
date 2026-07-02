@@ -2,6 +2,50 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.99 - Qdrant Manifest Rollback
+
+日期：2026-07-02
+
+阶段目标：
+
+- 继续补齐工业级 RAG 的可回放与回滚能力：不仅能保留历史 Qdrant reindex run，还能选择某个历史 run 重新设为 latest。
+- 让 Runtime 页面提供受控回滚入口，便于演示“版本化知识库 + 入库状态回退”。
+
+已完成：
+
+- Agent rollback：
+  - 新增 `rollback_qdrant_manifest(country, run_id)`。
+  - 从 `knowledge/indices/runs/qdrant_reindex_{country}_{run_id}.json` 读取历史 manifest。
+  - 校验 manifest 国家与当前国家一致。
+  - 将目标历史 run 写回 `knowledge/indices/qdrant_reindex_{country}.json` latest 指针。
+  - 返回 `run_id`、`vector_size`、`upserted_points`、source/latest manifest path。
+- Server action：
+  - 新增 `/rollback_qdrant_manifest`。
+  - 成功后提示 `run_id`、`vector_size`、`points`。
+  - 失败时明确返回回滚失败原因。
+- Runtime 页面：
+  - RAG 操作区新增 `run_id` 输入框和“回滚Qdrant Run”按钮。
+  - 继续展示 latest `run_id` 与历史 `runs` 数量。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py -q -k "rolls_back_qdrant_latest_manifest"`：先因缺少 `rollback_qdrant_manifest` 失败。
+  - `PYTHONPATH=. pytest tests/test_server.py -q -k "qdrant_manifest_rollback_action"`：先因缺少 `/rollback_qdrant_manifest` action 失败。
+  - `PYTHONPATH=. pytest tests/test_renderer.py -q -k "runtime_page_shows_rag_feedback_summary"`：先因页面缺少 rollback form 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py -q -k "rolls_back_qdrant_latest_manifest"`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_server.py -q -k "qdrant_manifest_rollback_action"`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_renderer.py -q -k "runtime_page_shows_rag_feedback_summary"`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_rag.py tests/test_agents.py tests/test_server.py tests/test_renderer.py -q`：216 passed。
+  - `PYTHONPATH=. pytest tests -q`：318 passed。
+
+当前限制：
+
+- 回滚目前只切换 latest manifest 指针，不自动把 Qdrant collection 内容恢复到旧 point 集合。
+- 真正的数据层回滚需要在 manifest 中保存 point ids 或 collection alias/snapshot 信息，并配套 reapply/restore 流程。
+- UI 当前通过手动输入 `run_id` 回滚，后续可以把最近 runs 做成可点击表格按钮。
+
 ## v0.3.98 - Qdrant Manifest 多版本与 Latest 指针
 
 日期：2026-07-02

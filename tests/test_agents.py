@@ -1698,6 +1698,30 @@ def test_agent_runs_qdrant_smoke_diagnostic_from_latest_manifest(monkeypatch, tm
     assert summary["qdrant_manifest_smoke_cleanup_status"] == "deleted"
 
 
+def test_agent_rolls_back_qdrant_latest_manifest_to_history_run(monkeypatch, tmp_path):
+    knowledge_dir = tmp_path / "knowledge"
+    indices = knowledge_dir / "indices"
+    runs = indices / "runs"
+    runs.mkdir(parents=True)
+    old_run = {"run_id": "old-run", "country": "日本", "status": "indexed", "vector_size": 3, "upserted_points": 2}
+    target_run = {"run_id": "target-run", "country": "日本", "status": "indexed", "vector_size": 5, "upserted_points": 9}
+    (indices / "qdrant_reindex_日本.json").write_text(json.dumps(old_run, ensure_ascii=False), encoding="utf-8")
+    (runs / "qdrant_reindex_日本_old-run.json").write_text(json.dumps(old_run, ensure_ascii=False), encoding="utf-8")
+    (runs / "qdrant_reindex_日本_target-run.json").write_text(json.dumps(target_run, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "rollback.db"))
+
+    result = agent.rollback_qdrant_manifest("日本", "target-run")
+
+    assert result["status"] == "rolled_back"
+    assert result["run_id"] == "target-run"
+    latest = json.loads((indices / "qdrant_reindex_日本.json").read_text(encoding="utf-8"))
+    assert latest["run_id"] == "target-run"
+    summary = agent.value_audit_rag_summary("日本")["knowledge_base"]
+    assert summary["qdrant_manifest_run_id"] == "target-run"
+    assert summary["qdrant_manifest_vector_size"] == 5
+
+
 def test_agent_exports_harness_annotation_files_for_label_tools(monkeypatch, tmp_path):
     image_path = tmp_path / "real-sushi.png"
     image_path.write_bytes(b"fake-png")

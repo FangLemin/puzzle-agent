@@ -726,6 +726,30 @@ class PuzzleOpsAgent:
             run_manifest_path.write_text(json.dumps(run_manifest, ensure_ascii=False, indent=2), encoding="utf-8")
         return result
 
+    def rollback_qdrant_manifest(self, country: str, run_id: str) -> dict[str, object]:
+        cleaned_run_id = run_id.strip()
+        if not cleaned_run_id:
+            raise ValueError("缺少要回滚的 Qdrant manifest run_id")
+        root = _rag_knowledge_dir()
+        run_manifest_path = root / "indices" / "runs" / f"qdrant_reindex_{country}_{cleaned_run_id}.json"
+        manifest = _read_json_object(run_manifest_path)
+        if not manifest:
+            raise ValueError(f"找不到 Qdrant manifest run：{cleaned_run_id}")
+        if str(manifest.get("country", "")) != country:
+            raise ValueError(f"Qdrant manifest 国家不匹配：{manifest.get('country')} != {country}")
+        latest_path = root / "indices" / f"qdrant_reindex_{country}.json"
+        latest_path.parent.mkdir(parents=True, exist_ok=True)
+        latest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {
+            "status": "rolled_back",
+            "country": country,
+            "run_id": cleaned_run_id,
+            "latest_manifest_path": str(latest_path),
+            "source_manifest_path": str(run_manifest_path),
+            "vector_size": int(manifest.get("vector_size", 0) or 0),
+            "upserted_points": int(manifest.get("upserted_points", 0) or 0),
+        }
+
     def value_audit_rag_eval_report(self, country: str) -> dict[str, object]:
         documents = StaticDocumentLoaderAdapter(self._rag_documents(country)).load()
         chunks = tuple(
