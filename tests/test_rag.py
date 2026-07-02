@@ -15,6 +15,7 @@ from puzzle_ops.rag import (
     RagIndexArtifacts,
     RagProviderConfig,
     QdrantVectorStore,
+    QdrantVectorStoreRetriever,
     RagRetrievalCase,
     RagRuntimeStats,
     RagVectorStoreConfig,
@@ -568,6 +569,68 @@ def test_qdrant_vector_store_upserts_points_with_payload():
     assert calls[0][1]["points"][0]["vector"] == [0.1, 0.2]
     assert calls[0][1]["points"][0]["payload"]["text"] == "寿司属于日本本土饮食文化。"
     assert calls[0][2] == "qdrant-key"
+
+
+def test_qdrant_vector_store_search_returns_chunk_scores_with_country_filter():
+    calls = []
+
+    def fake_transport(endpoint, payload, api_key):
+        calls.append((endpoint, payload, api_key))
+        return {
+            "result": [
+                {"score": 0.91, "payload": {"chunk_id": "JP_SUSHI#chunk-1"}},
+                {"score": 0.72, "payload": {"chunk_id": "GLOBAL_AUDIT#chunk-1"}},
+            ]
+        }
+
+    store = QdrantVectorStore(
+        RagVectorStoreConfig(provider="qdrant", endpoint="http://127.0.0.1:6333", collection="puzzle_ops_rag", api_key="qdrant-key", configured=True, ready=True),
+        transport=fake_transport,
+    )
+
+    scores = store.search((0.1, 0.2), country="日本", top_k=2)
+
+    assert scores == {"JP_SUSHI#chunk-1": 0.91, "GLOBAL_AUDIT#chunk-1": 0.72}
+    assert calls[0][0] == "http://127.0.0.1:6333/collections/puzzle_ops_rag/points/search"
+    assert calls[0][1]["vector"] == [0.1, 0.2]
+    assert calls[0][1]["limit"] == 2
+    assert calls[0][1]["filter"]["should"][0]["key"] == "country"
+    assert calls[0][2] == "qdrant-key"
+
+
+def test_hybrid_retriever_can_use_qdrant_vector_scores_before_rerank():
+    class QueryVectorEmbedding(LocalEmbeddingProvider):
+        provider_name = "query-vector"
+
+        def query_vector(self, query: str) -> tuple[float, ...]:
+            return (0.1, 0.2)
+
+        def similarities(self, query: str, texts: tuple[str, ...]) -> tuple[float, ...]:
+            return tuple(0.0 for _ in texts)
+
+    class FakeStore:
+        def search(self, query_vector, *, country: str, top_k: int):
+            assert query_vector == (0.1, 0.2)
+            assert country == "日本"
+            assert top_k == 1
+            return {"JP_VECTOR#chunk-1": 0.99}
+
+    documents = (
+        RagDocument("JP_KEYWORD", "日本", "value_rule", "饮食文化", "寿司属于日本本土饮食文化。", {}),
+        RagDocument("JP_VECTOR", "日本", "value_rule", "旅行场景", "温泉街浴衣灯笼适合治愈旅行。", {}),
+    )
+    chunks = tuple(chunk for document in documents for chunk in chunk_document(document, max_chars=80))
+    retriever = HybridRagRetriever(
+        chunks,
+        embedding_provider=QueryVectorEmbedding(),
+        vector_store_retriever=QdrantVectorStoreRetriever(FakeStore()),
+    )
+
+    trace = retriever.search_with_trace("日本寿司价值观", country="日本", top_k=2, bm25_top_k=1, vector_top_k=1)
+
+    assert "JP_VECTOR#chunk-1" in trace.vector_candidates
+    assert trace.as_dict()["vector_store_provider"] == "qdrant"
+    assert any(hit.chunk.parent_id == "JP_VECTOR" and hit.vector_score == 0.99 for hit in trace.final_hits)
 
 
 def test_feedback_aware_rerank_provider_promotes_useful_chunks():

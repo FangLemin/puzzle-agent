@@ -1427,6 +1427,21 @@ def test_agent_rag_summary_uses_qdrant_vector_store_config_when_declared(monkeyp
     assert summary["vector_store_ready"] is True
 
 
+def test_agent_rag_summary_can_enable_qdrant_online_search_path(monkeypatch):
+    monkeypatch.setenv("RAG_VECTOR_STORE_PROVIDER", "qdrant")
+    monkeypatch.setenv("QDRANT_URL", "http://127.0.0.1:6333")
+    monkeypatch.setenv("QDRANT_COLLECTION", "puzzle_ops_rag")
+    monkeypatch.setenv("RAG_QDRANT_SEARCH_ENABLED", "1")
+    monkeypatch.setenv("RAG_EMBEDDING_PROVIDER", "local")
+    monkeypatch.setenv("RAG_RERANK_PROVIDER", "local")
+    monkeypatch.setenv("RAG_ENABLE_REMOTE_CALLS", "")
+
+    summary = PuzzleOpsAgent().value_audit_rag_summary("日本")
+
+    assert summary["vector_store_search_enabled"] is True
+    assert summary["retrieval_trace"]["vector_store_provider"] == "qdrant"
+
+
 def test_agent_rag_summary_exposes_citation_source_parent_and_text():
     summary = PuzzleOpsAgent().value_audit_rag_summary("日本")
 

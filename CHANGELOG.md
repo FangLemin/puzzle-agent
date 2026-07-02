@@ -2,6 +2,54 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.3.94 - Qdrant 在线检索路径与 Trace 可观测
+
+日期：2026-07-02
+
+阶段目标：
+
+- 继续补齐工业级 RAG 在线阶段：让 Qdrant 不只停留在 upsert adapter，而是具备可用于 hybrid recall 的在线 search 路径。
+- 保持 demo 稳定：Qdrant search 必须显式开启，未启动 Qdrant 时默认继续走本地向量召回。
+
+已完成：
+
+- Qdrant 在线 search：
+  - `QdrantVectorStore.search()` 新增 `/points/search` 调用。
+  - 查询 payload 包含 query vector、top-k、payload 返回和国家过滤。
+  - 国家过滤覆盖当前国家与 `GLOBAL` 审核规则，便于日本/法国价值观与全局审核规则共同召回。
+- Vector store retriever 边界：
+  - 新增 `QdrantVectorStoreRetriever`。
+  - `HybridRagRetriever` 可注入外部 vector store retriever。
+  - 有 Qdrant 分数时优先使用 Qdrant vector score；没有时自动回退本地 embedding 相似度。
+- Query vector 能力：
+  - `DashScopeEmbeddingProvider.query_vector()` 暴露真实 embedding query vector，供 Qdrant search 使用。
+  - 本地 embedding provider 返回空向量，避免在未配置远程 embedding 时误调外部 vector store。
+- Trace 可观测：
+  - `RagRetrievalTrace` 新增 `vector_store_provider`。
+  - Runtime 页面展示 `VectorStore search=on/off` 与本次 trace 的 `向量库=local/qdrant`。
+- Agent 可控接入：
+  - 新增 `RAG_QDRANT_SEARCH_ENABLED=1` 或 `RAG_VECTOR_STORE_SEARCH_ENABLED=1` 才会启用 Qdrant 在线 search。
+  - summary 新增 `vector_store_search_enabled`，避免“配置了 Qdrant 但实际没走在线检索”的灰区。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_rag.py -q -k "qdrant_vector_store_search or hybrid_retriever_can_use_qdrant"`：先因缺少 `QdrantVectorStoreRetriever` 失败。
+  - `PYTHONPATH=. pytest tests/test_agents.py -q -k "qdrant_online_search_path"`：先因缺少 `vector_store_search_enabled` 失败。
+  - `PYTHONPATH=. pytest tests/test_renderer.py -q -k "runtime_page_shows_rag_feedback_summary"`：先因页面未展示 `VectorStore search=off` 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_rag.py -q -k "qdrant_vector_store_search or hybrid_retriever_can_use_qdrant"`：2 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py -q -k "qdrant_online_search_path or qdrant_vector_store_config"`：2 passed。
+  - `PYTHONPATH=. pytest tests/test_renderer.py -q -k "runtime_page_shows_rag_feedback_summary"`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_rag.py tests/test_agents.py tests/test_renderer.py -q`：150 passed。
+  - `PYTHONPATH=. pytest tests -q`：309 passed。
+
+当前限制：
+
+- Qdrant online search 默认仍关闭，需要显式设置 `RAG_QDRANT_SEARCH_ENABLED=1` 并确保 Qdrant collection 已写入向量。
+- 本轮没有自动做 Qdrant collection 建表、schema 初始化或全量 reindex CLI；下一步需要把 raw -> processed -> embedding -> Qdrant upsert 串成受控命令。
+- 若使用本地 embedding provider，Qdrant search 会因没有真实 query vector 自动跳过；真实在线向量检索需要开启 Qwen/DashScope embedding 远程调用。
+
 ## v0.3.93 - Docx Raw Ingest 与受控重建 RAG 知识库
 
 日期：2026-07-02

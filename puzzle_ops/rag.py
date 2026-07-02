@@ -90,6 +90,7 @@ class RagRetrievalTrace:
     exact_match_candidates: tuple[str, ...]
     merged_candidate_count: int
     embedding_provider: str
+    vector_store_provider: str
     rerank_provider: str
     final_hits: tuple[RagHit, ...]
 
@@ -106,6 +107,7 @@ class RagRetrievalTrace:
             "exact_match_candidates": self.exact_match_candidates,
             "merged_candidate_count": self.merged_candidate_count,
             "embedding_provider": self.embedding_provider,
+            "vector_store_provider": self.vector_store_provider,
             "rerank_provider": self.rerank_provider,
             "final_hits": tuple(
                 {
@@ -413,6 +415,54 @@ class QdrantVectorStore:
         }
         return self.transport(endpoint, payload, self.config.api_key)
 
+    def search(self, query_vector: tuple[float, ...], *, country: str, top_k: int) -> dict[str, float]:
+        if self.config.provider != "qdrant" or not self.config.ready:
+            raise RuntimeError("Qdrant vector store 未就绪")
+        if not query_vector or top_k <= 0:
+            return {}
+        endpoint = f"{self.config.endpoint}/collections/{self.config.collection}/points/search"
+        payload = {
+            "vector": [float(value) for value in query_vector],
+            "limit": int(top_k),
+            "with_payload": True,
+            "filter": {
+                "should": [
+                    {"key": "country", "match": {"value": country}},
+                    {"key": "country", "match": {"value": "GLOBAL"}},
+                ]
+            },
+        }
+        response = self.transport(endpoint, payload, self.config.api_key)
+        results = response.get("result", ())
+        if not isinstance(results, list):
+            return {}
+        scores: dict[str, float] = {}
+        for item in results:
+            if not isinstance(item, dict):
+                continue
+            payload_obj = item.get("payload", {})
+            if not isinstance(payload_obj, dict):
+                continue
+            chunk_id = str(payload_obj.get("chunk_id", "")).strip()
+            if not chunk_id:
+                continue
+            raw_score = item.get("score", item.get("relevance_score", 0.0))
+            try:
+                scores[chunk_id] = float(raw_score)
+            except (TypeError, ValueError):
+                continue
+        return scores
+
+
+class QdrantVectorStoreRetriever:
+    provider_name = "qdrant"
+
+    def __init__(self, store: QdrantVectorStore):
+        self.store = store
+
+    def search(self, query_vector: tuple[float, ...], *, country: str, top_k: int) -> dict[str, float]:
+        return self.store.search(query_vector, country=country, top_k=top_k)
+
 
 @dataclass
 class RagRuntimeStats:
@@ -518,6 +568,9 @@ class LocalEmbeddingProvider:
     def similarities(self, query: str, texts: tuple[str, ...]) -> tuple[float, ...]:
         return tuple(self.similarity(query, text) for text in texts)
 
+    def query_vector(self, query: str) -> tuple[float, ...]:
+        return ()
+
 
 class LocalRerankProvider:
     provider_name = "local-rule-rerank"
@@ -607,6 +660,9 @@ class DashScopeEmbeddingProvider(LocalEmbeddingProvider):
 
     def _embedding(self, text: str) -> tuple[float, ...]:
         return self._embeddings_batch((text,))[0]
+
+    def query_vector(self, query: str) -> tuple[float, ...]:
+        return self._embedding(query)
 
     def _embeddings_batch(self, texts: tuple[str, ...]) -> tuple[tuple[float, ...], ...]:
         missing: list[str] = []
@@ -982,10 +1038,12 @@ class HybridRagRetriever:
         *,
         embedding_provider: LocalEmbeddingProvider | None = None,
         rerank_provider: LocalRerankProvider | None = None,
+        vector_store_retriever: QdrantVectorStoreRetriever | None = None,
     ):
         self.chunks = chunks
         self.embedding_provider = embedding_provider or LocalEmbeddingProvider()
         self.rerank_provider = rerank_provider or LocalRerankProvider()
+        self.vector_store_retriever = vector_store_retriever
         self._tokenized = {chunk.chunk_id: _tokens(chunk.text + " " + chunk.title) for chunk in chunks}
         self._doc_freq = self._document_frequency()
         self._avg_len = sum(len(tokens) for tokens in self._tokenized.values()) / max(len(self._tokenized), 1)
@@ -1033,6 +1091,7 @@ class HybridRagRetriever:
                 (),
                 0,
                 self.embedding_provider.provider_name,
+                self._vector_store_provider_name(),
                 self.rerank_provider.provider_name,
                 (),
             )
@@ -1042,12 +1101,14 @@ class HybridRagRetriever:
             for chunk in self.chunks
             if chunk.country in {country, "GLOBAL"} and (not allowed_sources or chunk.source_type in allowed_sources)
         )
-        vector_scores = self.embedding_provider.similarities(
+        local_vector_scores = self.embedding_provider.similarities(
             query,
             tuple(chunk.text + " " + chunk.title for chunk in eligible_chunks),
         )
+        remote_vector_scores = self._remote_vector_scores(query, country=country, top_k=vector_top_k)
         scored: list[tuple[RagChunk, float, float]] = []
-        for chunk, vector in zip(eligible_chunks, vector_scores):
+        for chunk, local_vector in zip(eligible_chunks, local_vector_scores):
+            vector = remote_vector_scores.get(chunk.chunk_id, local_vector)
             bm25 = self._bm25(query_tokens, chunk)
             scored.append((chunk, bm25, vector))
         candidates, bm25_ids, vector_ids, exact_ids = self._candidate_pool_with_routes(
@@ -1080,9 +1141,26 @@ class HybridRagRetriever:
             exact_match_candidates=tuple(exact_ids),
             merged_candidate_count=len(candidates),
             embedding_provider=self.embedding_provider.provider_name,
+            vector_store_provider=self._vector_store_provider_name(),
             rerank_provider=self.rerank_provider.provider_name,
             final_hits=tuple(ranked[:top_k]),
         )
+
+    def _remote_vector_scores(self, query: str, *, country: str, top_k: int) -> dict[str, float]:
+        if self.vector_store_retriever is None:
+            return {}
+        try:
+            query_vector = self.embedding_provider.query_vector(query)
+            if not query_vector:
+                return {}
+            return self.vector_store_retriever.search(query_vector, country=country, top_k=top_k)
+        except Exception:
+            return {}
+
+    def _vector_store_provider_name(self) -> str:
+        if self.vector_store_retriever is None:
+            return "local"
+        return self.vector_store_retriever.provider_name
 
     def _candidate_pool(
         self,

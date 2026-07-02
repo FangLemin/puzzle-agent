@@ -646,6 +646,7 @@ def render_rag_summary(summary: dict[str, object]) -> str:
     trace_text = (
         f"候选池 {trace.get('merged_candidate_count', 0)}；"
         f"eligible {trace.get('eligible_chunk_count', 0)}；"
+        f"向量库={trace.get('vector_store_provider', 'local')}；"
         f"BM25候选 {len(trace.get('bm25_candidates', ()) if isinstance(trace.get('bm25_candidates', ()), (tuple, list)) else ())}；"
         f"向量候选 {len(trace.get('vector_candidates', ()) if isinstance(trace.get('vector_candidates', ()), (tuple, list)) else ())}"
     )
@@ -668,13 +669,14 @@ def render_rag_summary(summary: dict[str, object]) -> str:
     citation_rows = render_rag_citation_details(summary.get("citation_details", ()))
     feedback = summary.get("feedback_summary", {})
     feedback_card = render_rag_feedback_summary(feedback if isinstance(feedback, dict) else {})
+    vector_store_search = "on" if summary.get("vector_store_search_enabled") else "off"
     return f"""
 <div class="rag-grid">
   <article><strong>父子知识块</strong><span>{escape(str(summary.get("chunk_count", 0)))} 个 chunk</span><small>{escape(source_text)}</small></article>
   <article><strong>多路召回</strong><span>BM25 + Embedding + Rerank</span><small>Embedding：{escape(embedding)}；Rerank：{escape(rerank)}。{escape(provider_status)}</small></article>
   <article><strong>引用依据</strong><span>{escape(citation_text or "暂无引用")}</span><small>{escape(context[:140] or "暂无召回上下文")}；{escape(stats)}</small></article>
   <article><strong>离线建库</strong><span>DocumentLoader + Chunk + Store</span><small>{escape(offline_pipeline)}</small></article>
-  <article><strong>在线检索</strong><span>Rewrite + Hybrid Recall + Rerank</span><small>{escape(online_pipeline[:220])}</small></article>
+  <article><strong>在线检索</strong><span>Rewrite + Hybrid Recall + Rerank</span><small>VectorStore search={escape(vector_store_search)}；{escape(online_pipeline[:220])}</small></article>
   <article><strong>RAG 检索评测</strong><span>hit@5 / mrr@5</span><small>{escape(eval_text)}；{escape(trace_text)}</small></article>
   <article><strong>版本化知识库</strong><span>Documents + Eval Cases</span><small>{escape(knowledge_text[:260])}</small></article>
   {feedback_card}
