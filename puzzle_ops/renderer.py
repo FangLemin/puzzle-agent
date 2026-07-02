@@ -877,7 +877,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
     observations = "".join(f"<li>{escape(item)}</li>" for item in trace.observations)
     return f"""
 <section class="panel">
-  <div class="section-line"><h2>Harness Dashboard</h2><div class="inline-actions"><form method="post" action="/export_harness_gold_skeleton">{context}<button>生成 Gold 骨架CSV</button></form><form method="post" action="/export_harness_overrides">{context}<button>导出人工修正CSV</button></form><form method="post" action="/export_harness_annotations">{context}<button>导出标注平台文件</button></form></div></div>
+  <div class="section-line"><h2>Harness Dashboard</h2><div class="inline-actions"><form method="post" action="/export_harness_gold_skeleton">{context}<button>生成 Gold 骨架CSV</button></form><form method="post" action="/export_harness_overrides">{context}<button>导出人工修正CSV</button></form><form method="post" action="/export_harness_annotations">{context}<button>导出标注平台文件</button></form><form method="post" action="/export_harness_external_eval">{context}<button>导出外部评测文件</button></form></div></div>
   <p>内置轻量 Harness：按真实样本与合成 demo 分开统计，批量运行 trial_parse_eval、value_match_eval、audit_eval、grade_predict_eval、derive_generation_eval 和 feishu_sync_eval。</p>
   <form class="harness-run-form" method="post" action="/run_harness">{context}<input type="hidden" name="run_real_models" value="1"><button class="primary">运行真实 VLM Harness</button><label><input type="checkbox" name="include_generation" value="1">包含付费生成评测</label><small>真实 VLM 会按图片样本调用模型并产生少量费用；默认不调用图像生成模型，勾选后会额外生成参考图。</small></form>
   {sync_message}

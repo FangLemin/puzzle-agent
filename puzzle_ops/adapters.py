@@ -37,6 +37,7 @@ class PhoenixExporter:
             "project_name": "puzzle_ops_agent_harness",
             "run_id": run.run_id,
             "dataset_name": run.dataset_name,
+            "rag_trace_artifacts": run.rag_trace_artifacts,
             "traces": [
                 {
                     "trace_id": f"{run.run_id}:{case.sample_id}:{case.task_type}",
@@ -46,6 +47,8 @@ class PhoenixExporter:
                     "tool_calls": case.tool_calls,
                     "scores": case.scores,
                     "failure_reasons": case.failure_reasons,
+                    "rag_trace_id": _case_rag_trace(case).get("rag_trace_id", ""),
+                    "rag_trace_path": _case_rag_trace(case).get("rag_trace_path", ""),
                 }
                 for case in run.cases
             ],
@@ -76,6 +79,11 @@ class PromptfooExporter:
             "description": f"PuzzleOps prompt/model comparison for {run.dataset_name}",
             "providers": ["qwen-vl", "openai-compatible-vlm"],
             "prompts": ["trial_parse_prompt", "value_match_prompt", "audit_prompt"],
+            "metadata": {
+                "run_id": run.run_id,
+                "dataset_name": run.dataset_name,
+                "rag_trace_artifacts": run.rag_trace_artifacts,
+            },
             "tests": [
                 {
                     "vars": case.input_payload,
@@ -116,3 +124,8 @@ class LabelStudioExporter(ArgillaExporter):
         payload = super().export(run)
         payload["project"] = "PuzzleOps HITL Label Studio"
         return payload
+
+
+def _case_rag_trace(case) -> dict[str, object]:
+    evidence = getattr(case, "evidence_trace", {})
+    return evidence if isinstance(evidence, dict) else {}

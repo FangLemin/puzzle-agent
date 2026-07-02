@@ -813,6 +813,8 @@ def test_eval_page_has_harness_override_export_action():
     assert "导出人工修正CSV" in html
     assert 'action="/export_harness_annotations"' in html
     assert "导出标注平台文件" in html
+    assert 'action="/export_harness_external_eval"' in html
+    assert "导出外部评测文件" in html
 
 
 def test_eval_page_is_read_only_until_explicit_harness_run(tmp_path):

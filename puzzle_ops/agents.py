@@ -9,7 +9,7 @@ from tempfile import gettempdir
 import uuid
 
 from puzzle_ops.data import COUNTRIES, SYNC_ROWS
-from puzzle_ops.adapters import MCPToolAdapter
+from puzzle_ops.adapters import DeepEvalAdapter, MCPToolAdapter, PhoenixExporter, PromptfooExporter
 from puzzle_ops.audit import AuditPolicyRetriever, AuditRuleEngine
 from puzzle_ops.cms import MockCMSClient
 from puzzle_ops.excel_importer import import_history_workbook
@@ -1373,6 +1373,24 @@ class PuzzleOpsAgent:
         label_studio_path.write_text(json.dumps(label_payload, ensure_ascii=False, indent=2), encoding="utf-8")
         return {"argilla": argilla_path, "label_studio": label_studio_path}
 
+    def export_harness_external_eval_artifacts(self, country: str, output_dir: Path | str) -> dict[str, Path]:
+        output = Path(output_dir)
+        output.mkdir(parents=True, exist_ok=True)
+        run = self.latest_harness_run(country) or self.harness_run(country, save=True)
+        paths = {
+            "phoenix": output / f"phoenix_harness_{country}.json",
+            "promptfoo": output / f"promptfoo_harness_{country}.json",
+            "deepeval": output / f"deepeval_harness_{country}.json",
+        }
+        payloads = {
+            "phoenix": PhoenixExporter().export(run),
+            "promptfoo": PromptfooExporter().export(run),
+            "deepeval": DeepEvalAdapter().export(run),
+        }
+        for key, path in paths.items():
+            path.write_text(json.dumps(payloads[key], ensure_ascii=False, indent=2), encoding="utf-8")
+        return paths
+
     def _harness_override_map(self, country: str) -> dict[tuple[str, str], str]:
         overrides: dict[tuple[str, str], str] = {}
         for memory in self.hitl_memories(country):
@@ -1508,7 +1526,15 @@ class PuzzleOpsAgent:
         )
 
     def harness_display_run(self, country: str):
-        return self.latest_harness_run(country) or self.harness_run(country, save=False)
+        latest = self.latest_harness_run(country)
+        if latest is not None and self._harness_run_matches_current_samples(country, latest):
+            return latest
+        return self.harness_run(country, save=False)
+
+    def _harness_run_matches_current_samples(self, country: str, run) -> bool:
+        current_ids = {sample.sample_id for sample in self.harness_samples(country)}
+        run_ids = {case.sample_id for case in run.cases}
+        return bool(current_ids) and bool(run_ids) and run_ids.issubset(current_ids)
 
     def harness_summary(self, country: str) -> dict[str, object]:
         harness = AgentHarness(self, self.image_generator)

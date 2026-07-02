@@ -724,8 +724,27 @@ def test_harness_external_adapters_export_open_source_payloads():
     argilla = ArgillaExporter().export(run)
 
     assert phoenix["project_name"] == "puzzle_ops_agent_harness"
+    assert "rag_trace_artifacts" in phoenix
     assert phoenix["traces"][0]["span_name"] in {"trial_parse_eval", "value_match_eval", "audit_eval", "grade_predict_eval", "derive_generation_eval", "feishu_sync_eval"}
     assert deepeval["test_cases"][0]["input"]
     assert "assert" in deepeval["pytest_hint"]
     assert promptfoo["providers"] == ["qwen-vl", "openai-compatible-vlm"]
     assert argilla["records"][0]["fields"]["sample_id"] == "syn-001"
+
+
+def test_harness_external_adapters_include_rag_trace_artifacts():
+    sample = EvalSample.synthetic_demo(
+        sample_id="syn-001",
+        country="日本",
+        operation_tag="常规_日本_猫咪鲤鱼0609",
+        subject="猫咪鲤鱼",
+        gold_grade="B",
+    )
+    run = AgentHarness(PuzzleOpsAgent()).run((sample,), dataset_name="demo-set", version="0.4.4")
+
+    phoenix = PhoenixExporter().export(run)
+    promptfoo = PromptfooExporter().export(run)
+
+    assert phoenix["rag_trace_artifacts"][0]["trace_path"]
+    assert phoenix["traces"][0]["rag_trace_path"] or phoenix["traces"][1]["rag_trace_path"]
+    assert promptfoo["metadata"]["rag_trace_artifacts"][0]["trace_id"]

@@ -1490,6 +1490,22 @@ def test_harness_run_links_rag_trace_artifacts_for_replay(tmp_path):
     assert value_case.evidence_trace["rag_trace_path"] == artifact["trace_path"]
 
 
+def test_agent_exports_harness_external_eval_artifacts(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "external_eval.db"))
+    agent._runtime_dir = tmp_path
+    agent.harness_run("日本", save=True)
+
+    paths = agent.export_harness_external_eval_artifacts("日本", tmp_path / "external_eval")
+
+    assert paths["phoenix"].name == "phoenix_harness_日本.json"
+    assert paths["promptfoo"].name == "promptfoo_harness_日本.json"
+    assert paths["deepeval"].name == "deepeval_harness_日本.json"
+    phoenix = json.loads(paths["phoenix"].read_text(encoding="utf-8"))
+    promptfoo = json.loads(paths["promptfoo"].read_text(encoding="utf-8"))
+    assert phoenix["rag_trace_artifacts"][0]["trace_path"]
+    assert promptfoo["metadata"]["rag_trace_artifacts"][0]["trace_id"]
+
+
 def test_agent_exports_value_audit_rag_offline_artifacts(tmp_path):
     agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "rag_artifacts.db"))
 

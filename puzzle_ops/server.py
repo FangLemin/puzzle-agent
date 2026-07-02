@@ -522,6 +522,12 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         state.sync_message = f"已导出标注平台文件：Argilla={paths['argilla']}；Label Studio={paths['label_studio']}"
         state.sync_url = ""
         state.view = "eval"
+    elif path == "/export_harness_external_eval":
+        output_dir = agent._runtime_dir / "harness_external_eval_exports"
+        paths = agent.export_harness_external_eval_artifacts(state.country, output_dir)
+        state.sync_message = f"已导出外部评测文件：Phoenix={paths['phoenix']}；Promptfoo={paths['promptfoo']}；DeepEval={paths['deepeval']}"
+        state.sync_url = ""
+        state.view = "eval"
     return None
 
 

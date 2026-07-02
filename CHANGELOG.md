@@ -2,6 +2,46 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.4.5 - External Eval Exporters for Harness
+
+日期：2026-07-02
+
+阶段目标：
+
+- 把内置轻量 Harness 的 run、case、RAG trace artifacts 导出为 Phoenix / Promptfoo / DeepEval 可消费的本地文件。
+- 保持“不强依赖外部服务”的双层设计：本地 Harness 稳定运行，同时预留外部 Agent Eval 工具链。
+
+已完成：
+
+- Adapter payload 增强：
+  - `PhoenixExporter` 新增 run 级 `rag_trace_artifacts`。
+  - Phoenix trace span 新增 case 级 `rag_trace_id` 与 `rag_trace_path`。
+  - `PromptfooExporter` 新增 `metadata.rag_trace_artifacts`。
+- Agent 导出：
+  - 新增 `export_harness_external_eval_artifacts(country, output_dir)`。
+  - 写出 `phoenix_harness_<country>.json`、`promptfoo_harness_<country>.json`、`deepeval_harness_<country>.json`。
+- Eval 页面与 server action：
+  - 新增 `/export_harness_external_eval`。
+  - Harness Dashboard 新增 `导出外部评测文件` 按钮。
+  - 同步消息返回 Phoenix / Promptfoo / DeepEval 文件路径。
+- 稳定性修复：
+  - `harness_display_run()` 会检查最新保存 run 的 sample_id 是否匹配当前数据集。
+  - 切换 `PUZZLEOPS_HARNESS_DATASET` 后不会误展示旧 run 的失败样本。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_harness.py::test_harness_external_adapters_include_rag_trace_artifacts tests/test_agents.py::test_agent_exports_harness_external_eval_artifacts tests/test_server.py::test_export_harness_external_eval_action_writes_eval_tool_files tests/test_renderer.py::test_eval_page_has_harness_override_export_action -q`：先因 adapter 缺少 RAG artifacts、agent/server/页面导出入口缺失失败。
+- 定向验证：
+  - 上述 4 项测试：4 passed。
+  - `PYTHONPATH=. pytest tests/test_renderer.py::test_eval_failure_samples_show_image_gold_label_and_hitl_form tests/test_harness.py::test_harness_external_adapters_include_rag_trace_artifacts tests/test_agents.py::test_agent_exports_harness_external_eval_artifacts tests/test_server.py::test_export_harness_external_eval_action_writes_eval_tool_files tests/test_renderer.py::test_eval_page_has_harness_override_export_action -q`：5 passed。
+  - `PYTHONPATH=. pytest tests/test_harness.py tests/test_agents.py tests/test_server.py tests/test_renderer.py tests/test_external_adapters.py -q`：228 passed。
+
+当前限制：
+
+- 当前导出的是本地 JSON 文件，不会直接调用 Phoenix / Promptfoo / DeepEval 服务或 CLI。
+- Promptfoo 使用 JSON config 形态，后续如需直接给 CLI 使用，可再增加 YAML 输出。
+
 ## v0.4.4 - Harness RAG Trace Artifacts
 
 日期：2026-07-02

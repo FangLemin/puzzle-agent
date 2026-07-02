@@ -950,6 +950,25 @@ def test_export_harness_annotations_action_writes_label_tool_files():
     assert (export_dir / "label_studio_harness_日本.json").exists()
 
 
+def test_export_harness_external_eval_action_writes_eval_tool_files():
+    APP.state = AppState(country="日本", view="eval")
+
+    handle_action(
+        "/export_harness_external_eval",
+        {
+            "country": ["日本"],
+            "view": ["eval"],
+        },
+    )
+
+    assert APP.state.view == "eval"
+    assert "已导出外部评测文件" in APP.state.sync_message
+    export_dir = APP.agent._runtime_dir / "harness_external_eval_exports"
+    assert (export_dir / "phoenix_harness_日本.json").exists()
+    assert (export_dir / "promptfoo_harness_日本.json").exists()
+    assert (export_dir / "deepeval_harness_日本.json").exists()
+
+
 def test_save_harness_gold_label_action_updates_dataset_and_memory(monkeypatch, tmp_path):
     image_path = tmp_path / "real-sushi.png"
     image_path.write_bytes(b"fake-png")
