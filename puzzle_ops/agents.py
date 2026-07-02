@@ -916,6 +916,7 @@ class PuzzleOpsAgent:
         store = vector_store or QdrantVectorStore(self.rag_vector_store_config)
         output = Path(output_dir)
         summary_path = output / f"rag_acceptance_full_summary_{country}.json"
+        preflight = self._rag_acceptance_preflight(embedding, rerank, store)
         try:
             reindex = self.reindex_rag_qdrant_from_raw(
                 country,
@@ -931,6 +932,7 @@ class PuzzleOpsAgent:
                 embedding_provider=embedding,
                 rerank_provider=rerank,
                 vector_store=store,
+                preflight=preflight,
             )
         documents = StaticDocumentLoaderAdapter(self._rag_documents(country)).load()
         chunks = tuple(_rag_chunk_from_row(row) for row in self.repository.rag_chunks(country))
@@ -964,6 +966,7 @@ class PuzzleOpsAgent:
                 rerank_provider=rerank,
                 vector_store=store,
                 reindex=reindex,
+                preflight=preflight,
             )
         status = "passed" if reindex.get("status") == "indexed" and report.get("passed_threshold") else "failed"
         result = {
@@ -972,6 +975,7 @@ class PuzzleOpsAgent:
             "reindex": reindex,
             "report_path": str(path),
             "report": report,
+            "preflight": preflight,
             "failure_stage": "" if status == "passed" else "hit_rate_threshold",
             "error": "" if status == "passed" else "RAG hit@5 未达到阈值或 Qdrant reindex 未完成 indexed 状态",
             "diagnostics": self._rag_acceptance_diagnostics(
@@ -998,6 +1002,7 @@ class PuzzleOpsAgent:
         rerank_provider,
         vector_store,
         reindex: dict[str, object] | None = None,
+        preflight: dict[str, object] | None = None,
     ) -> dict[str, object]:
         result = {
             "status": "failed",
@@ -1007,6 +1012,7 @@ class PuzzleOpsAgent:
             "reindex": reindex or {},
             "report_path": "",
             "report": {},
+            "preflight": preflight or {},
             "diagnostics": self._rag_acceptance_diagnostics(
                 embedding_provider=embedding_provider,
                 rerank_provider=rerank_provider,
@@ -1021,6 +1027,16 @@ class PuzzleOpsAgent:
         summary_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
         result["summary_path"] = str(summary_path)
         return result
+
+    def _rag_acceptance_preflight(self, embedding_provider, rerank_provider, vector_store) -> dict[str, object]:
+        return {
+            "embedding": _provider_healthcheck(
+                embedding_provider,
+                fallback=lambda: _embedding_provider_smoke(embedding_provider),
+            ),
+            "qdrant": _provider_healthcheck(vector_store),
+            "rerank": _provider_healthcheck(rerank_provider),
+        }
 
     def _rag_acceptance_diagnostics(
         self,
@@ -2535,6 +2551,37 @@ def _failure_component_for_stage(stage: str) -> str:
     if "embedding" in stage:
         return "embedding"
     return "hit_rate"
+
+
+def _provider_healthcheck(provider, fallback=None) -> dict[str, object]:
+    name = getattr(provider, "provider_name", provider.__class__.__name__)
+    try:
+        healthcheck = getattr(provider, "healthcheck", None)
+        if callable(healthcheck):
+            status = healthcheck()
+        elif fallback is not None:
+            status = fallback()
+        else:
+            status = {"provider": name, "ready": True, "configured": True}
+    except Exception as exc:
+        return {"provider": name, "ready": False, "configured": True, "error": str(exc)}
+    if not isinstance(status, dict):
+        return {"provider": name, "ready": False, "configured": True, "error": "healthcheck returned non-dict"}
+    status = dict(status)
+    status.setdefault("provider", name)
+    status.setdefault("ready", bool(status.get("configured", True)))
+    return status
+
+
+def _embedding_provider_smoke(provider) -> dict[str, object]:
+    name = getattr(provider, "provider_name", provider.__class__.__name__)
+    vector = provider.query_vector("寿司价值观")
+    return {
+        "provider": name,
+        "ready": bool(vector),
+        "configured": True,
+        "probe_vector_dim": len(vector) if vector else 0,
+    }
 
 
 def _rag_hit_trace_payload(hit) -> dict[str, object]:

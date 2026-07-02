@@ -378,12 +378,14 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         report = result.get("report", {}) if isinstance(result.get("report"), dict) else {}
         observed = report.get("observed_retrieval", {}) if isinstance(report.get("observed_retrieval"), dict) else {}
         stats = report.get("runtime_stats", {}) if isinstance(report.get("runtime_stats"), dict) else {}
+        preflight = result.get("preflight", {}) if isinstance(result.get("preflight"), dict) else {}
         state.sync_message = (
             "RAG 工业全链路验收完成："
             f"status={result.get('status')}；stage={result.get('failure_stage', '')}；"
             f"error={result.get('error', '')}；points={reindex.get('upserted_points', 0)}；"
             f"vector_size={reindex.get('vector_size', 0)}；hit@5={report.get('hit@5', 0)}；"
             f"mrr@5={report.get('mrr@5', 0)}；qdrant_hit={observed.get('qdrant_vector_hits', False)}；"
+            f"preflight={_rag_preflight_summary(preflight)}；"
             f"embedding_remote={stats.get('embedding_remote_calls', 0)}；rerank_remote={stats.get('rerank_remote_calls', 0)}；"
             f"report={result.get('report_path', '')}"
         )
@@ -736,6 +738,14 @@ def _demand_row_payload(row) -> dict[str, object]:
         payload["_reference_image_content_type"] = row.reference_image_content_type or "image/png"
         payload["_reference_image_syncable"] = row.reference_image_syncable
     return payload
+
+
+def _rag_preflight_summary(preflight: dict[str, object]) -> str:
+    parts = []
+    for key in ("embedding", "qdrant", "rerank"):
+        status = preflight.get(key, {}) if isinstance(preflight.get(key), dict) else {}
+        parts.append(f"{key}:{status.get('ready', False)}")
+    return ",".join(parts)
 
 
 def run(host: str = "127.0.0.1", port: int = 5188) -> None:

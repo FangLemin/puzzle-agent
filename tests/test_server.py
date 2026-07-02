@@ -1337,6 +1337,11 @@ def test_run_full_rag_acceptance_action_reports_reindex_and_hit_rate(monkeypatch
             "report_path": str(output_dir / "rag_acceptance_full_日本.json"),
             "summary_path": str(output_dir / "rag_acceptance_full_summary_日本.json"),
             "reindex": {"status": "indexed", "upserted_points": 8, "vector_size": 1024},
+            "preflight": {
+                "embedding": {"ready": True},
+                "qdrant": {"ready": True},
+                "rerank": {"ready": True},
+            },
             "report": {
                 "hit@5": 1.0,
                 "mrr@5": 0.9,
@@ -1355,6 +1360,7 @@ def test_run_full_rag_acceptance_action_reports_reindex_and_hit_rate(monkeypatch
     assert "points=8" in APP.state.sync_message
     assert "hit@5=1.0" in APP.state.sync_message
     assert "qdrant_hit=True" in APP.state.sync_message
+    assert "preflight=embedding:True,qdrant:True,rerank:True" in APP.state.sync_message
 
 
 def test_run_full_rag_acceptance_action_reports_failure_stage(monkeypatch):

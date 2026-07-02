@@ -1805,6 +1805,9 @@ knowledge_version: unit-test
             self.stats.embedding_remote_calls += 1
             return tuple(0.9 if "寿司" in text else 0.1 for text in texts)
 
+        def healthcheck(self):
+            return {"provider": "dashscope", "ready": True, "model": "text-embedding-v4", "probe_vector_dim": 3}
+
     class FakeQdrantStore:
         provider_name = "qdrant"
 
@@ -1821,6 +1824,9 @@ knowledge_version: unit-test
         def search(self, query_vector, *, country, top_k):
             assert self.points
             return {str(self.points[0].payload["chunk_id"]): 0.99}
+
+        def healthcheck(self):
+            return {"provider": "qdrant", "ready": True, "exists": True, "vector_size": 3}
 
     def fake_rerank_transport(query, documents, api_key, endpoint, model):
         return {"results": [{"index": index, "relevance_score": 0.96 - index * 0.01} for index, _ in enumerate(documents)]}
@@ -1850,8 +1856,12 @@ knowledge_version: unit-test
     assert result["report"]["observed_retrieval"]["qdrant_vector_hits"] is True
     assert result["report"]["runtime_stats"]["embedding_remote_calls"] >= 1
     assert result["report"]["runtime_stats"]["rerank_remote_calls"] >= 1
+    assert result["preflight"]["embedding"]["ready"] is True
+    assert result["preflight"]["qdrant"]["ready"] is True
+    assert result["preflight"]["rerank"]["ready"] is True
     assert Path(result["report_path"]).exists()
-    assert Path(result["summary_path"]).exists()
+    summary = json.loads(Path(result["summary_path"]).read_text(encoding="utf-8"))
+    assert summary["preflight"]["embedding"]["probe_vector_dim"] == 3
 
 
 def test_agent_full_rag_acceptance_returns_diagnostics_when_qdrant_fails(monkeypatch, tmp_path):

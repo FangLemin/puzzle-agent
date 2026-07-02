@@ -2,6 +2,39 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.5.2 - RAG Preflight Checks
+
+日期：2026-07-03
+
+阶段目标：
+
+- 在“一键RAG全链路验收”里加入前置检查，先确认 Qwen embedding、Qdrant、BGE rerank 是否就绪。
+- 让报告和页面消息能区分“服务未就绪”和“检索质量未达标”。
+
+已完成：
+
+- Agent：
+  - `run_full_rag_industrial_acceptance()` 新增 `preflight`。
+  - `preflight.embedding` 优先调用 provider `healthcheck()`；无 healthcheck 时用 `query_vector("寿司价值观")` 做 smoke。
+  - `preflight.qdrant` 调用 Qdrant store `healthcheck()`。
+  - `preflight.rerank` 调用 BGE/DashScope reranker `healthcheck()`。
+  - 成功和失败 summary 都会保留 `preflight`。
+- Server：
+  - `/run_full_rag_acceptance` 同步消息新增 preflight 摘要，如 `preflight=embedding:True,qdrant:True,rerank:True`。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_runs_full_rag_industrial_acceptance_with_qdrant_and_bge -q`：先因缺少 `preflight` 失败。
+  - `PYTHONPATH=. pytest tests/test_server.py::test_run_full_rag_acceptance_action_reports_reindex_and_hit_rate -q`：先因同步消息缺少 preflight 摘要失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_server.py::test_run_full_rag_acceptance_action_reports_reindex_and_hit_rate tests/test_server.py::test_run_full_rag_acceptance_action_reports_failure_stage tests/test_agents.py::test_agent_runs_full_rag_industrial_acceptance_with_qdrant_and_bge tests/test_agents.py::test_agent_full_rag_acceptance_returns_diagnostics_when_qdrant_fails -q`：4 passed。
+
+当前限制：
+
+- preflight 会尽量调用真实 provider 的 healthcheck；是否产生远程调用取决于 provider 实现和 `.env` 配置。
+- 后续可继续把 preflight 结果渲染成页面卡片，而不仅显示在同步消息和 JSON 报告中。
+
 ## v0.5.1 - Full RAG Failure Diagnostics
 
 日期：2026-07-03
