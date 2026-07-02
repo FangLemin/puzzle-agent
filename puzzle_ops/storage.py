@@ -349,6 +349,7 @@ class PuzzleRepository:
             payload = json.loads(row["payload"])
             cases = tuple(HarnessCaseResult(**case) for case in payload["cases"])
             failures = tuple(HarnessCaseResult(**case) for case in payload["failures"])
+            rag_trace_artifacts = tuple(_normalize_harness_rag_artifact(item) for item in payload.get("rag_trace_artifacts", ()))
             runs.append(
                 HarnessRun(
                     run_id=payload["run_id"],
@@ -363,6 +364,7 @@ class PuzzleRepository:
                     country=payload.get("country", ""),
                     execution_mode=payload.get("execution_mode", "offline"),
                     metric_evaluable_counts=payload.get("metric_evaluable_counts", {}),
+                    rag_trace_artifacts=rag_trace_artifacts,
                 )
             )
         return tuple(runs)
@@ -483,3 +485,13 @@ def _decode_metadata(item: dict[str, object]) -> dict[str, object]:
 
 def _text_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _normalize_harness_rag_artifact(item: object) -> dict[str, object]:
+    if not isinstance(item, dict):
+        return {}
+    normalized = dict(item)
+    citations = normalized.get("citations", ())
+    if isinstance(citations, list):
+        normalized["citations"] = tuple(str(citation) for citation in citations)
+    return normalized

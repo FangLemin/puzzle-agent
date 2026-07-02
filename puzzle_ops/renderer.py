@@ -858,6 +858,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
     )
     generation_failure_rows = render_generation_failure_distribution(agent.generation_events(state.country))
     case_evidence_rows = render_harness_case_evidence_rows(harness_run.cases)
+    rag_artifact_rows = render_harness_rag_artifact_rows(harness_run.rag_trace_artifacts)
     failure_category_rows = render_harness_failure_categories(harness_run.failures)
     compare_rows = "".join(
         f"<tr><td>{escape(key)}</td><td>{escape(value)}</td></tr>"
@@ -918,9 +919,10 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
 </section>
 <section class="panel"><h2>生成失败类型分布</h2><div class="table-wrap"><table><thead><tr><th>错误类型</th><th>次数</th><th>处理建议</th></tr></thead><tbody>{generation_failure_rows}</tbody></table></div></section>
 <section class="grid two">
-  <div class="panel"><h2>Case 证据链</h2><div class="table-wrap"><table><thead><tr><th>样本/任务</th><th>RAG 引用</th><th>视觉证据</th><th>Memory 证据</th></tr></thead><tbody>{case_evidence_rows}</tbody></table></div></div>
+  <div class="panel"><h2>Case 证据链</h2><div class="table-wrap"><table><thead><tr><th>样本/任务</th><th>RAG 引用</th><th>RAG Trace</th><th>视觉证据</th><th>Memory 证据</th></tr></thead><tbody>{case_evidence_rows}</tbody></table></div></div>
   <div class="panel"><h2>失败分类</h2><div class="table-wrap"><table><thead><tr><th>分类</th><th>次数</th></tr></thead><tbody>{failure_category_rows}</tbody></table></div></div>
 </section>
+<section class="panel"><h2>Harness RAG Artifacts</h2><div class="table-wrap"><table><thead><tr><th>国家</th><th>Trace</th><th>Query</th><th>引用</th><th>文件</th></tr></thead><tbody>{rag_artifact_rows}</tbody></table></div></section>
 <section class="metrics">{metric_cards}</section>
 <section class="panel">
   <h2>任务目标</h2>
@@ -1041,17 +1043,40 @@ def render_harness_case_evidence_rows(cases) -> str:
         evidence = case.evidence_trace if isinstance(case.evidence_trace, dict) else {}
         citations = evidence.get("rag_citations", ())
         citation_text = "、".join(str(item) for item in citations) if isinstance(citations, (list, tuple)) else str(citations)
+        rag_trace = str(evidence.get("rag_trace_path", "") or evidence.get("rag_trace_id", "") or "")
         memories = evidence.get("memory_evidence", ())
         memory_text = "；".join(str(item) for item in memories) if isinstance(memories, (list, tuple)) else str(memories)
         rows.append(
             "<tr>"
             f"<td>{escape(case.sample_id)}<br><small>{escape(case.task_type)}</small></td>"
             f"<td>{escape(citation_text or '无引用')}</td>"
+            f"<td>{escape(rag_trace or '未记录')}</td>"
             f"<td>{escape(str(evidence.get('visual_evidence', '未记录')))}</td>"
             f"<td>{escape(memory_text or '未使用')}</td>"
             "</tr>"
         )
-    return "".join(rows) or '<tr><td colspan="4">暂无 case trace。</td></tr>'
+    return "".join(rows) or '<tr><td colspan="5">暂无 case trace。</td></tr>'
+
+
+def render_harness_rag_artifact_rows(artifacts) -> str:
+    if not isinstance(artifacts, (list, tuple)) or not artifacts:
+        return '<tr><td colspan="5">暂无 Harness RAG artifacts。</td></tr>'
+    rows = []
+    for item in artifacts:
+        if not isinstance(item, dict):
+            continue
+        citations = item.get("citations", ())
+        citation_text = "、".join(str(citation) for citation in citations[:6]) if isinstance(citations, (list, tuple)) else str(citations)
+        rows.append(
+            "<tr>"
+            f"<td>{escape(str(item.get('country', '')))}</td>"
+            f"<td>{escape(str(item.get('trace_id', '')))}</td>"
+            f"<td>{escape(str(item.get('original_query', ''))[:180])}</td>"
+            f"<td>{escape(citation_text or '无')}</td>"
+            f"<td>{escape(str(item.get('trace_path', '')))}</td>"
+            "</tr>"
+        )
+    return "".join(rows) or '<tr><td colspan="5">暂无 Harness RAG artifacts。</td></tr>'
 
 
 def render_harness_failure_categories(failures) -> str:

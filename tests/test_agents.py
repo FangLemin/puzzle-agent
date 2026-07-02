@@ -1471,6 +1471,25 @@ def test_agent_persists_value_audit_rag_trace_for_replay(tmp_path):
     assert Path(str(latest["trace_path"])).exists()
 
 
+def test_harness_run_links_rag_trace_artifacts_for_replay(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "harness_rag_trace.db"))
+    agent._runtime_dir = tmp_path
+
+    run = agent.harness_run("日本", save=True)
+    saved = agent.latest_harness_run("日本")
+
+    assert run.rag_trace_artifacts
+    assert saved is not None
+    assert saved.rag_trace_artifacts == run.rag_trace_artifacts
+    artifact = run.rag_trace_artifacts[0]
+    assert artifact["country"] == "日本"
+    assert artifact["trace_path"]
+    assert Path(str(artifact["trace_path"])).exists()
+    assert artifact["citations"]
+    value_case = next(case for case in run.cases if case.task_type == "value_match_eval")
+    assert value_case.evidence_trace["rag_trace_path"] == artifact["trace_path"]
+
+
 def test_agent_exports_value_audit_rag_offline_artifacts(tmp_path):
     agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "rag_artifacts.db"))
 

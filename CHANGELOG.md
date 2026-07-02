@@ -2,6 +2,41 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.4.4 - Harness RAG Trace Artifacts
+
+日期：2026-07-02
+
+阶段目标：
+
+- 把 v0.4.3 的本地 RAG trace 文件纳入 Harness run artifacts。
+- 让一次 Harness 评测 run 可以回放它使用过的 RAG query、prompt、引用和检索 trace，强化“可评测、可回放、可复盘”的 Agent Harness 主线。
+
+已完成：
+
+- Harness run artifacts：
+  - `HarnessRun` 新增 `rag_trace_artifacts`。
+  - `AgentHarness._prepare_run_rag_evidence()` 在准备每个国家的 RAG evidence 后，记录最近一次 `rag_trace_*.json` 的 trace id、query、引用和文件路径。
+  - `value_match_eval` 的 `evidence_trace` 新增 `rag_trace_id` 与 `rag_trace_path`。
+- 持久化兼容：
+  - `PuzzleRepository.save_harness_run()` 自动保存新增字段。
+  - `PuzzleRepository.harness_runs()` 读取旧 run 时保持兼容，读取新 run 时规整 `citations` 为 tuple。
+- Eval 页面：
+  - `Case 证据链` 新增 `RAG Trace` 列。
+  - 新增 `Harness RAG Artifacts` 表格，展示国家、trace id、query、引用和 trace JSON 文件路径。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_harness_run_links_rag_trace_artifacts_for_replay tests/test_renderer.py::test_eval_page_shows_case_evidence_trace_and_failure_categories -q`：先因 `HarnessRun` 缺少 `rag_trace_artifacts`、页面缺少 RAG Trace/Harness Artifacts 展示失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_harness_run_links_rag_trace_artifacts_for_replay tests/test_renderer.py::test_eval_page_shows_case_evidence_trace_and_failure_categories -q`：2 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py tests/test_harness.py -q`：142 passed。
+
+当前限制：
+
+- Artifact 已进入 Harness run，但页面还只是展示文件路径，没有在页面内展开完整 prompt/request/response。
+- 还未导出 Phoenix/Promptfoo/DeepEval 兼容格式。
+
 ## v0.4.3 - RAG Online Trace Replay
 
 日期：2026-07-02

@@ -200,6 +200,7 @@ class HarnessRun:
     country: str = ""
     execution_mode: str = "offline"
     metric_evaluable_counts: dict[str, int] = field(default_factory=dict)
+    rag_trace_artifacts: tuple[dict[str, object], ...] = ()
 
 
 class AgentHarness:
@@ -209,6 +210,7 @@ class AgentHarness:
         self.execute_model_calls = execute_model_calls
         self.execute_generation = bool(generator_provider) if execute_generation is None else execute_generation
         self._run_rag_evidence: dict[str, object] = {}
+        self._run_rag_trace_artifacts: dict[str, dict[str, object]] = {}
         self._vision_results: dict[str, object] = {}
         self._vision_errors: dict[str, str] = {}
 
@@ -280,6 +282,7 @@ class AgentHarness:
             country=samples[0].country if samples else "",
             execution_mode=self._execution_mode(),
             metric_evaluable_counts=_metric_evaluable_counts(tuple(cases)),
+            rag_trace_artifacts=tuple(self._run_rag_trace_artifacts.values()),
         )
 
     def _prepare_run_rag_evidence(self, samples: tuple[EvalSample, ...]) -> None:
@@ -295,6 +298,17 @@ class AgentHarness:
                     top_k=6,
                     provider_config=None if self.execute_model_calls else RagProviderConfig(),
                 )
+                traces = self.agent.recent_rag_traces(country, limit=1)
+                if traces:
+                    latest = traces[0]
+                    self._run_rag_trace_artifacts[country] = {
+                        "country": country,
+                        "trace_id": latest.get("trace_id", ""),
+                        "trace_path": latest.get("trace_path", ""),
+                        "original_query": latest.get("original_query", query),
+                        "rewritten_query": latest.get("rewritten_query", ""),
+                        "citations": latest.get("citations", ()),
+                    }
             except (RuntimeError, ValueError):
                 continue
 
@@ -375,6 +389,7 @@ class AgentHarness:
         actual_subject = str(getattr(semantic, "subject", "") or sample.subject)
         visual_evidence = f"主体={actual_subject or '未解析'}；图片={sample.local_image_path or '未提供真实图片'}"
         rag_answer = self._run_rag_evidence.get(sample.country)
+        rag_trace = self._run_rag_trace_artifacts.get(sample.country, {})
         try:
             if rag_answer is None:
                 raise ValueError("本次 Harness Run 没有可用 RAG 证据")
@@ -459,6 +474,8 @@ class AgentHarness:
                 "visual_evidence": visual_evidence,
                 "rag_citations": rag_citations,
                 "rag_context": rag_context,
+                "rag_trace_id": rag_trace.get("trace_id", ""),
+                "rag_trace_path": rag_trace.get("trace_path", ""),
                 "memory_evidence": memory_evidence,
             },
             failure_categories=tuple(failure_categories),

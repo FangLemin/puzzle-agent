@@ -775,6 +775,8 @@ def test_eval_page_shows_case_evidence_trace_and_failure_categories():
 
     assert "Case 证据链" in html
     assert "RAG 引用" in html
+    assert "RAG Trace" in html
+    assert "Harness RAG Artifacts" in html
     assert "Memory 证据" in html
     assert "失败分类" in html
 
