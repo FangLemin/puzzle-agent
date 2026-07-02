@@ -371,6 +371,23 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         )
         state.sync_url = ""
         state.view = "runtime"
+    elif path == "/run_full_rag_acceptance":
+        output_dir = agent._runtime_dir / "rag_acceptance_reports"
+        result = agent.run_full_rag_industrial_acceptance(state.country, output_dir)
+        reindex = result.get("reindex", {}) if isinstance(result.get("reindex"), dict) else {}
+        report = result.get("report", {}) if isinstance(result.get("report"), dict) else {}
+        observed = report.get("observed_retrieval", {}) if isinstance(report.get("observed_retrieval"), dict) else {}
+        stats = report.get("runtime_stats", {}) if isinstance(report.get("runtime_stats"), dict) else {}
+        state.sync_message = (
+            "RAG 工业全链路验收完成："
+            f"status={result.get('status')}；points={reindex.get('upserted_points', 0)}；"
+            f"vector_size={reindex.get('vector_size', 0)}；hit@5={report.get('hit@5', 0)}；"
+            f"mrr@5={report.get('mrr@5', 0)}；qdrant_hit={observed.get('qdrant_vector_hits', False)}；"
+            f"embedding_remote={stats.get('embedding_remote_calls', 0)}；rerank_remote={stats.get('rerank_remote_calls', 0)}；"
+            f"report={result.get('report_path', '')}"
+        )
+        state.sync_url = ""
+        state.view = "runtime"
     elif path == "/qdrant_smoke_diagnostic":
         try:
             result = agent.run_qdrant_smoke_diagnostic(state.country)

@@ -1327,6 +1327,36 @@ def test_export_rag_acceptance_report_action_writes_report(monkeypatch):
     assert payload["retrieval_routes"]["bm25"] is True
 
 
+def test_run_full_rag_acceptance_action_reports_reindex_and_hit_rate(monkeypatch):
+    APP.state = AppState(country="日本", view="runtime")
+
+    def fake_full_acceptance(country, output_dir):
+        assert country == "日本"
+        return {
+            "status": "passed",
+            "report_path": str(output_dir / "rag_acceptance_full_日本.json"),
+            "summary_path": str(output_dir / "rag_acceptance_full_summary_日本.json"),
+            "reindex": {"status": "indexed", "upserted_points": 8, "vector_size": 1024},
+            "report": {
+                "hit@5": 1.0,
+                "mrr@5": 0.9,
+                "passed_threshold": True,
+                "observed_retrieval": {"qdrant_vector_hits": True},
+                "runtime_stats": {"embedding_remote_calls": 2, "rerank_remote_calls": 1},
+            },
+        }
+
+    monkeypatch.setattr(APP.agent, "run_full_rag_industrial_acceptance", fake_full_acceptance)
+
+    handle_action("/run_full_rag_acceptance", {"country": ["日本"], "view": ["runtime"]})
+
+    assert APP.state.view == "runtime"
+    assert "RAG 工业全链路验收完成" in APP.state.sync_message
+    assert "points=8" in APP.state.sync_message
+    assert "hit@5=1.0" in APP.state.sync_message
+    assert "qdrant_hit=True" in APP.state.sync_message
+
+
 def test_qdrant_smoke_action_reports_search_and_cleanup(monkeypatch):
     APP.state = AppState(country="日本", view="runtime")
 

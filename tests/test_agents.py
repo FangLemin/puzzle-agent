@@ -3,7 +3,7 @@ from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.vision_llm import MissingVisionLLMConfig, OpenAIVisionLLMClient
 from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.audit import AuditPolicyRetriever
-from puzzle_ops.rag import RagProviderConfig
+from puzzle_ops.rag import BGERerankProvider, RagProviderConfig, RagRuntimeStats
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.vision_llm import VisionLLMResult
 from datetime import date
@@ -1746,6 +1746,112 @@ knowledge_version: unit-test
     assert summary["qdrant_manifest_vector_size"] == 3
     assert summary["qdrant_manifest_upserted_points"] == len(store.points)
     assert any(point.payload["parent_id"] == "JP_KB_SUSHI_FOOD" for point in store.points)
+
+
+def test_agent_runs_full_rag_industrial_acceptance_with_qdrant_and_bge(monkeypatch, tmp_path):
+    knowledge_dir = tmp_path / "knowledge"
+    raw = knowledge_dir / "raw"
+    eval_dir = knowledge_dir / "eval"
+    raw.mkdir(parents=True)
+    eval_dir.mkdir(parents=True)
+    (raw / "japan.md").write_text(
+        """---
+country: 日本
+source_type: value_rule
+knowledge_version: unit-test
+---
+# 日本价值观
+
+## 寿司文化 {#JP_KB_SUSHI_FOOD}
+寿司属于日本本土饮食文化，适合清爽餐桌近景。
+""",
+        encoding="utf-8",
+    )
+    (eval_dir / "value_audit_cases.jsonl").write_text(
+        json.dumps(
+            {
+                "query": "日本寿司图是否符合本土饮食价值观",
+                "country": "日本",
+                "expected_parent_id": "JP_KB_SUSHI_FOOD",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "rag_full_acceptance.db"))
+    agent.rag_provider_config = RagProviderConfig(
+        embedding_provider="dashscope",
+        embedding_model="text-embedding-v4",
+        rerank_provider="bge",
+        rerank_model="BAAI/bge-reranker-v2-m3",
+        configured=True,
+        remote_ready=True,
+        remote_calls_enabled=True,
+    )
+
+    class FakeQwenEmbedding:
+        provider_name = "dashscope:text-embedding-v4"
+
+        def __init__(self):
+            self.stats = RagRuntimeStats()
+
+        def query_vector(self, text: str):
+            self.stats.embedding_remote_calls += 1
+            return (0.1, 0.2, 0.3)
+
+        def similarities(self, query: str, texts: tuple[str, ...]):
+            self.stats.embedding_remote_calls += 1
+            return tuple(0.9 if "寿司" in text else 0.1 for text in texts)
+
+    class FakeQdrantStore:
+        provider_name = "qdrant"
+
+        def __init__(self):
+            self.points = ()
+
+        def ensure_collection(self, vector_size):
+            return {"status": "created", "vector_size": vector_size, "collection": "puzzle_ops_rag"}
+
+        def upsert(self, points):
+            self.points = points
+            return {"status": "ok"}
+
+        def search(self, query_vector, *, country, top_k):
+            assert self.points
+            return {str(self.points[0].payload["chunk_id"]): 0.99}
+
+    def fake_rerank_transport(query, documents, api_key, endpoint, model):
+        return {"results": [{"index": index, "relevance_score": 0.96 - index * 0.01} for index, _ in enumerate(documents)]}
+
+    embedding = FakeQwenEmbedding()
+    store = FakeQdrantStore()
+    rerank = BGERerankProvider(
+        api_key="",
+        model="BAAI/bge-reranker-v2-m3",
+        endpoint="http://127.0.0.1:9997/v1/rerank",
+        transport=fake_rerank_transport,
+        stats=RagRuntimeStats(),
+    )
+
+    result = agent.run_full_rag_industrial_acceptance(
+        "日本",
+        tmp_path / "rag_full_acceptance",
+        embedding_provider=embedding,
+        rerank_provider=rerank,
+        vector_store=store,
+    )
+
+    assert result["status"] == "passed"
+    assert result["reindex"]["status"] == "indexed"
+    assert result["report_path"].endswith("rag_acceptance_full_日本.json")
+    assert result["report"]["hit@5"] == 1.0
+    assert result["report"]["observed_retrieval"]["qdrant_vector_hits"] is True
+    assert result["report"]["runtime_stats"]["embedding_remote_calls"] >= 1
+    assert result["report"]["runtime_stats"]["rerank_remote_calls"] >= 1
+    assert Path(result["report_path"]).exists()
+    assert Path(result["summary_path"]).exists()
 
 
 def test_agent_runs_qdrant_smoke_diagnostic_from_latest_manifest(monkeypatch, tmp_path):

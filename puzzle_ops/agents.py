@@ -895,6 +895,66 @@ class PuzzleOpsAgent:
         )
         return {"path": str(path), **report}
 
+    def run_full_rag_industrial_acceptance(
+        self,
+        country: str,
+        output_dir: Path | str,
+        *,
+        embedding_provider: LocalEmbeddingProvider | None = None,
+        rerank_provider=None,
+        vector_store: QdrantVectorStore | None = None,
+    ) -> dict[str, object]:
+        stats = RagRuntimeStats()
+        default_embedding, default_rerank = providers_from_config(
+            self.rag_provider_config,
+            stats=stats,
+            cache_get=self.repository.get_rag_embedding_cache,
+            cache_set=self.repository.set_rag_embedding_cache,
+        )
+        embedding = embedding_provider or default_embedding
+        rerank = rerank_provider or default_rerank
+        store = vector_store or QdrantVectorStore(self.rag_vector_store_config)
+        reindex = self.reindex_rag_qdrant_from_raw(
+            country,
+            embedding_provider=embedding,
+            vector_store=store,
+        )
+        documents = StaticDocumentLoaderAdapter(self._rag_documents(country)).load()
+        chunks = tuple(_rag_chunk_from_row(row) for row in self.repository.rag_chunks(country))
+        cases = self._rag_eval_cases(country) or _rag_smoke_eval_cases(country, documents)
+        output = Path(output_dir)
+        path = output / f"rag_acceptance_full_{country}.json"
+        retriever = HybridRagRetriever(
+            chunks,
+            embedding_provider=embedding,
+            rerank_provider=rerank,
+            vector_store_retriever=QdrantVectorStoreRetriever(store),
+        )
+        report = export_rag_acceptance_report(
+            retriever,
+            cases,
+            path,
+            k=5,
+            threshold=0.8,
+            dataset_name=f"{country}价值观审核RAG full industrial acceptance",
+            knowledge_version=f"{country}-value-audit-{len(documents)}docs-{len(chunks)}chunks",
+            provider_config=self.rag_provider_config,
+            vector_store=self.rag_vector_store_config,
+        )
+        status = "passed" if reindex.get("status") == "indexed" and report.get("passed_threshold") else "failed"
+        result = {
+            "status": status,
+            "country": country,
+            "reindex": reindex,
+            "report_path": str(path),
+            "report": report,
+        }
+        summary_path = output / f"rag_acceptance_full_summary_{country}.json"
+        output.mkdir(parents=True, exist_ok=True)
+        summary_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        result["summary_path"] = str(summary_path)
+        return result
+
     def rag_feedback_summary(self, country: str) -> dict[str, object]:
         by_chunk: dict[str, dict[str, object]] = {}
         total = useful_total = not_useful_total = 0

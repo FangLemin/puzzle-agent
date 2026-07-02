@@ -2,6 +2,42 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.5.0 - Full RAG Industrial Acceptance
+
+日期：2026-07-03
+
+阶段目标：
+
+- 把前几版拆开的 RAG 工程能力串成一个显式动作：重建知识库、Qwen3-Embedding 向量化、Qdrant 入库、Qdrant 检索、BM25 多路召回、BGE rerank、导出 hit@5 验收报告。
+- Runtime 页面提供“一键RAG全链路验收”入口，便于运营演示和面试讲解。
+
+已完成：
+
+- Agent：
+  - 新增 `PuzzleOpsAgent.run_full_rag_industrial_acceptance()`。
+  - 流程会先调用 `reindex_rag_qdrant_from_raw()` 写入 Qdrant。
+  - 再用同一套 embedding provider、rerank provider、Qdrant store 运行 `export_rag_acceptance_report()`。
+  - 输出 `rag_acceptance_full_<国家>.json` 和 `rag_acceptance_full_summary_<国家>.json`。
+- Server / Runtime：
+  - 新增 `/run_full_rag_acceptance` 动作。
+  - Runtime 的“价值观与审核 RAG”区域新增“一键RAG全链路验收”按钮。
+  - 同步消息展示 points、vector_size、hit@5、mrr@5、qdrant_hit、embedding/rerank remote calls 和 report path。
+- 验收证据：
+  - 结果包含 reindex 状态、Qdrant 入库点数、hit@5、observed qdrant hit、runtime stats。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_runs_full_rag_industrial_acceptance_with_qdrant_and_bge -q`：先因缺少 Agent 方法失败。
+  - `PYTHONPATH=. pytest tests/test_server.py::test_run_full_rag_acceptance_action_reports_reindex_and_hit_rate -q`：先因 server 路由不存在失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_renderer.py::test_runtime_page_shows_rag_feedback_summary tests/test_agents.py::test_agent_runs_full_rag_industrial_acceptance_with_qdrant_and_bge tests/test_server.py::test_run_full_rag_acceptance_action_reports_reindex_and_hit_rate -q`：3 passed。
+
+当前限制：
+
+- 真实全链路依赖 `.env` 中 Qwen/DashScope key、Qdrant endpoint 和 BGE rerank endpoint 均可用。
+- 如果 Qdrant 或 BGE 服务不可用，报告会暴露失败或 fallback 迹象；这正是该版本希望显性化的工程风险。
+
 ## v0.4.9 - Observed RAG Runtime Evidence
 
 日期：2026-07-03

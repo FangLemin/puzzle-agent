@@ -204,6 +204,10 @@ def test_runtime_page_shows_rag_feedback_summary(tmp_path):
     assert "raw=" in html
     assert 'action="/rebuild_rag_knowledge"' in html
     assert "重建RAG知识库" in html
+    assert 'action="/export_rag_acceptance_report"' in html
+    assert "导出RAG验收报告" in html
+    assert 'action="/run_full_rag_acceptance"' in html
+    assert "一键RAG全链路验收" in html
     assert 'action="/reindex_rag_qdrant"' in html
     assert "重建并入库Qdrant" in html
     assert 'action="/qdrant_smoke_diagnostic"' in html
