@@ -507,7 +507,7 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
     )
     memory_items = "".join(f'<li>{escape(str(memory["content"]))}</li>' for memory in memories)
     memory_overview_cards = render_memory_overview(memory_overview)
-    rag_cards = render_rag_summary(rag_summary)
+    rag_cards = render_rag_summary(rag_summary, state)
     memory_debug_rows = render_memory_debug_rows(agent.memory_debug(state.country, query=feature.main_subject), state)
     return f"""
 <section class="panel">
@@ -604,7 +604,7 @@ def render_memory_actions(row: dict[str, object], state: AppState) -> str:
     return '<div class="memory-actions">' + "".join(forms) + "</div>"
 
 
-def render_rag_summary(summary: dict[str, object]) -> str:
+def render_rag_summary(summary: dict[str, object], state: AppState | None = None) -> str:
     source_counts = summary.get("source_counts", {})
     if not isinstance(source_counts, dict):
         source_counts = {}
@@ -675,7 +675,7 @@ def render_rag_summary(summary: dict[str, object]) -> str:
     )
     citation_rows = render_rag_citation_details(summary.get("citation_details", ()))
     trace_details = render_rag_retrieval_trace_details(trace)
-    eval_case_evidence = render_rag_eval_case_evidence(summary.get("rag_eval_case_evidence", {}))
+    eval_case_evidence = render_rag_eval_case_evidence(summary.get("rag_eval_case_evidence", {}), state)
     recent_trace_rows = render_recent_rag_traces(summary.get("recent_traces", ()))
     feedback = summary.get("feedback_summary", {})
     feedback_card = render_rag_feedback_summary(feedback if isinstance(feedback, dict) else {})
@@ -707,7 +707,7 @@ def render_rag_summary(summary: dict[str, object]) -> str:
 """
 
 
-def render_rag_eval_case_evidence(summary: object) -> str:
+def render_rag_eval_case_evidence(summary: object, state: AppState | None = None) -> str:
     if not isinstance(summary, dict):
         summary = {}
     cases = summary.get("cases", ())
@@ -722,6 +722,17 @@ def render_rag_eval_case_evidence(summary: object) -> str:
             retrieved_text = "、".join(str(value) for value in retrieved[:5])
         else:
             retrieved_text = str(retrieved)
+        action = "命中"
+        if str(item.get("status", "")) == "FAIL" and state is not None:
+            action = (
+                '<form method="post" action="/record_rag_eval_failure_feedback">'
+                f"{hidden_context(state, view='runtime')}"
+                f'<input type="hidden" name="query" value="{escape(str(item.get("query", "")))}">'
+                f'<input type="hidden" name="expected_parent_id" value="{escape(str(item.get("expected_parent_id", "")))}">'
+                f'<input type="hidden" name="retrieved_parent_ids" value="{escape(retrieved_text)}">'
+                '<input name="note" value="补充知识或 hard negative">'
+                "<button>记录失败case</button></form>"
+            )
         rows.append(
             "<tr>"
             f"<td>{escape(str(item.get('status', '')))}</td>"
@@ -730,6 +741,7 @@ def render_rag_eval_case_evidence(summary: object) -> str:
             f"<td>{escape(retrieved_text or '无')}</td>"
             f"<td>{escape(str(item.get('rank', 0)))}</td>"
             f"<td>{escape(str(item.get('failure_reason', '')) or '命中')}</td>"
+            f"<td>{action}</td>"
             "</tr>"
         )
     body = "".join(rows) or '<tr><td colspan="6">暂无 RAG eval case。</td></tr>'
@@ -743,7 +755,7 @@ def render_rag_eval_case_evidence(summary: object) -> str:
         "<h3>RAG Eval Case 证据</h3>"
         f"<p class=\"muted\">{escape(headline)}</p>"
         "<div class=\"table-wrap\"><table><thead><tr>"
-        "<th>状态</th><th>Query</th><th>Expected Parent</th><th>Retrieved Parents</th><th>Rank</th><th>失败原因</th>"
+        "<th>状态</th><th>Query</th><th>Expected Parent</th><th>Retrieved Parents</th><th>Rank</th><th>失败原因</th><th>HITL</th>"
         f"</tr></thead><tbody>{body}</tbody></table></div>"
     )
 

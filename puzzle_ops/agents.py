@@ -1594,6 +1594,31 @@ class PuzzleOpsAgent:
             },
         )
 
+    def record_rag_eval_failure_feedback(
+        self,
+        country: str,
+        *,
+        query: str,
+        expected_parent_id: str,
+        retrieved_parent_ids: tuple[str, ...] | list[str],
+        note: str = "",
+    ) -> int:
+        expected = expected_parent_id.strip()
+        if not query.strip() or not expected:
+            raise ValueError("RAG eval 失败case必须包含 query 和 expected_parent_id")
+        retrieved = tuple(str(item).strip() for item in retrieved_parent_ids if str(item).strip())
+        return self.record_working_memory(
+            country,
+            "rag_eval_failure_feedback",
+            {
+                "query": query.strip(),
+                "expected_parent_id": expected,
+                "retrieved_parent_ids": list(retrieved),
+                "note": note.strip(),
+                "task_type": "rag_eval_case_review",
+            },
+        )
+
     def record_long_term_memory(self, country: str, memory_type: str, payload: dict[str, object]) -> int:
         return self.repository.add_layered_memory(country, "long_term", memory_type, payload)
 

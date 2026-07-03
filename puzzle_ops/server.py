@@ -330,6 +330,20 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             state.sync_message = f"RAG 依据反馈记录失败：{exc}"
         state.sync_url = ""
         state.view = "trial"
+    elif path == "/record_rag_eval_failure_feedback":
+        try:
+            memory_id = agent.record_rag_eval_failure_feedback(
+                state.country,
+                query=value(form, "query", ""),
+                expected_parent_id=value(form, "expected_parent_id", ""),
+                retrieved_parent_ids=_split_parent_ids(value(form, "retrieved_parent_ids", "")),
+                note=value(form, "note", ""),
+            )
+            state.sync_message = f"RAG eval 失败case已记录：memory_id={memory_id}"
+        except ValueError as exc:
+            state.sync_message = f"RAG eval 失败case记录失败：{exc}"
+        state.sync_url = ""
+        state.view = "runtime"
     elif path == "/rebuild_rag_knowledge":
         try:
             result = agent.rebuild_rag_knowledge_from_raw(state.country)
@@ -746,6 +760,11 @@ def _rag_preflight_summary(preflight: dict[str, object]) -> str:
         status = preflight.get(key, {}) if isinstance(preflight.get(key), dict) else {}
         parts.append(f"{key}:{status.get('ready', False)}")
     return ",".join(parts)
+
+
+def _split_parent_ids(value: str) -> tuple[str, ...]:
+    normalized = value.replace("、", ",").replace("；", ",").replace(";", ",")
+    return tuple(part.strip() for part in normalized.split(",") if part.strip())
 
 
 def run(host: str = "127.0.0.1", port: int = 5188) -> None:

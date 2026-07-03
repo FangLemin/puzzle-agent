@@ -2,6 +2,41 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.5.7 - RAG Eval Failure HITL Feedback
+
+日期：2026-07-03
+
+阶段目标：
+
+- 把 RAG eval 失败 case 从“只读表格”推进到 HITL 反馈入口。
+- 让运营可以把未命中 expected parent 的 case 记录为 working memory，后续用于知识库补充、hard negative 或 rerank 反馈。
+
+已完成：
+
+- Agent：
+  - 新增 `record_rag_eval_failure_feedback()`。
+  - 将失败 case 的 query、expected parent、retrieved parents、人工备注写入 `working` memory。
+  - memory_type 为 `rag_eval_failure_feedback`，task_type 为 `rag_eval_case_review`。
+- Runtime 页面：
+  - `RAG Eval Case 证据` 表格中，失败 case 新增 `记录失败case` 表单。
+  - 表单带上 query、expected parent、retrieved parents 和人工备注。
+- Server：
+  - 新增 `/record_rag_eval_failure_feedback` action。
+  - 写入成功后保持在 Runtime 页面，并显示 memory_id。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_records_rag_eval_failure_feedback_as_working_memory tests/test_renderer.py::test_runtime_page_shows_rag_eval_case_evidence tests/test_server.py::test_record_rag_eval_failure_feedback_action_writes_working_memory -q`：先因缺少 Agent 方法、页面表单和 server action 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_records_rag_eval_failure_feedback_as_working_memory tests/test_renderer.py::test_runtime_page_shows_rag_eval_case_evidence tests/test_server.py::test_record_rag_eval_failure_feedback_action_writes_working_memory -q`：3 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py tests/test_server.py -q`：196 passed。
+  - `PYTHONPATH=. pytest tests -q`：343 passed。
+
+当前限制：
+
+- 本版本先把失败 case 进入 working memory；后续还需要把这些反馈批量导出为 hard negative、知识库补充任务或 rerank 训练/调参样本。
+
 ## v0.5.6 - RAG Eval Case Evidence Review
 
 日期：2026-07-03

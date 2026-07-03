@@ -1500,3 +1500,29 @@ def test_record_rag_feedback_action_writes_working_memory():
         and row["payload"]["usefulness"] == "useful"
         for row in rows
     )
+
+
+def test_record_rag_eval_failure_feedback_action_writes_working_memory():
+    APP.state = AppState(country="日本", view="runtime")
+
+    handle_action(
+        "/record_rag_eval_failure_feedback",
+        {
+            "country": ["日本"],
+            "view": ["runtime"],
+            "query": ["日本寿司图是否符合本土饮食价值观"],
+            "expected_parent_id": ["JP_KB_SUSHI"],
+            "retrieved_parent_ids": ["JP_KB_ONSEN、GLOBAL_KB_AUDIT"],
+            "note": ["需要补充寿司 hard negative"],
+        },
+    )
+
+    rows = APP.agent.memory_debug("日本", query="hard negative 寿司", limit=50)
+    assert APP.state.view == "runtime"
+    assert "RAG eval 失败case已记录" in APP.state.sync_message
+    assert any(
+        row["memory_type"] == "rag_eval_failure_feedback"
+        and row["payload"]["expected_parent_id"] == "JP_KB_SUSHI"
+        and "JP_KB_ONSEN" in row["payload"]["retrieved_parent_ids"]
+        for row in rows
+    )

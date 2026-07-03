@@ -752,6 +752,26 @@ def test_agent_rag_eval_case_evidence_marks_failed_expected_citation(monkeypatch
     assert "未命中 expected_parent_id" in evidence["cases"][0]["failure_reason"]
 
 
+def test_agent_records_rag_eval_failure_feedback_as_working_memory(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+
+    memory_id = agent.record_rag_eval_failure_feedback(
+        "日本",
+        query="日本寿司图是否符合本土饮食价值观",
+        expected_parent_id="JP_KB_SUSHI",
+        retrieved_parent_ids=("JP_KB_ONSEN", "GLOBAL_KB_AUDIT"),
+        note="需要补充寿司价值观 hard negative",
+    )
+
+    rows = agent.memory_debug("日本", query="寿司 hard negative", limit=50)
+    feedback = next(row for row in rows if row["memory_id"] == memory_id)
+    assert feedback["layer"] == "working"
+    assert feedback["memory_type"] == "rag_eval_failure_feedback"
+    assert feedback["payload"]["expected_parent_id"] == "JP_KB_SUSHI"
+    assert feedback["payload"]["retrieved_parent_ids"] == ["JP_KB_ONSEN", "GLOBAL_KB_AUDIT"]
+    assert feedback["payload"]["note"] == "需要补充寿司价值观 hard negative"
+
+
 def test_agent_rag_answer_can_cite_human_gold_harness_sample(monkeypatch, tmp_path):
     image_path = tmp_path / "france-picnic.png"
     image_path.write_bytes(b"fake-png")

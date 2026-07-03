@@ -359,6 +359,8 @@ def test_runtime_page_shows_rag_eval_case_evidence(monkeypatch, tmp_path):
     assert "JP_KB_MISSING" in html
     assert "未命中 expected_parent_id" in html
     assert "FAIL" in html
+    assert 'action="/record_rag_eval_failure_feedback"' in html
+    assert "记录失败case" in html
 
 
 def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):
