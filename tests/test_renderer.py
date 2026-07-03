@@ -407,6 +407,8 @@ def test_runtime_page_shows_rag_knowledge_patch_drafts(tmp_path):
     assert "导出已审Markdown补丁" in html
     assert 'action="/apply_approved_rag_patch_markdown"' in html
     assert "应用已审补丁到raw" in html
+    assert 'action="/apply_approved_rag_patch_and_rebuild"' in html
+    assert "应用补丁并重建RAG" in html
 
 
 def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):

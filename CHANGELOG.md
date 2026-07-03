@@ -2,6 +2,43 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.6.3 - Apply Patch and Rebuild RAG
+
+日期：2026-07-04
+
+阶段目标：
+
+- 把已审核 RAG 补丁从“写入 raw”推进到“写入 raw 后自动 rebuild processed，并记录 eval 结果”。
+- 让知识补丁不只停留在文件层，而是能被 RAG processed 文档和 hit@5 验收证明已经生效。
+
+已完成：
+
+- Agent：
+  - `export_approved_rag_patch_markdown()` 导出的补丁标题新增显式 section id：`{#expected_parent_id}`。
+  - 新增 `apply_approved_rag_patch_and_rebuild(country)`。
+  - 执行流程为：应用已审补丁到 `knowledge/raw` → rebuild processed RAG 文档 → 跑 file/business eval → 更新 patch manifest。
+  - patch manifest 的 status 会从 `applied` 更新为 `applied_rebuilt`。
+  - manifest 新增 `rebuild` 区块，记录 processed_path、document_count、hit@5、mrr@5、passed_threshold、eval_total。
+- Runtime 页面：
+  - `价值观与审核 RAG` 操作区新增 `应用补丁并重建RAG` 按钮。
+- Server：
+  - 新增 `/apply_approved_rag_patch_and_rebuild` action。
+  - 同步消息展示 raw、processed、hit@5、mrr@5 和 manifest 路径。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_applies_approved_rag_patch_and_rebuilds_processed_with_eval tests/test_renderer.py::test_runtime_page_shows_rag_knowledge_patch_drafts tests/test_server.py::test_apply_approved_rag_patch_and_rebuild_action_reports_eval -q`：先因缺少 apply+rebuild 方法、页面入口和 server action 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_applies_approved_rag_patch_and_rebuilds_processed_with_eval tests/test_renderer.py::test_runtime_page_shows_rag_knowledge_patch_drafts tests/test_server.py::test_apply_approved_rag_patch_and_rebuild_action_reports_eval -q`：3 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py tests/test_server.py -q`：210 passed。
+  - `PYTHONPATH=. pytest tests -q`：357 passed。
+
+当前限制：
+
+- 本版本不会自动重建 Qdrant；向量库入库仍需要运营显式点击 `重建并入库Qdrant` 或 `一键RAG全链路验收`。
+- 暂未实现 patch manifest 回滚；下一步可以基于 `patch_manifests/runs` 做 raw patch 回滚/禁用。
+
 ## v0.6.2 - Apply Approved RAG Patch to Raw
 
 日期：2026-07-04

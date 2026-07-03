@@ -893,6 +893,48 @@ def test_agent_applies_approved_rag_patch_markdown_to_raw_with_manifest(monkeypa
     assert manifest["patch_ids"] == ["patch-日本-1"]
 
 
+def test_agent_applies_approved_rag_patch_and_rebuilds_processed_with_eval(monkeypatch, tmp_path):
+    knowledge_dir = tmp_path / "knowledge"
+    eval_dir = knowledge_dir / "eval"
+    eval_dir.mkdir(parents=True)
+    (eval_dir / "value_audit_cases.jsonl").write_text(
+        json.dumps(
+            {
+                "query": "日本寿司图是否符合本土饮食价值观",
+                "country": "日本",
+                "expected_parent_id": "JP_KB_SUSHI_FOOD",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent.record_rag_eval_failure_feedback(
+        "日本",
+        query="日本寿司图是否符合本土饮食价值观",
+        expected_parent_id="JP_KB_SUSHI_FOOD",
+        retrieved_parent_ids=("JP_KB_ONSEN_TRAVEL",),
+        note="补充寿司 hard negative",
+    )
+    agent.approve_rag_knowledge_patch_draft("日本", "patch-日本-1", human_note="运营确认补入日本饮食价值观")
+
+    result = agent.apply_approved_rag_patch_and_rebuild("日本")
+
+    processed_path = Path(str(result["processed_path"]))
+    manifest_path = Path(str(result["manifest_path"]))
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    processed = processed_path.read_text(encoding="utf-8")
+    assert result["status"] == "applied_rebuilt"
+    assert result["document_count"] >= 1
+    assert result["hit@5"] == 1.0
+    assert '"document_id": "JP_KB_SUSHI_FOOD"' in processed
+    assert manifest["status"] == "applied_rebuilt"
+    assert manifest["rebuild"]["processed_path"] == str(processed_path)
+    assert manifest["rebuild"]["hit@5"] == 1.0
+
+
 def test_agent_rag_answer_can_cite_human_gold_harness_sample(monkeypatch, tmp_path):
     image_path = tmp_path / "france-picnic.png"
     image_path.write_bytes(b"fake-png")

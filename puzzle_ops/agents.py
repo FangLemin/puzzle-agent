@@ -644,9 +644,10 @@ class PuzzleOpsAgent:
             lines.extend(["暂无已审核 RAG 知识补丁。", ""])
         for memory, payload in patches:
             expected = str(payload.get("expected_parent_id", "") or f"memory-{memory.get('memory_id', '')}")
+            explicit_id = f" {{#{expected}}}" if re.match(r"^[A-Za-z0-9_\-]+$", expected) else ""
             lines.extend(
                 [
-                    f"## RAG补丁：{expected}",
+                    f"## RAG补丁：{expected}{explicit_id}",
                     "",
                     f"- patch_id: {payload.get('patch_id', '')}",
                     f"- source_memory_id: {memory.get('source_memory_id', '')}",
@@ -708,6 +709,30 @@ class PuzzleOpsAgent:
             **manifest,
             "manifest_path": str(manifest_path),
             "latest_manifest_path": str(latest_manifest_path),
+        }
+
+    def apply_approved_rag_patch_and_rebuild(self, country: str) -> dict[str, object]:
+        apply_result = self.apply_approved_rag_patch_markdown_to_raw(country)
+        rebuild = self.rebuild_rag_knowledge_from_raw(country)
+        manifest_path = Path(str(apply_result.get("manifest_path", "")))
+        latest_manifest_path = Path(str(apply_result.get("latest_manifest_path", "")))
+        manifest = _read_json_object(manifest_path)
+        manifest["status"] = "applied_rebuilt"
+        manifest["rebuild"] = {
+            "processed_path": rebuild.get("processed_path", ""),
+            "document_count": rebuild.get("document_count", 0),
+            "hit@5": rebuild.get("hit@5", 0),
+            "mrr@5": rebuild.get("mrr@5", 0),
+            "passed_threshold": rebuild.get("passed_threshold", False),
+            "eval_total": rebuild.get("eval_total", 0),
+        }
+        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        latest_manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {
+            **apply_result,
+            **rebuild,
+            "status": "applied_rebuilt",
+            "rebuild": manifest["rebuild"],
         }
 
     def approve_rag_knowledge_patch_draft(self, country: str, patch_id: str, *, human_note: str) -> int:
