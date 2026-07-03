@@ -841,6 +841,27 @@ def test_agent_approves_rag_knowledge_patch_draft_into_long_term_memory(tmp_path
     assert any(document.metadata["human_verified"] for document in agent._layered_memory_rag_documents("日本") if document.metadata["memory_id"] == target_id)
 
 
+def test_agent_exports_approved_rag_patch_memory_as_raw_markdown_patch(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent.record_rag_eval_failure_feedback(
+        "日本",
+        query="日本寿司图是否符合本土饮食价值观",
+        expected_parent_id="JP_KB_SUSHI_FOOD",
+        retrieved_parent_ids=("JP_KB_ONSEN_TRAVEL",),
+        note="补充寿司 hard negative",
+    )
+    agent.approve_rag_knowledge_patch_draft("日本", "patch-日本-1", human_note="运营确认补入日本饮食价值观")
+
+    output_path = agent.export_approved_rag_patch_markdown("日本", tmp_path / "approved_patch.md")
+
+    content = output_path.read_text(encoding="utf-8")
+    assert "source_type: approved_rag_patch" in content
+    assert "review_status: approved" in content
+    assert "## RAG补丁：JP_KB_SUSHI_FOOD" in content
+    assert "日本寿司图是否符合本土饮食价值观" in content
+    assert "人工审核备注" in content
+
+
 def test_agent_rag_answer_can_cite_human_gold_harness_sample(monkeypatch, tmp_path):
     image_path = tmp_path / "france-picnic.png"
     image_path.write_bytes(b"fake-png")

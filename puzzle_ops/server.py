@@ -401,6 +401,14 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         state.sync_message = f"已导出 RAG 知识补丁草案：{export_path}"
         state.sync_url = ""
         state.view = "runtime"
+    elif path == "/export_approved_rag_patch_markdown":
+        export_path = agent.export_approved_rag_patch_markdown(
+            state.country,
+            agent._runtime_dir / f"approved_rag_patch_{state.country}.md",
+        )
+        state.sync_message = f"已导出已审核 RAG Markdown 补丁：{export_path}"
+        state.sync_url = ""
+        state.view = "runtime"
     elif path == "/approve_rag_knowledge_patch_draft":
         try:
             memory_id = agent.approve_rag_knowledge_patch_draft(

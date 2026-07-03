@@ -403,6 +403,8 @@ def test_runtime_page_shows_rag_knowledge_patch_drafts(tmp_path):
     assert "导出知识补丁草案" in html
     assert 'action="/approve_rag_knowledge_patch_draft"' in html
     assert "审核通过草案" in html
+    assert 'action="/export_approved_rag_patch_markdown"' in html
+    assert "导出已审Markdown补丁" in html
 
 
 def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):

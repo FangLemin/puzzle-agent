@@ -611,6 +611,57 @@ class PuzzleOpsAgent:
                 handle.write(json.dumps(item, ensure_ascii=False) + "\n")
         return path
 
+    def export_approved_rag_patch_markdown(self, country: str, output_path: Path | str) -> Path:
+        path = Path(output_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        patches = []
+        for memory in self.repository.layered_memories(country, layer="long_term", include_inactive=True):
+            if memory.get("memory_type") != "approved_rag_knowledge_patch":
+                continue
+            if not memory.get("human_verified"):
+                continue
+            if memory.get("status") != "active":
+                continue
+            payload = memory.get("payload", {})
+            if not isinstance(payload, dict):
+                continue
+            patches.append((memory, payload))
+
+        lines = [
+            "---",
+            f"country: {country}",
+            "source_type: approved_rag_patch",
+            "review_status: approved",
+            "generated_from: long_term_memory",
+            "---",
+            "",
+            "# RAG已审核知识补丁",
+            "",
+            "本文件由已人工审核通过的长期记忆导出，供后续人工确认后合入 knowledge/raw；导出动作不会自动改写正式知识库。",
+            "",
+        ]
+        if not patches:
+            lines.extend(["暂无已审核 RAG 知识补丁。", ""])
+        for memory, payload in patches:
+            expected = str(payload.get("expected_parent_id", "") or f"memory-{memory.get('memory_id', '')}")
+            lines.extend(
+                [
+                    f"## RAG补丁：{expected}",
+                    "",
+                    f"- patch_id: {payload.get('patch_id', '')}",
+                    f"- source_memory_id: {memory.get('source_memory_id', '')}",
+                    f"- memory_id: {memory.get('memory_id', '')}",
+                    f"- optimization_use: {payload.get('optimization_use', '')}",
+                    f"- query: {payload.get('query', '')}",
+                    f"- 人工审核备注: {payload.get('human_note', '')}",
+                    "",
+                    str(payload.get("rule_text", "")),
+                    "",
+                ]
+            )
+        path.write_text("\n".join(lines), encoding="utf-8")
+        return path
+
     def approve_rag_knowledge_patch_draft(self, country: str, patch_id: str, *, human_note: str) -> int:
         draft = next(
             (item for item in self.rag_knowledge_patch_drafts(country, limit=10_000).get("items", ()) if isinstance(item, dict) and item.get("patch_id") == patch_id),

@@ -1603,3 +1603,30 @@ def test_approve_rag_knowledge_patch_draft_action_writes_long_term_memory():
     assert APP.state.view == "runtime"
     assert "RAG 知识补丁已审核通过" in APP.state.sync_message
     assert any(row["memory_type"] == "approved_rag_knowledge_patch" and row["human_verified"] for row in rows)
+
+
+def test_export_approved_rag_patch_markdown_action_writes_md():
+    APP.state = AppState(country="日本", view="runtime")
+    APP.agent.record_rag_eval_failure_feedback(
+        "日本",
+        query="日本寿司图是否符合本土饮食价值观",
+        expected_parent_id="JP_KB_SUSHI_FOOD",
+        retrieved_parent_ids=("JP_KB_ONSEN_TRAVEL",),
+        note="补充寿司 hard negative",
+    )
+    patch_id = str(APP.agent.rag_knowledge_patch_drafts("日本")["items"][0]["patch_id"])
+    APP.agent.approve_rag_knowledge_patch_draft("日本", patch_id, human_note="运营确认补入日本饮食价值观")
+
+    handle_action(
+        "/export_approved_rag_patch_markdown",
+        {
+            "country": ["日本"],
+            "view": ["runtime"],
+        },
+    )
+
+    export_path = APP.agent._runtime_dir / "approved_rag_patch_日本.md"
+    assert APP.state.view == "runtime"
+    assert "已导出已审核 RAG Markdown 补丁" in APP.state.sync_message
+    assert export_path.exists()
+    assert "source_type: approved_rag_patch" in export_path.read_text(encoding="utf-8")

@@ -2,6 +2,41 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.6.1 - Approved RAG Patch Markdown Export
+
+日期：2026-07-04
+
+阶段目标：
+
+- 把已人工审核通过的 RAG 知识补丁从长期记忆导出为 Markdown patch，作为后续纳入 `knowledge/raw` 正式知识库版本治理的桥接层。
+- 继续保持安全边界：导出动作只写 runtime 文件，不自动改写正式知识库，避免误把未复核内容写入生产 RAG 文档。
+
+已完成：
+
+- Agent：
+  - 新增 `export_approved_rag_patch_markdown(country, output_path)`。
+  - 仅导出 `long_term` memory 中 `memory_type=approved_rag_knowledge_patch` 且 `human_verified=True`、`status=active` 的补丁。
+  - Markdown front matter 标记 `source_type: approved_rag_patch`、`review_status: approved`、`generated_from: long_term_memory`。
+  - 每条补丁保留 patch_id、source_memory_id、memory_id、optimization_use、query、人工审核备注和 rule_text。
+- Runtime 页面：
+  - `价值观与审核 RAG` 操作区新增 `导出已审Markdown补丁` 按钮。
+- Server：
+  - 新增 `/export_approved_rag_patch_markdown` action。
+  - 默认导出到 `runtime/approved_rag_patch_<国家>.md`。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_approved_rag_patch_memory_as_raw_markdown_patch tests/test_renderer.py::test_runtime_page_shows_rag_knowledge_patch_drafts tests/test_server.py::test_export_approved_rag_patch_markdown_action_writes_md -q`：先因缺少 Agent 导出方法、页面入口和 server action 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_approved_rag_patch_memory_as_raw_markdown_patch tests/test_renderer.py::test_runtime_page_shows_rag_knowledge_patch_drafts tests/test_server.py::test_export_approved_rag_patch_markdown_action_writes_md -q`：3 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py tests/test_server.py -q`：206 passed。
+  - `PYTHONPATH=. pytest tests -q`：353 passed。
+
+当前限制：
+
+- 本版本只导出可审阅 Markdown patch，不自动 apply 到 `knowledge/raw`，也不自动触发 Qdrant 重建；后续还需要补正式 apply/review、manifest、回滚和知识库版本对比。
+
 ## v0.6.0 - Approved RAG Patch Memory
 
 日期：2026-07-03
