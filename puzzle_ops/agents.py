@@ -554,11 +554,55 @@ class PuzzleOpsAgent:
             "retrieval_trace": self._last_rag_trace,
             "retrieval_eval_report": self.value_audit_rag_eval_report(country),
             "rag_eval_dataset": self.rag_eval_dataset_summary(country),
+            "rag_eval_case_evidence": self.rag_eval_case_evidence(country),
             "latest_acceptance_summary": self.latest_rag_acceptance_summary(country),
             "knowledge_base": self._rag_knowledge_summary(country),
             "feedback_summary": self.rag_feedback_summary(country),
             "recent_traces": self.recent_rag_traces(country, limit=3),
             **self._last_rag_stats.as_dict(),
+        }
+
+    def rag_eval_case_evidence(self, country: str, *, limit: int = 8) -> dict[str, object]:
+        report = self.value_audit_rag_eval_report(country)
+        raw_cases = report.get("cases", ())
+        if not isinstance(raw_cases, (list, tuple)):
+            raw_cases = ()
+        rows: list[dict[str, object]] = []
+        failed_count = 0
+        for case in raw_cases[:limit]:
+            if not isinstance(case, dict):
+                continue
+            retrieved = case.get("retrieved_parent_ids", ())
+            if isinstance(retrieved, (list, tuple)):
+                retrieved_ids = tuple(str(item) for item in retrieved)
+            else:
+                retrieved_ids = tuple(str(retrieved).split()) if retrieved else ()
+            hit = bool(case.get("hit"))
+            rank = int(case.get("rank", 0) or 0)
+            if not hit:
+                failed_count += 1
+            expected = str(case.get("expected_parent_id", ""))
+            rows.append(
+                {
+                    "query": str(case.get("query", "")),
+                    "country": str(case.get("country", country)),
+                    "expected_parent_id": expected,
+                    "retrieved_parent_ids": retrieved_ids,
+                    "hit": hit,
+                    "rank": rank,
+                    "status": "PASS" if hit else "FAIL",
+                    "failure_reason": "" if hit else f"未命中 expected_parent_id={expected}",
+                }
+            )
+        return {
+            "dataset_name": report.get("dataset_name", ""),
+            "hit@5": report.get("hit@5", 0),
+            "mrr@5": report.get("mrr@5", 0),
+            "threshold": report.get("threshold", 0.8),
+            "passed_threshold": report.get("passed_threshold", False),
+            "total": report.get("total", len(raw_cases)),
+            "failed_count": failed_count,
+            "cases": tuple(rows),
         }
 
     def rag_eval_dataset_summary(self, country: str) -> dict[str, object]:

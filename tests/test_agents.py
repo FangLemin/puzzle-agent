@@ -708,6 +708,50 @@ def test_agent_rag_eval_cases_include_human_gold_harness_samples(monkeypatch, tm
     assert any("海滩野餐" in case.query and "生活艺术" in case.query for case in cases)
 
 
+def test_agent_rag_eval_case_evidence_marks_failed_expected_citation(monkeypatch, tmp_path):
+    knowledge_dir = tmp_path / "knowledge"
+    processed = knowledge_dir / "processed"
+    eval_dir = knowledge_dir / "eval"
+    processed.mkdir(parents=True)
+    eval_dir.mkdir(parents=True)
+    (processed / "value_audit_documents.jsonl").write_text(
+        json.dumps(
+            {
+                "document_id": "JP_KB_SUSHI",
+                "country": "日本",
+                "source_type": "value_rule",
+                "title": "日本饮食文化",
+                "text": "寿司、抹茶、和果子属于日本本土饮食文化。",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (eval_dir / "value_audit_cases.jsonl").write_text(
+        json.dumps(
+            {
+                "query": "日本寿司图是否符合本土饮食价值观",
+                "country": "日本",
+                "expected_parent_id": "JP_KB_MISSING",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+
+    evidence = agent.rag_eval_case_evidence("日本")
+
+    assert evidence["total"] == 1
+    assert evidence["failed_count"] == 1
+    assert evidence["cases"][0]["status"] == "FAIL"
+    assert evidence["cases"][0]["expected_parent_id"] == "JP_KB_MISSING"
+    assert "未命中 expected_parent_id" in evidence["cases"][0]["failure_reason"]
+
+
 def test_agent_rag_answer_can_cite_human_gold_harness_sample(monkeypatch, tmp_path):
     image_path = tmp_path / "france-picnic.png"
     image_path.write_bytes(b"fake-png")

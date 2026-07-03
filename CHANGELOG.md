@@ -2,6 +2,41 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.5.6 - RAG Eval Case Evidence Review
+
+日期：2026-07-03
+
+阶段目标：
+
+- 让 RAG `hit@5` 不再只是一个总分，而是能下钻到每条 query 的 expected citation、实际 retrieved parents、rank 和失败原因。
+- 支撑后续 HITL 复盘：运营/面试官可以看到是哪条真实业务 case 没命中，而不是只看到整体通过率。
+
+已完成：
+
+- Agent：
+  - 新增 `rag_eval_case_evidence(country)`。
+  - 从 `value_audit_rag_eval_report()` 提取 case 明细。
+  - 每条 case 标记 `PASS/FAIL`、expected parent、retrieved parents、rank 和失败原因。
+  - 将 `rag_eval_case_evidence` 合入 Runtime RAG summary。
+- Runtime 页面：
+  - 新增 `RAG Eval Case 证据` 表格。
+  - 展示 dataset、hit@5、failed/total、threshold。
+  - 表格展示状态、Query、Expected Parent、Retrieved Parents、Rank、失败原因。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_rag_eval_case_evidence_marks_failed_expected_citation tests/test_renderer.py::test_runtime_page_shows_rag_eval_case_evidence -q`：先因缺少 `rag_eval_case_evidence()` 和页面证据表失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_rag_eval_case_evidence_marks_failed_expected_citation tests/test_renderer.py::test_runtime_page_shows_rag_eval_case_evidence -q`：2 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py tests/test_rag.py -q`：173 passed。
+  - `PYTHONPATH=. pytest tests -q`：341 passed。
+
+当前限制：
+
+- 本版本先做 RAG eval case 的只读复盘；人工修正入口仍主要在 Harness/引用反馈链路中。
+- 后续需要把失败 case 一键转成 hard negative、知识库补充任务或 rerank feedback。
+
 ## v0.5.5 - Real RAG Eval Dataset Surface
 
 日期：2026-07-03

@@ -318,6 +318,49 @@ def test_runtime_page_shows_real_rag_eval_dataset_summary(monkeypatch, tmp_path)
     assert "target=30-50" in html
 
 
+def test_runtime_page_shows_rag_eval_case_evidence(monkeypatch, tmp_path):
+    knowledge_dir = tmp_path / "knowledge"
+    processed = knowledge_dir / "processed"
+    eval_dir = knowledge_dir / "eval"
+    processed.mkdir(parents=True)
+    eval_dir.mkdir(parents=True)
+    (processed / "value_audit_documents.jsonl").write_text(
+        json.dumps(
+            {
+                "document_id": "JP_KB_SUSHI",
+                "country": "日本",
+                "source_type": "value_rule",
+                "title": "日本饮食文化",
+                "text": "寿司、抹茶、和果子属于日本本土饮食文化。",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (eval_dir / "value_audit_cases.jsonl").write_text(
+        json.dumps(
+            {
+                "query": "日本寿司图是否符合本土饮食价值观",
+                "country": "日本",
+                "expected_parent_id": "JP_KB_MISSING",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
+
+    html = render_page(PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db")), AppState(country="日本", view="runtime"))
+
+    assert "RAG Eval Case 证据" in html
+    assert "日本寿司图是否符合本土饮食价值观" in html
+    assert "JP_KB_MISSING" in html
+    assert "未命中 expected_parent_id" in html
+    assert "FAIL" in html
+
+
 def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):
     image_path = tmp_path / "real-sushi.png"
     image_path.write_bytes(b"fake-png")

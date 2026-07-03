@@ -675,6 +675,7 @@ def render_rag_summary(summary: dict[str, object]) -> str:
     )
     citation_rows = render_rag_citation_details(summary.get("citation_details", ()))
     trace_details = render_rag_retrieval_trace_details(trace)
+    eval_case_evidence = render_rag_eval_case_evidence(summary.get("rag_eval_case_evidence", {}))
     recent_trace_rows = render_recent_rag_traces(summary.get("recent_traces", ()))
     feedback = summary.get("feedback_summary", {})
     feedback_card = render_rag_feedback_summary(feedback if isinstance(feedback, dict) else {})
@@ -698,11 +699,53 @@ def render_rag_summary(summary: dict[str, object]) -> str:
 </div>
 <h3>引用明细</h3>
 <div class="table-wrap"><table><thead><tr><th>引用ID</th><th>知识来源</th><th>父文档</th><th>标题</th><th>内容</th></tr></thead><tbody>{citation_rows}</tbody></table></div>
+{eval_case_evidence}
 <h3>RAG 检索 Trace</h3>
 {trace_details}
 <h3>最近 RAG Trace</h3>
 <div class="table-wrap"><table><thead><tr><th>Trace</th><th>Query</th><th>引用</th><th>可回放 prompt</th><th>详情</th></tr></thead><tbody>{recent_trace_rows}</tbody></table></div>
 """
+
+
+def render_rag_eval_case_evidence(summary: object) -> str:
+    if not isinstance(summary, dict):
+        summary = {}
+    cases = summary.get("cases", ())
+    if not isinstance(cases, (list, tuple)):
+        cases = ()
+    rows = []
+    for item in cases[:8]:
+        if not isinstance(item, dict):
+            continue
+        retrieved = item.get("retrieved_parent_ids", ())
+        if isinstance(retrieved, (list, tuple)):
+            retrieved_text = "、".join(str(value) for value in retrieved[:5])
+        else:
+            retrieved_text = str(retrieved)
+        rows.append(
+            "<tr>"
+            f"<td>{escape(str(item.get('status', '')))}</td>"
+            f"<td>{escape(str(item.get('query', ''))[:120])}</td>"
+            f"<td>{escape(str(item.get('expected_parent_id', '')))}</td>"
+            f"<td>{escape(retrieved_text or '无')}</td>"
+            f"<td>{escape(str(item.get('rank', 0)))}</td>"
+            f"<td>{escape(str(item.get('failure_reason', '')) or '命中')}</td>"
+            "</tr>"
+        )
+    body = "".join(rows) or '<tr><td colspan="6">暂无 RAG eval case。</td></tr>'
+    headline = (
+        f"dataset={summary.get('dataset_name', '')}；"
+        f"hit@5={summary.get('hit@5', 0)}；"
+        f"failed={summary.get('failed_count', 0)}/{summary.get('total', 0)}；"
+        f"threshold={summary.get('threshold', 0.8)}"
+    )
+    return (
+        "<h3>RAG Eval Case 证据</h3>"
+        f"<p class=\"muted\">{escape(headline)}</p>"
+        "<div class=\"table-wrap\"><table><thead><tr>"
+        "<th>状态</th><th>Query</th><th>Expected Parent</th><th>Retrieved Parents</th><th>Rank</th><th>失败原因</th>"
+        f"</tr></thead><tbody>{body}</tbody></table></div>"
+    )
 
 
 def render_rag_eval_dataset(summary: dict[str, object]) -> str:
