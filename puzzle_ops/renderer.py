@@ -677,7 +677,7 @@ def render_rag_summary(summary: dict[str, object], state: AppState | None = None
     trace_details = render_rag_retrieval_trace_details(trace)
     eval_case_evidence = render_rag_eval_case_evidence(summary.get("rag_eval_case_evidence", {}), state)
     failure_feedback = render_rag_failure_feedback_queue(summary.get("rag_eval_failure_feedback", {}))
-    patch_drafts = render_rag_knowledge_patch_drafts(summary.get("rag_knowledge_patch_drafts", {}))
+    patch_drafts = render_rag_knowledge_patch_drafts(summary.get("rag_knowledge_patch_drafts", {}), state)
     recent_trace_rows = render_recent_rag_traces(summary.get("recent_traces", ()))
     feedback = summary.get("feedback_summary", {})
     feedback_card = render_rag_feedback_summary(feedback if isinstance(feedback, dict) else {})
@@ -723,7 +723,7 @@ def render_rag_knowledge_patch_card(summary: object) -> str:
     )
 
 
-def render_rag_knowledge_patch_drafts(summary: object) -> str:
+def render_rag_knowledge_patch_drafts(summary: object, state: AppState | None = None) -> str:
     if not isinstance(summary, dict):
         summary = {}
     items = summary.get("items", ())
@@ -733,6 +733,15 @@ def render_rag_knowledge_patch_drafts(summary: object) -> str:
     for item in items[:8]:
         if not isinstance(item, dict):
             continue
+        action = ""
+        if state is not None:
+            action = (
+                '<form method="post" action="/approve_rag_knowledge_patch_draft">'
+                f"{hidden_context(state, view='runtime')}"
+                f'<input type="hidden" name="patch_id" value="{escape(str(item.get("patch_id", "")))}">'
+                '<input name="human_note" value="运营审核通过，进入长期RAG记忆">'
+                "<button>审核通过草案</button></form>"
+            )
         rows.append(
             "<tr>"
             f"<td>{escape(str(item.get('patch_id', '')))}</td>"
@@ -740,14 +749,15 @@ def render_rag_knowledge_patch_drafts(summary: object) -> str:
             f"<td>{escape(str(item.get('expected_parent_id', '')))}</td>"
             f"<td>{escape(str(item.get('review_status', '')))}</td>"
             f"<td>{escape(str(item.get('draft_text', ''))[:220])}</td>"
+            f"<td>{action}</td>"
             "</tr>"
         )
-    body = "".join(rows) or '<tr><td colspan="5">暂无 RAG 知识补丁草案。</td></tr>'
+    body = "".join(rows) or '<tr><td colspan="6">暂无 RAG 知识补丁草案。</td></tr>'
     return (
         "<h3>RAG知识补丁草案</h3>"
         f"<p class=\"muted\">草案={escape(str(summary.get('draft_count', 0)))}</p>"
         "<div class=\"table-wrap\"><table><thead><tr>"
-        "<th>Patch</th><th>Source Type</th><th>Expected Parent</th><th>审核状态</th><th>草案内容</th>"
+        "<th>Patch</th><th>Source Type</th><th>Expected Parent</th><th>审核状态</th><th>草案内容</th><th>HITL</th>"
         f"</tr></thead><tbody>{body}</tbody></table></div>"
     )
 

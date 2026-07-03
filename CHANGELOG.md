@@ -2,6 +2,43 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.6.0 - Approved RAG Patch Memory
+
+日期：2026-07-03
+
+阶段目标：
+
+- 完成 RAG 失败反馈闭环中的人工审核入库步骤：草案必须经人工审核通过后，才能进入可被 RAG 使用的长期记忆。
+- 保持知识库安全边界：仍不自动改写 raw markdown，避免未审草案污染正式知识库。
+
+已完成：
+
+- Agent：
+  - 新增 `approve_rag_knowledge_patch_draft(country, patch_id, human_note=...)`。
+  - 根据 patch_id 查找草案，写入 `long_term` memory。
+  - memory_type 为 `approved_rag_knowledge_patch`。
+  - 写入时设置 `human_verified=True`，并保留 source_memory_id、expected_parent_id、query、rule_text、review_status。
+- Runtime 页面：
+  - `RAG知识补丁草案`表新增`审核通过草案`表单。
+  - 人工备注会随表单一起写入长期记忆。
+- Server：
+  - 新增 `/approve_rag_knowledge_patch_draft` action。
+  - 成功后保持 Runtime 页面，并返回新 memory_id。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_approves_rag_knowledge_patch_draft_into_long_term_memory tests/test_renderer.py::test_runtime_page_shows_rag_knowledge_patch_drafts tests/test_server.py::test_approve_rag_knowledge_patch_draft_action_writes_long_term_memory -q`：先因缺少审核方法、页面表单和 server action 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_approves_rag_knowledge_patch_draft_into_long_term_memory tests/test_renderer.py::test_runtime_page_shows_rag_knowledge_patch_drafts tests/test_server.py::test_approve_rag_knowledge_patch_draft_action_writes_long_term_memory -q`：3 passed。
+  - `PYTHONPATH=. pytest tests/test_server.py::test_approve_rag_knowledge_patch_draft_action_writes_long_term_memory -q`：修正全局 APP 下 patch_id 不固定后的回归，1 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py tests/test_server.py -q`：204 passed。
+  - `PYTHONPATH=. pytest tests -q`：351 passed。
+
+当前限制：
+
+- 本版本将审核通过的草案写入长期记忆并参与 RAG；后续如果需要正式知识库版本治理，还应增加 raw markdown patch apply/review 流程。
+
 ## v0.5.9 - RAG Knowledge Patch Drafts
 
 日期：2026-07-03

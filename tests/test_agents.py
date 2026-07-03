@@ -816,6 +816,31 @@ def test_agent_builds_and_exports_rag_knowledge_patch_drafts(tmp_path):
     assert '"review_status": "needs_human_review"' in content
 
 
+def test_agent_approves_rag_knowledge_patch_draft_into_long_term_memory(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent.record_rag_eval_failure_feedback(
+        "日本",
+        query="日本寿司图是否符合本土饮食价值观",
+        expected_parent_id="JP_KB_SUSHI_FOOD",
+        retrieved_parent_ids=("JP_KB_ONSEN_TRAVEL",),
+        note="补充寿司 hard negative",
+    )
+
+    target_id = agent.approve_rag_knowledge_patch_draft(
+        "日本",
+        "patch-日本-1",
+        human_note="运营确认补入日本饮食价值观",
+    )
+
+    debug = agent.memory_debug("日本", query="寿司 饮食 价值观", limit=50)
+    target = next(row for row in debug if row["memory_id"] == target_id)
+    assert target["layer"] == "long_term"
+    assert target["memory_type"] == "approved_rag_knowledge_patch"
+    assert target["human_verified"] is True
+    assert "日本寿司图是否符合本土饮食价值观" in target["summary"]
+    assert any(document.metadata["human_verified"] for document in agent._layered_memory_rag_documents("日本") if document.metadata["memory_id"] == target_id)
+
+
 def test_agent_rag_answer_can_cite_human_gold_harness_sample(monkeypatch, tmp_path):
     image_path = tmp_path / "france-picnic.png"
     image_path.write_bytes(b"fake-png")

@@ -401,6 +401,18 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         state.sync_message = f"已导出 RAG 知识补丁草案：{export_path}"
         state.sync_url = ""
         state.view = "runtime"
+    elif path == "/approve_rag_knowledge_patch_draft":
+        try:
+            memory_id = agent.approve_rag_knowledge_patch_draft(
+                state.country,
+                value(form, "patch_id", ""),
+                human_note=value(form, "human_note", "运营审核通过，进入长期RAG记忆"),
+            )
+            state.sync_message = f"RAG 知识补丁已审核通过：memory_id={memory_id}"
+        except ValueError as exc:
+            state.sync_message = f"RAG 知识补丁审核失败：{exc}"
+        state.sync_url = ""
+        state.view = "runtime"
     elif path == "/run_full_rag_acceptance":
         output_dir = agent._runtime_dir / "rag_acceptance_reports"
         result = agent.run_full_rag_industrial_acceptance(state.country, output_dir, preflight_mode="live")

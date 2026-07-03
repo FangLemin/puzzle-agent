@@ -611,6 +611,33 @@ class PuzzleOpsAgent:
                 handle.write(json.dumps(item, ensure_ascii=False) + "\n")
         return path
 
+    def approve_rag_knowledge_patch_draft(self, country: str, patch_id: str, *, human_note: str) -> int:
+        draft = next(
+            (item for item in self.rag_knowledge_patch_drafts(country, limit=10_000).get("items", ()) if isinstance(item, dict) and item.get("patch_id") == patch_id),
+            None,
+        )
+        if not draft:
+            raise ValueError(f"找不到 RAG 知识补丁草案：{patch_id}")
+        payload = {
+            "patch_id": str(draft.get("patch_id", "")),
+            "source_type": str(draft.get("source_type", "")),
+            "expected_parent_id": str(draft.get("expected_parent_id", "")),
+            "query": str(draft.get("query", "")),
+            "rule_text": str(draft.get("draft_text", "")),
+            "human_note": human_note.strip() or "运营人工审核通过",
+            "review_status": "approved",
+            "optimization_use": str(draft.get("optimization_use", "")),
+        }
+        source_memory_id = int(draft.get("source_memory_id", 0) or 0) or None
+        return self.repository.add_layered_memory(
+            country,
+            "long_term",
+            "approved_rag_knowledge_patch",
+            payload,
+            source_memory_id=source_memory_id,
+            human_verified=True,
+        )
+
     def rag_eval_failure_feedback_summary(self, country: str, *, limit: int = 8) -> dict[str, object]:
         items = []
         for memory in self.repository.layered_memories(country, layer="working", include_inactive=True):
