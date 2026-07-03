@@ -293,6 +293,31 @@ def test_runtime_page_shows_latest_rag_preflight_summary(tmp_path):
     assert "qdrant_hit=True" in html
 
 
+def test_runtime_page_shows_real_rag_eval_dataset_summary(monkeypatch, tmp_path):
+    image_path = tmp_path / "france-picnic.png"
+    image_path.write_bytes(b"fake-png")
+    dataset = tmp_path / "gold_samples.csv"
+    dataset.write_text(
+        "\n".join(
+            (
+                "sample_id,country,local_image_path,operation_tag,subject,js_category,source,position,open_rate,completion_rate,avg_finish_time,gold_grade,gold_subject,gold_color_mood,gold_composition,gold_value_labels,gold_risk_labels,human_note,label_source,label_status",
+                f"fr-real-001,法国,{image_path},试新_法国_海滩野餐0625,海滩野餐,lifestyle,real,7,0.42,0.91,38,A,海滩野餐,暖色,海滩构图,生活艺术,,人工确认,human_gold,reviewed",
+            )
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_HARNESS_DATASET", str(dataset))
+
+    html = render_page(PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db")), AppState(country="法国", view="runtime"))
+
+    assert "真实 Eval Dataset" in html
+    assert "real=1" in html
+    assert "human_gold=1" in html
+    assert "harness cases=1" in html
+    assert "hit@5 threshold=0.8" in html
+    assert "target=30-50" in html
+
+
 def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):
     image_path = tmp_path / "real-sushi.png"
     image_path.write_bytes(b"fake-png")

@@ -553,11 +553,39 @@ class PuzzleOpsAgent:
             "rewritten_query": self._last_rag_rewritten_query,
             "retrieval_trace": self._last_rag_trace,
             "retrieval_eval_report": self.value_audit_rag_eval_report(country),
+            "rag_eval_dataset": self.rag_eval_dataset_summary(country),
             "latest_acceptance_summary": self.latest_rag_acceptance_summary(country),
             "knowledge_base": self._rag_knowledge_summary(country),
             "feedback_summary": self.rag_feedback_summary(country),
             "recent_traces": self.recent_rag_traces(country, limit=3),
             **self._last_rag_stats.as_dict(),
+        }
+
+    def rag_eval_dataset_summary(self, country: str) -> dict[str, object]:
+        samples = tuple(sample for sample in self.harness_samples(country) if sample.is_real)
+        human_gold = tuple(sample for sample in samples if sample.label_source == "human_gold" and sample.label_status == "reviewed")
+        ai_silver = tuple(sample for sample in samples if sample.label_source == "ai_silver" and sample.label_status == "pending_review")
+        manual_grade = tuple(sample for sample in samples if sample.label_source == "manual_grade" and sample.label_status == "needs_ai_prelabeled")
+        file_cases = self._rag_eval_cases(country)
+        harness_cases = self._harness_gold_rag_eval_cases(country)
+        real_count = len(samples)
+        if real_count >= 30 and human_gold:
+            status = "ready_for_business_eval"
+        elif real_count >= 30:
+            status = "needs_human_gold_review"
+        else:
+            status = "needs_30_50_real_samples"
+        return {
+            "real_sample_count": real_count,
+            "ai_silver_count": len(ai_silver),
+            "manual_grade_count": len(manual_grade),
+            "human_gold_count": len(human_gold),
+            "file_eval_case_count": len(file_cases),
+            "harness_eval_case_count": len(harness_cases),
+            "total_eval_case_count": len(file_cases) + len(harness_cases),
+            "target_real_sample_range": "30-50",
+            "hit_at_five_threshold": 0.8,
+            "status": status,
         }
 
     def latest_rag_acceptance_summary(self, country: str) -> dict[str, object]:
@@ -873,13 +901,16 @@ class PuzzleOpsAgent:
         )
         retriever = HybridRagRetriever(chunks)
         file_cases = self._rag_eval_cases(country)
-        cases = file_cases or _rag_smoke_eval_cases(country, documents)
+        harness_cases = self._harness_gold_rag_eval_cases(country)
+        eval_cases = (*file_cases, *harness_cases)
+        cases = eval_cases or _rag_smoke_eval_cases(country, documents)
+        dataset_kind = "business" if harness_cases else ("file" if file_cases else "smoke")
         return evaluate_retrieval_report(
             retriever,
             cases,
             k=5,
             threshold=0.8,
-            dataset_name=f"{country}价值观审核RAG {'file' if file_cases else 'smoke'} eval",
+            dataset_name=f"{country}价值观审核RAG {dataset_kind} eval",
             knowledge_version=f"{country}-value-audit-{len(documents)}docs-{len(chunks)}chunks",
         )
 
@@ -904,7 +935,10 @@ class PuzzleOpsAgent:
             vector_store_retriever=self._rag_vector_store_retriever(),
         )
         file_cases = self._rag_eval_cases(country)
-        cases = file_cases or _rag_smoke_eval_cases(country, documents)
+        harness_cases = self._harness_gold_rag_eval_cases(country)
+        eval_cases = (*file_cases, *harness_cases)
+        cases = eval_cases or _rag_smoke_eval_cases(country, documents)
+        dataset_kind = "business" if harness_cases else ("file" if file_cases else "smoke")
         output = Path(output_dir)
         path = output / f"rag_acceptance_{country}.json"
         report = export_rag_acceptance_report(
@@ -913,7 +947,7 @@ class PuzzleOpsAgent:
             path,
             k=5,
             threshold=0.8,
-            dataset_name=f"{country}价值观审核RAG {'file' if file_cases else 'smoke'} acceptance",
+            dataset_name=f"{country}价值观审核RAG {dataset_kind} acceptance",
             knowledge_version=f"{country}-value-audit-{len(documents)}docs-{len(chunks)}chunks",
             provider_config=self.rag_provider_config,
             vector_store=self.rag_vector_store_config,
@@ -962,7 +996,7 @@ class PuzzleOpsAgent:
             )
         documents = StaticDocumentLoaderAdapter(self._rag_documents(country)).load()
         chunks = tuple(_rag_chunk_from_row(row) for row in self.repository.rag_chunks(country))
-        cases = self._rag_eval_cases(country) or _rag_smoke_eval_cases(country, documents)
+        cases = self._rag_retrieval_cases(country) or _rag_smoke_eval_cases(country, documents)
         path = output / f"rag_acceptance_full_{country}.json"
         retriever = HybridRagRetriever(
             chunks,
@@ -1364,6 +1398,32 @@ class PuzzleOpsAgent:
         path = _rag_knowledge_dir() / "eval" / "value_audit_cases.jsonl"
         cases = RetrievalCaseLoaderAdapter(path).load()
         return tuple(case for case in cases if case.country == country)
+
+    def _rag_retrieval_cases(self, country: str) -> tuple[RagRetrievalCase, ...]:
+        return (*self._rag_eval_cases(country), *self._harness_gold_rag_eval_cases(country))
+
+    def _harness_gold_rag_eval_cases(self, country: str) -> tuple[RagRetrievalCase, ...]:
+        cases: list[RagRetrievalCase] = []
+        for sample in self.harness_samples(country):
+            if not sample.is_real or sample.label_source != "human_gold" or sample.label_status != "reviewed":
+                continue
+            query_parts = (
+                sample.gold_subject or sample.subject,
+                sample.gold_color_mood,
+                sample.gold_composition,
+                " ".join(sample.gold_value_labels),
+                " ".join(sample.gold_risk_labels),
+                sample.gold_grade,
+                "价值观 审核 风险 真实业务样本",
+            )
+            cases.append(
+                RagRetrievalCase(
+                    query=" ".join(part for part in query_parts if part).strip(),
+                    country=country,
+                    expected_parent_id=f"{_country_code(country)}_HARNESS_GOLD_{sample.sample_id}",
+                )
+            )
+        return tuple(cases)
 
     def _rag_knowledge_summary(self, country: str) -> dict[str, object]:
         root = _rag_knowledge_dir()

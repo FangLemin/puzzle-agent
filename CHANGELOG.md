@@ -2,6 +2,41 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.5.5 - Real RAG Eval Dataset Surface
+
+日期：2026-07-03
+
+阶段目标：
+
+- 让 RAG 评测从静态 smoke/file cases 继续升级为真实业务样本驱动的 Eval Dataset。
+- 把真实样本数量、human_gold 覆盖、harness eval cases 和 hit@5 门槛展示到 Runtime 页面，支撑“工业级 RAG”面试叙事。
+
+已完成：
+
+- Agent：
+  - 新增 `_rag_retrieval_cases(country)` 聚合入口。
+  - 新增 `_harness_gold_rag_eval_cases(country)`，把 `human_gold + reviewed` 的真实拼图样本转成 RAG 检索评测 case。
+  - `value_audit_rag_eval_report()`、`export_value_audit_rag_acceptance_report()`、`run_full_rag_industrial_acceptance()` 统一使用聚合后的 business cases。
+  - 新增 `rag_eval_dataset_summary(country)`，统计真实样本、AI silver、manual grade、human_gold、file cases、harness cases、total cases、30-50 样本目标和 hit@5 阈值。
+- Runtime 页面：
+  - 新增 `真实 Eval Dataset` 卡片。
+  - 展示 `real/human_gold/cases`，以及 `file cases/harness cases/ai_silver/manual_grade/target/hit@5 threshold/status`。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_rag_eval_cases_include_human_gold_harness_samples tests/test_renderer.py::test_runtime_page_shows_real_rag_eval_dataset_summary -q`：先因缺少 `_rag_retrieval_cases` 和页面卡片失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_rag_eval_cases_include_human_gold_harness_samples tests/test_renderer.py::test_runtime_page_shows_real_rag_eval_dataset_summary -q`：2 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_value_audit_rag_eval_report_tracks_hit_at_five_threshold tests/test_agents.py::test_agent_loads_versioned_knowledge_documents_and_eval_cases tests/test_agents.py::test_agent_rag_eval_cases_include_human_gold_harness_samples tests/test_renderer.py::test_runtime_page_shows_real_rag_eval_dataset_summary -q`：4 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py tests/test_rag.py -q`：171 passed。
+  - `PYTHONPATH=. pytest tests -q`：339 passed。
+
+当前限制：
+
+- 只有 `human_gold + reviewed` 的真实样本会进入 RAG eval cases；`ai_silver` 仍需要人工抽查确认后才能作为强评测证据。
+- 本版本先做评测资产统计和 case 接入；后续还需要导出每条真实 case 的 expected citation、失败样本和人工修正链路。
+
 ## v0.5.4 - Runtime RAG Preflight Evidence
 
 日期：2026-07-03

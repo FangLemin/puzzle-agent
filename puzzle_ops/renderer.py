@@ -680,6 +680,8 @@ def render_rag_summary(summary: dict[str, object]) -> str:
     feedback_card = render_rag_feedback_summary(feedback if isinstance(feedback, dict) else {})
     acceptance = summary.get("latest_acceptance_summary", {})
     acceptance_card = render_rag_acceptance_preflight(acceptance if isinstance(acceptance, dict) else {})
+    eval_dataset = summary.get("rag_eval_dataset", {})
+    eval_dataset_card = render_rag_eval_dataset(eval_dataset if isinstance(eval_dataset, dict) else {})
     vector_store_search = "on" if summary.get("vector_store_search_enabled") else "off"
     return f"""
 <div class="rag-grid">
@@ -689,6 +691,7 @@ def render_rag_summary(summary: dict[str, object]) -> str:
   <article><strong>离线建库</strong><span>DocumentLoader + Chunk + Store</span><small>{escape(offline_pipeline)}</small></article>
   <article><strong>在线检索</strong><span>Rewrite + Hybrid Recall + Rerank</span><small>VectorStore search={escape(vector_store_search)}；{escape(online_pipeline[:220])}</small></article>
   <article><strong>RAG 检索评测</strong><span>hit@5 / mrr@5</span><small>{escape(eval_text)}；{escape(trace_text)}</small></article>
+  {eval_dataset_card}
   {acceptance_card}
   <article><strong>版本化知识库</strong><span>Documents + Eval Cases</span><small>{escape(knowledge_text[:260])}</small></article>
   {feedback_card}
@@ -700,6 +703,28 @@ def render_rag_summary(summary: dict[str, object]) -> str:
 <h3>最近 RAG Trace</h3>
 <div class="table-wrap"><table><thead><tr><th>Trace</th><th>Query</th><th>引用</th><th>可回放 prompt</th><th>详情</th></tr></thead><tbody>{recent_trace_rows}</tbody></table></div>
 """
+
+
+def render_rag_eval_dataset(summary: dict[str, object]) -> str:
+    headline = (
+        f"real={summary.get('real_sample_count', 0)}；"
+        f"human_gold={summary.get('human_gold_count', 0)}；"
+        f"cases={summary.get('total_eval_case_count', 0)}"
+    )
+    detail = (
+        f"file cases={summary.get('file_eval_case_count', 0)}；"
+        f"harness cases={summary.get('harness_eval_case_count', 0)}；"
+        f"ai_silver={summary.get('ai_silver_count', 0)}；"
+        f"manual_grade={summary.get('manual_grade_count', 0)}；"
+        f"target={summary.get('target_real_sample_range', '30-50')}；"
+        f"hit@5 threshold={summary.get('hit_at_five_threshold', 0.8)}；"
+        f"status={summary.get('status', '')}"
+    )
+    return (
+        "<article><strong>真实 Eval Dataset</strong>"
+        f"<span>{escape(headline)}</span>"
+        f"<small>{escape(detail)}</small></article>"
+    )
 
 
 def render_rag_acceptance_preflight(summary: dict[str, object]) -> str:
