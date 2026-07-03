@@ -2,6 +2,43 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.6.5 - RAG Patch Qdrant Acceptance
+
+日期：2026-07-04
+
+阶段目标：
+
+- 把已审核 RAG 补丁治理从 raw/processed/eval 继续推进到向量库层。
+- 让一次补丁应用可以串联完成：写入 raw、重建 processed、重建 Qdrant、并把 Qdrant 验收结果写入 patch manifest。
+
+已完成：
+
+- Agent：
+  - 新增 `apply_approved_rag_patch_rebuild_and_reindex_qdrant(country, ...)`。
+  - 支持可选注入 `embedding_provider` 和 `vector_store`，便于单测和本地诊断不依赖真实 Qdrant。
+  - 内部复用 `apply_approved_rag_patch_and_rebuild()` 与 `reindex_rag_qdrant_from_raw()`。
+  - patch manifest 的 status 更新为 `applied_rebuilt_qdrant_indexed`。
+  - patch manifest 新增 `qdrant` 区块，记录 status、qdrant manifest path、latest manifest path、upserted_points、chunk_count、vector_count、vector_size、hit@5、mrr@5、collection。
+- Runtime 页面：
+  - `价值观与审核 RAG` 操作区新增 `应用补丁并入库Qdrant` 按钮。
+- Server：
+  - 新增 `/apply_rag_patch_rebuild_and_reindex_qdrant` action。
+  - 同步消息展示 Qdrant status、points、vector_size、hit@5、patch manifest 和 qdrant manifest。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_applies_rag_patch_rebuilds_and_reindexes_qdrant_with_manifest tests/test_renderer.py::test_runtime_page_shows_rag_knowledge_patch_drafts tests/test_server.py::test_apply_rag_patch_rebuild_and_reindex_qdrant_action_reports_manifest -q`：先因缺少 Agent 方法、页面入口和 server action 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_applies_rag_patch_rebuilds_and_reindexes_qdrant_with_manifest tests/test_renderer.py::test_runtime_page_shows_rag_knowledge_patch_drafts tests/test_server.py::test_apply_rag_patch_rebuild_and_reindex_qdrant_action_reports_manifest -q`：3 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py tests/test_server.py -q`：214 passed。
+  - `PYTHONPATH=. pytest tests -q`：361 passed。
+
+当前限制：
+
+- Runtime 的真实 Qdrant 入库仍依赖 `.env` 中 Qdrant、embedding provider 和网络/额度可用性。
+- 本版本将 Qdrant 结果写回 patch manifest，但暂未把 patch rollback 与 Qdrant point restore 自动联动；如已入库后回滚 raw patch，仍需要显式执行 Qdrant 重建或后续补联动回滚。
+
 ## v0.6.4 - Rollback Latest RAG Patch
 
 日期：2026-07-04

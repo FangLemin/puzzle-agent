@@ -446,6 +446,20 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             state.sync_message = f"回滚最新 RAG 补丁失败：{exc}"
         state.sync_url = ""
         state.view = "runtime"
+    elif path == "/apply_rag_patch_rebuild_and_reindex_qdrant":
+        result = agent.apply_approved_rag_patch_rebuild_and_reindex_qdrant(state.country)
+        qdrant = result.get("qdrant", {}) if isinstance(result.get("qdrant"), dict) else {}
+        state.sync_message = (
+            "已应用补丁、重建 RAG 并入库 Qdrant："
+            f"status={qdrant.get('status', '')}；"
+            f"points={qdrant.get('upserted_points', 0)}；"
+            f"vector_size={qdrant.get('vector_size', 0)}；"
+            f"hit@5={qdrant.get('hit@5', 0)}；"
+            f"patch_manifest={result.get('manifest_path', '')}；"
+            f"qdrant_manifest={qdrant.get('manifest_path', '')}"
+        )
+        state.sync_url = ""
+        state.view = "runtime"
     elif path == "/approve_rag_knowledge_patch_draft":
         try:
             memory_id = agent.approve_rag_knowledge_patch_draft(

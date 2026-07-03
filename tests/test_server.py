@@ -1752,3 +1752,39 @@ def test_rollback_latest_rag_patch_and_rebuild_action_reports_eval(monkeypatch, 
     assert not Path(str(applied["raw_patch_path"])).exists()
     assert manifest["status"] == "rolled_back_rebuilt"
     assert manifest["rollback"]["removed_raw_patch_path"] == str(applied["raw_patch_path"])
+
+
+def test_apply_rag_patch_rebuild_and_reindex_qdrant_action_reports_manifest(monkeypatch):
+    APP.state = AppState(country="日本", view="runtime")
+
+    def fake_apply(country):
+        assert country == "日本"
+        return {
+            "status": "applied_rebuilt_qdrant_indexed",
+            "raw_patch_path": "/tmp/approved_patch.md",
+            "processed_path": "/tmp/value_audit_documents.jsonl",
+            "hit@5": 1.0,
+            "manifest_path": "/tmp/rag_patch_apply_日本.json",
+            "qdrant": {
+                "status": "indexed",
+                "upserted_points": 9,
+                "vector_size": 3,
+                "manifest_path": "/tmp/qdrant_reindex_日本.json",
+            },
+        }
+
+    monkeypatch.setattr(APP.agent, "apply_approved_rag_patch_rebuild_and_reindex_qdrant", fake_apply)
+
+    handle_action(
+        "/apply_rag_patch_rebuild_and_reindex_qdrant",
+        {
+            "country": ["日本"],
+            "view": ["runtime"],
+        },
+    )
+
+    assert APP.state.view == "runtime"
+    assert "已应用补丁、重建 RAG 并入库 Qdrant" in APP.state.sync_message
+    assert "points=9" in APP.state.sync_message
+    assert "vector_size=3" in APP.state.sync_message
+    assert "patch_manifest=/tmp/rag_patch_apply_日本.json" in APP.state.sync_message

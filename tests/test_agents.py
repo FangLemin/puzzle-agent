@@ -977,6 +977,70 @@ def test_agent_rolls_back_latest_approved_rag_patch_and_rebuilds(monkeypatch, tm
     assert latest_manifest["rollback"]["removed_raw_patch_path"] == str(raw_patch_path)
 
 
+def test_agent_applies_rag_patch_rebuilds_and_reindexes_qdrant_with_manifest(monkeypatch, tmp_path):
+    knowledge_dir = tmp_path / "knowledge"
+    eval_dir = knowledge_dir / "eval"
+    eval_dir.mkdir(parents=True)
+    (eval_dir / "value_audit_cases.jsonl").write_text(
+        json.dumps(
+            {
+                "query": "日本寿司图是否符合本土饮食价值观",
+                "country": "日本",
+                "expected_parent_id": "JP_KB_SUSHI_FOOD",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent.record_rag_eval_failure_feedback(
+        "日本",
+        query="日本寿司图是否符合本土饮食价值观",
+        expected_parent_id="JP_KB_SUSHI_FOOD",
+        retrieved_parent_ids=("JP_KB_ONSEN_TRAVEL",),
+        note="补充寿司 hard negative",
+    )
+    agent.approve_rag_knowledge_patch_draft("日本", "patch-日本-1", human_note="运营确认补入日本饮食价值观")
+
+    class FakeEmbedding:
+        provider_name = "dashscope:text-embedding-v4"
+
+        def query_vector(self, text: str):
+            assert text
+            return (0.1, 0.2, 0.3)
+
+    class FakeQdrantStore:
+        def __init__(self):
+            self.points = ()
+
+        def ensure_collection(self, vector_size):
+            return {"status": "created", "vector_size": vector_size, "collection": "puzzle_ops_rag"}
+
+        def upsert(self, points):
+            self.points = points
+            return {"status": "ok"}
+
+    store = FakeQdrantStore()
+
+    result = agent.apply_approved_rag_patch_rebuild_and_reindex_qdrant(
+        "日本",
+        embedding_provider=FakeEmbedding(),
+        vector_store=store,
+    )
+
+    manifest = json.loads(Path(str(result["manifest_path"])).read_text(encoding="utf-8"))
+    assert result["status"] == "applied_rebuilt_qdrant_indexed"
+    assert result["qdrant"]["status"] == "indexed"
+    assert result["qdrant"]["upserted_points"] == len(store.points)
+    assert result["qdrant"]["vector_size"] == 3
+    assert result["qdrant"]["hit@5"] == 1.0
+    assert manifest["status"] == "applied_rebuilt_qdrant_indexed"
+    assert manifest["qdrant"]["manifest_path"].endswith(".json")
+    assert manifest["qdrant"]["upserted_points"] == len(store.points)
+
+
 def test_agent_rag_answer_can_cite_human_gold_harness_sample(monkeypatch, tmp_path):
     image_path = tmp_path / "france-picnic.png"
     image_path.write_bytes(b"fake-png")

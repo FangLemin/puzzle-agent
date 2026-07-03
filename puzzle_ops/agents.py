@@ -778,6 +778,40 @@ class PuzzleOpsAgent:
             "rollback": rollback,
         }
 
+    def apply_approved_rag_patch_rebuild_and_reindex_qdrant(
+        self,
+        country: str,
+        *,
+        embedding_provider: LocalEmbeddingProvider | None = None,
+        vector_store: QdrantVectorStore | None = None,
+    ) -> dict[str, object]:
+        apply_result = self.apply_approved_rag_patch_and_rebuild(country)
+        qdrant = self.reindex_rag_qdrant_from_raw(country, embedding_provider=embedding_provider, vector_store=vector_store)
+        manifest_path = Path(str(apply_result.get("manifest_path", "")))
+        latest_manifest_path = Path(str(apply_result.get("latest_manifest_path", "")))
+        manifest = _read_json_object(manifest_path)
+        qdrant_summary = {
+            "status": qdrant.get("status", ""),
+            "manifest_path": qdrant.get("manifest_path", ""),
+            "latest_manifest_path": qdrant.get("latest_manifest_path", ""),
+            "upserted_points": qdrant.get("upserted_points", 0),
+            "chunk_count": qdrant.get("chunk_count", 0),
+            "vector_count": qdrant.get("vector_count", 0),
+            "vector_size": qdrant.get("vector_size", 0),
+            "hit@5": qdrant.get("hit@5", 0),
+            "mrr@5": qdrant.get("mrr@5", 0),
+            "qdrant_collection": qdrant.get("qdrant_collection", ""),
+        }
+        manifest["status"] = "applied_rebuilt_qdrant_indexed"
+        manifest["qdrant"] = qdrant_summary
+        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        latest_manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {
+            **apply_result,
+            "status": "applied_rebuilt_qdrant_indexed",
+            "qdrant": qdrant_summary,
+        }
+
     def approve_rag_knowledge_patch_draft(self, country: str, patch_id: str, *, human_note: str) -> int:
         draft = next(
             (item for item in self.rag_knowledge_patch_drafts(country, limit=10_000).get("items", ()) if isinstance(item, dict) and item.get("patch_id") == patch_id),
