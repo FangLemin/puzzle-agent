@@ -1,3 +1,5 @@
+import json
+
 from puzzle_ops.agents import PuzzleOpsAgent
 from puzzle_ops.renderer import AppState, render_page
 from puzzle_ops.trial_upload import TrialImageUploadService
@@ -226,6 +228,69 @@ def test_runtime_page_shows_rag_feedback_summary(tmp_path):
     assert "引用上下文" in html
     assert "检索命中详情" in html
     assert "只基于引用依据回答" in html
+
+
+def test_runtime_page_shows_latest_rag_preflight_summary(tmp_path):
+    agent = agent_without_vlm(tmp_path)
+    agent._runtime_dir = tmp_path / "runtime"
+    report_dir = agent._runtime_dir / "rag_acceptance_reports"
+    report_dir.mkdir(parents=True)
+    (report_dir / "rag_acceptance_full_summary_日本.json").write_text(
+        json.dumps(
+            {
+                "status": "failed",
+                "failure_stage": "rerank_preflight",
+                "error": "connection refused",
+                "preflight": {
+                    "mode": "live",
+                    "embedding": {
+                        "ready": True,
+                        "provider": "dashscope:text-embedding-v4",
+                        "vector_size": 1024,
+                    },
+                    "qdrant": {
+                        "ready": True,
+                        "provider": "qdrant",
+                        "collection": "puzzle_ops_rag",
+                    },
+                    "rerank": {
+                        "ready": False,
+                        "provider": "bge:BAAI/bge-reranker-v2-m3",
+                        "error": "connection refused",
+                    },
+                },
+                "report": {
+                    "hit@5": 0.8,
+                    "mrr@5": 0.7,
+                    "observed_retrieval": {"qdrant_vector_hits": True},
+                    "runtime_stats": {
+                        "embedding_remote_calls": 3,
+                        "embedding_fallbacks": 0,
+                        "rerank_remote_calls": 1,
+                        "rerank_fallbacks": 0,
+                    },
+                },
+                "report_path": str(report_dir / "rag_acceptance_full_日本.json"),
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    html = render_page(agent, AppState(country="日本", view="runtime"))
+
+    assert "RAG Preflight" in html
+    assert "mode=live" in html
+    assert "status=failed" in html
+    assert "stage=rerank_preflight" in html
+    assert "embedding ready" in html
+    assert "qdrant ready" in html
+    assert "rerank not ready" in html
+    assert "dashscope:text-embedding-v4" in html
+    assert "bge:BAAI/bge-reranker-v2-m3" in html
+    assert "connection refused" in html
+    assert "full hit@5=0.8" in html
+    assert "qdrant_hit=True" in html
 
 
 def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):

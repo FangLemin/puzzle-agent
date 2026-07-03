@@ -2,6 +2,39 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.5.4 - Runtime RAG Preflight Evidence
+
+日期：2026-07-03
+
+阶段目标：
+
+- 把“一键RAG全链路验收”的 preflight 结果从同步消息/JSON 报告提升到 Runtime 页面可见证据。
+- 让运营和面试官能直接看到 Qwen embedding、Qdrant、BGE rerank 是否 ready，以及真实 hit@5、qdrant_hit、remote/fallback 统计。
+
+已完成：
+
+- Agent：
+  - 新增 `latest_rag_acceptance_summary(country)`。
+  - 从 `runtime/rag_acceptance_reports/rag_acceptance_full_summary_<国家>.json` 读取最近一次全链路验收结果。
+  - 将 status、failure_stage、error、preflight、hit@5、mrr@5、qdrant_vector_hits、runtime_stats 合入 `value_audit_rag_summary()`。
+- Runtime 页面：
+  - 新增 `RAG Preflight` 卡片。
+  - 未运行一键验收时显示明确空状态。
+  - 已运行时展示 `mode/status/stage`、embedding/qdrant/rerank ready 状态、provider、错误信息、full hit@5、mrr@5、qdrant_hit、embedding/rerank remote/fallback。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_renderer.py::test_runtime_page_shows_latest_rag_preflight_summary -q`：先因页面缺少 `RAG Preflight` 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_renderer.py::test_runtime_page_shows_latest_rag_preflight_summary -q`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_renderer.py::test_runtime_page_shows_rag_feedback_summary tests/test_renderer.py::test_runtime_page_shows_latest_rag_preflight_summary -q`：2 passed。
+
+当前限制：
+
+- 本版本只展示最近一次 summary 文件中的证据；如果从未点击“一键RAG全链路验收”，页面会显示未运行状态。
+- BGE/Qdrant/Qwen 是否真实 ready 仍以 live preflight 和外部服务可用性为准。
+
 ## v0.5.3 - Fast/Live RAG Preflight Modes
 
 日期：2026-07-03

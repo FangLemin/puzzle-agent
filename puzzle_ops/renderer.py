@@ -678,6 +678,8 @@ def render_rag_summary(summary: dict[str, object]) -> str:
     recent_trace_rows = render_recent_rag_traces(summary.get("recent_traces", ()))
     feedback = summary.get("feedback_summary", {})
     feedback_card = render_rag_feedback_summary(feedback if isinstance(feedback, dict) else {})
+    acceptance = summary.get("latest_acceptance_summary", {})
+    acceptance_card = render_rag_acceptance_preflight(acceptance if isinstance(acceptance, dict) else {})
     vector_store_search = "on" if summary.get("vector_store_search_enabled") else "off"
     return f"""
 <div class="rag-grid">
@@ -687,6 +689,7 @@ def render_rag_summary(summary: dict[str, object]) -> str:
   <article><strong>离线建库</strong><span>DocumentLoader + Chunk + Store</span><small>{escape(offline_pipeline)}</small></article>
   <article><strong>在线检索</strong><span>Rewrite + Hybrid Recall + Rerank</span><small>VectorStore search={escape(vector_store_search)}；{escape(online_pipeline[:220])}</small></article>
   <article><strong>RAG 检索评测</strong><span>hit@5 / mrr@5</span><small>{escape(eval_text)}；{escape(trace_text)}</small></article>
+  {acceptance_card}
   <article><strong>版本化知识库</strong><span>Documents + Eval Cases</span><small>{escape(knowledge_text[:260])}</small></article>
   {feedback_card}
 </div>
@@ -697,6 +700,59 @@ def render_rag_summary(summary: dict[str, object]) -> str:
 <h3>最近 RAG Trace</h3>
 <div class="table-wrap"><table><thead><tr><th>Trace</th><th>Query</th><th>引用</th><th>可回放 prompt</th><th>详情</th></tr></thead><tbody>{recent_trace_rows}</tbody></table></div>
 """
+
+
+def render_rag_acceptance_preflight(summary: dict[str, object]) -> str:
+    if not summary.get("exists"):
+        return (
+            "<article><strong>RAG Preflight</strong>"
+            "<span>尚未运行一键验收</span>"
+            "<small>点击“一键RAG全链路验收”后，这里会展示 Qwen embedding、Qdrant、BGE rerank 的真实检查结果。</small></article>"
+        )
+    preflight = summary.get("preflight", {})
+    if not isinstance(preflight, dict):
+        preflight = {}
+    runtime_stats = summary.get("runtime_stats", {})
+    if not isinstance(runtime_stats, dict):
+        runtime_stats = {}
+    stage = str(summary.get("failure_stage", "") or "none")
+    status_line = (
+        f"mode={summary.get('mode', '')}；"
+        f"status={summary.get('status', '')}；"
+        f"stage={stage}"
+    )
+    component_text = "；".join(
+        _rag_preflight_component_text(name, preflight.get(name, {}) if isinstance(preflight.get(name), dict) else {})
+        for name in ("embedding", "qdrant", "rerank")
+    )
+    metric_text = (
+        f"full hit@5={summary.get('hit@5', 0)}；"
+        f"mrr@5={summary.get('mrr@5', 0)}；"
+        f"qdrant_hit={summary.get('qdrant_vector_hits', False)}；"
+        f"embedding remote {runtime_stats.get('embedding_remote_calls', 0)}/fallback {runtime_stats.get('embedding_fallbacks', 0)}；"
+        f"rerank remote {runtime_stats.get('rerank_remote_calls', 0)}/fallback {runtime_stats.get('rerank_fallbacks', 0)}"
+    )
+    error = str(summary.get("error", ""))
+    detail = "；".join(item for item in (component_text, metric_text, f"error={error}" if error else "") if item)
+    return (
+        "<article><strong>RAG Preflight</strong>"
+        f"<span>{escape(status_line)}</span>"
+        f"<small>{escape(detail)}</small></article>"
+    )
+
+
+def _rag_preflight_component_text(name: str, status: dict[str, object]) -> str:
+    ready = "ready" if status.get("ready") else "not ready"
+    provider = str(status.get("provider") or status.get("provider_name") or "")
+    details = [f"{name} {ready}"]
+    if provider:
+        details.append(provider)
+    for key in ("model", "collection", "vector_size"):
+        if status.get(key) not in (None, ""):
+            details.append(f"{key}={status.get(key)}")
+    if status.get("error"):
+        details.append(f"error={status.get('error')}")
+    return " ".join(str(item) for item in details)
 
 
 def render_rag_feedback_summary(summary: dict[str, object]) -> str:

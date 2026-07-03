@@ -553,10 +553,35 @@ class PuzzleOpsAgent:
             "rewritten_query": self._last_rag_rewritten_query,
             "retrieval_trace": self._last_rag_trace,
             "retrieval_eval_report": self.value_audit_rag_eval_report(country),
+            "latest_acceptance_summary": self.latest_rag_acceptance_summary(country),
             "knowledge_base": self._rag_knowledge_summary(country),
             "feedback_summary": self.rag_feedback_summary(country),
             "recent_traces": self.recent_rag_traces(country, limit=3),
             **self._last_rag_stats.as_dict(),
+        }
+
+    def latest_rag_acceptance_summary(self, country: str) -> dict[str, object]:
+        summary_path = self._runtime_dir / "rag_acceptance_reports" / f"rag_acceptance_full_summary_{country}.json"
+        payload = _read_json_object(summary_path)
+        if not payload:
+            return {"exists": False, "summary_path": str(summary_path)}
+        report = payload.get("report", {}) if isinstance(payload.get("report"), dict) else {}
+        preflight = payload.get("preflight", {}) if isinstance(payload.get("preflight"), dict) else {}
+        observed = report.get("observed_retrieval", {}) if isinstance(report.get("observed_retrieval"), dict) else {}
+        runtime_stats = report.get("runtime_stats", {}) if isinstance(report.get("runtime_stats"), dict) else {}
+        return {
+            "exists": True,
+            "summary_path": str(summary_path),
+            "status": str(payload.get("status", "")),
+            "failure_stage": str(payload.get("failure_stage", "")),
+            "error": str(payload.get("error", "")),
+            "report_path": str(payload.get("report_path", "")),
+            "preflight": preflight,
+            "mode": str(preflight.get("mode", "")),
+            "hit@5": report.get("hit@5", 0),
+            "mrr@5": report.get("mrr@5", 0),
+            "qdrant_vector_hits": observed.get("qdrant_vector_hits", False),
+            "runtime_stats": runtime_stats,
         }
 
     def recent_rag_traces(self, country: str, *, limit: int = 5) -> tuple[dict[str, object], ...]:
