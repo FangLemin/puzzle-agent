@@ -555,12 +555,50 @@ class PuzzleOpsAgent:
             "retrieval_eval_report": self.value_audit_rag_eval_report(country),
             "rag_eval_dataset": self.rag_eval_dataset_summary(country),
             "rag_eval_case_evidence": self.rag_eval_case_evidence(country),
+            "rag_eval_failure_feedback": self.rag_eval_failure_feedback_summary(country),
             "latest_acceptance_summary": self.latest_rag_acceptance_summary(country),
             "knowledge_base": self._rag_knowledge_summary(country),
             "feedback_summary": self.rag_feedback_summary(country),
             "recent_traces": self.recent_rag_traces(country, limit=3),
             **self._last_rag_stats.as_dict(),
         }
+
+    def rag_eval_failure_feedback_summary(self, country: str, *, limit: int = 8) -> dict[str, object]:
+        items = []
+        for memory in self.repository.layered_memories(country, layer="working", include_inactive=True):
+            if memory.get("memory_type") != "rag_eval_failure_feedback" or memory.get("status") != "active":
+                continue
+            payload = memory.get("payload", {})
+            if not isinstance(payload, dict):
+                continue
+            retrieved = payload.get("retrieved_parent_ids", ())
+            if isinstance(retrieved, (list, tuple)):
+                retrieved_ids = tuple(str(item) for item in retrieved)
+            else:
+                retrieved_ids = tuple(str(retrieved).split()) if retrieved else ()
+            items.append(
+                {
+                    "memory_id": int(memory.get("memory_id", 0) or 0),
+                    "query": str(payload.get("query", "")),
+                    "expected_parent_id": str(payload.get("expected_parent_id", "")),
+                    "retrieved_parent_ids": retrieved_ids,
+                    "note": str(payload.get("note", "")),
+                    "optimization_use": "hard_negative_or_knowledge_patch",
+                    "status": str(memory.get("status", "active")),
+                }
+            )
+        items = sorted(items, key=lambda item: int(item["memory_id"]), reverse=True)
+        return {"pending_count": len(items), "items": tuple(items[:limit])}
+
+    def export_rag_eval_failure_feedback(self, country: str, output_path: Path | str) -> Path:
+        summary = self.rag_eval_failure_feedback_summary(country, limit=10_000)
+        path = Path(output_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as handle:
+            for item in summary.get("items", ()):
+                payload = {"country": country, **item}
+                handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        return path
 
     def rag_eval_case_evidence(self, country: str, *, limit: int = 8) -> dict[str, object]:
         report = self.value_audit_rag_eval_report(country)

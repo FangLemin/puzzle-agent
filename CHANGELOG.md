@@ -2,6 +2,43 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.5.8 - RAG Failure Feedback Export Queue
+
+日期：2026-07-03
+
+阶段目标：
+
+- 把 `rag_eval_failure_feedback` 从 working memory 中的单条记录升级为可查看、可导出的优化队列。
+- 让 RAG eval 失败样本能沉淀为 hard negative、知识库补充任务或 rerank 调优样本。
+
+已完成：
+
+- Agent：
+  - 新增 `rag_eval_failure_feedback_summary(country)`。
+  - 汇总 active working memory 中的 `rag_eval_failure_feedback`。
+  - 新增 `export_rag_eval_failure_feedback(country, output_path)`，导出 JSONL。
+  - 每条导出记录包含 query、expected parent、retrieved parents、note、memory_id、optimization_use。
+- Runtime 页面：
+  - 新增 `RAG失败反馈队列`卡片和明细表。
+  - 展示待处理数量、query、expected parent、retrieved parents、用途和备注。
+  - RAG 操作区新增`导出RAG失败反馈`按钮。
+- Server：
+  - 新增 `/export_rag_eval_failure_feedback` action。
+  - 默认导出到 `runtime/rag_eval_failure_feedback_<国家>.jsonl`。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_summarizes_and_exports_rag_eval_failure_feedback tests/test_renderer.py::test_runtime_page_shows_rag_failure_feedback_queue tests/test_server.py::test_export_rag_eval_failure_feedback_action_writes_jsonl -q`：先因缺少 summary/export、页面队列和 server action 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_summarizes_and_exports_rag_eval_failure_feedback tests/test_renderer.py::test_runtime_page_shows_rag_failure_feedback_queue tests/test_server.py::test_export_rag_eval_failure_feedback_action_writes_jsonl -q`：3 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py tests/test_server.py -q`：199 passed。
+  - `PYTHONPATH=. pytest tests -q`：346 passed。
+
+当前限制：
+
+- 本版本先导出 JSONL 队列；后续还需要把导出的 hard negative 自动合入评测集，或生成可审核的知识库补丁草案。
+
 ## v0.5.7 - RAG Eval Failure HITL Feedback
 
 日期：2026-07-03

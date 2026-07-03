@@ -363,6 +363,26 @@ def test_runtime_page_shows_rag_eval_case_evidence(monkeypatch, tmp_path):
     assert "记录失败case" in html
 
 
+def test_runtime_page_shows_rag_failure_feedback_queue(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent.record_rag_eval_failure_feedback(
+        "日本",
+        query="日本寿司图是否符合本土饮食价值观",
+        expected_parent_id="JP_KB_SUSHI",
+        retrieved_parent_ids=("JP_KB_ONSEN",),
+        note="补充寿司 hard negative",
+    )
+
+    html = render_page(agent, AppState(country="日本", view="runtime"))
+
+    assert "RAG失败反馈队列" in html
+    assert "待处理=1" in html
+    assert "JP_KB_SUSHI" in html
+    assert "hard_negative_or_knowledge_patch" in html
+    assert 'action="/export_rag_eval_failure_feedback"' in html
+    assert "导出RAG失败反馈" in html
+
+
 def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):
     image_path = tmp_path / "real-sushi.png"
     image_path.write_bytes(b"fake-png")

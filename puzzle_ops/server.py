@@ -385,6 +385,14 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         )
         state.sync_url = ""
         state.view = "runtime"
+    elif path == "/export_rag_eval_failure_feedback":
+        export_path = agent.export_rag_eval_failure_feedback(
+            state.country,
+            agent._runtime_dir / f"rag_eval_failure_feedback_{state.country}.jsonl",
+        )
+        state.sync_message = f"已导出 RAG 失败反馈：{export_path}"
+        state.sync_url = ""
+        state.view = "runtime"
     elif path == "/run_full_rag_acceptance":
         output_dir = agent._runtime_dir / "rag_acceptance_reports"
         result = agent.run_full_rag_industrial_acceptance(state.country, output_dir, preflight_mode="live")

@@ -1526,3 +1526,28 @@ def test_record_rag_eval_failure_feedback_action_writes_working_memory():
         and "JP_KB_ONSEN" in row["payload"]["retrieved_parent_ids"]
         for row in rows
     )
+
+
+def test_export_rag_eval_failure_feedback_action_writes_jsonl():
+    APP.state = AppState(country="日本", view="runtime")
+    APP.agent.record_rag_eval_failure_feedback(
+        "日本",
+        query="日本寿司图是否符合本土饮食价值观",
+        expected_parent_id="JP_KB_SUSHI",
+        retrieved_parent_ids=("JP_KB_ONSEN",),
+        note="补充寿司 hard negative",
+    )
+
+    handle_action(
+        "/export_rag_eval_failure_feedback",
+        {
+            "country": ["日本"],
+            "view": ["runtime"],
+        },
+    )
+
+    export_path = APP.agent._runtime_dir / "rag_eval_failure_feedback_日本.jsonl"
+    assert APP.state.view == "runtime"
+    assert "已导出 RAG 失败反馈" in APP.state.sync_message
+    assert export_path.exists()
+    assert "JP_KB_SUSHI" in export_path.read_text(encoding="utf-8")
