@@ -2,6 +2,43 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.6.2 - Apply Approved RAG Patch to Raw
+
+日期：2026-07-04
+
+阶段目标：
+
+- 把已审核 RAG Markdown 补丁从“可导出文件”推进到“可受控写入 raw 知识库”的版本治理入口。
+- 为后续知识库回滚、版本对比和正式 rebuild/reindex 打基础。
+
+已完成：
+
+- Agent：
+  - 新增 `apply_approved_rag_patch_markdown_to_raw(country)`。
+  - 将已审核长期记忆导出到 `knowledge/raw/approved_rag_patch_<国家>_<run_id>.md`。
+  - 新增 `knowledge/patch_manifests/runs/rag_patch_apply_<国家>_<run_id>.json`。
+  - 同步写入 latest manifest：`knowledge/patch_manifests/rag_patch_apply_<国家>.json`。
+  - manifest 记录 run_id、country、status、raw_patch_path、applied_patch_count、patch_ids、source_memory_ids 和 next_step。
+- Runtime 页面：
+  - `价值观与审核 RAG` 操作区新增 `应用已审补丁到raw` 按钮。
+- Server：
+  - 新增 `/apply_approved_rag_patch_markdown` action。
+  - 成功后返回 raw patch 路径、manifest 路径和应用补丁数量。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_applies_approved_rag_patch_markdown_to_raw_with_manifest tests/test_renderer.py::test_runtime_page_shows_rag_knowledge_patch_drafts tests/test_server.py::test_apply_approved_rag_patch_markdown_action_writes_raw_and_manifest -q`：先因缺少 Agent apply 方法、页面入口和 server action 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_applies_approved_rag_patch_markdown_to_raw_with_manifest tests/test_renderer.py::test_runtime_page_shows_rag_knowledge_patch_drafts tests/test_server.py::test_apply_approved_rag_patch_markdown_action_writes_raw_and_manifest -q`：3 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py tests/test_server.py -q`：208 passed。
+  - `PYTHONPATH=. pytest tests -q`：355 passed。
+
+当前限制：
+
+- 本版本只把已审补丁写入 raw 并生成 manifest；不会自动 rebuild processed 文档，也不会自动重建 Qdrant。运营仍需显式点击 `重建RAG知识库` 和 `重建并入库Qdrant`。
+- 暂未提供 raw patch 的回滚动作；下一步应基于 `patch_manifests` 增加回滚到上一个 raw patch 状态或禁用指定 patch 的能力。
+
 ## v0.6.1 - Approved RAG Patch Markdown Export
 
 日期：2026-07-04

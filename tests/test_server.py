@@ -8,6 +8,7 @@ from puzzle_ops.vision_llm import MissingVisionLLMConfig, OpenAIVisionLLMClient,
 from PIL import Image
 from datetime import date
 from io import BytesIO
+from pathlib import Path
 import json
 import pytest
 
@@ -1630,3 +1631,34 @@ def test_export_approved_rag_patch_markdown_action_writes_md():
     assert "已导出已审核 RAG Markdown 补丁" in APP.state.sync_message
     assert export_path.exists()
     assert "source_type: approved_rag_patch" in export_path.read_text(encoding="utf-8")
+
+
+def test_apply_approved_rag_patch_markdown_action_writes_raw_and_manifest(monkeypatch, tmp_path):
+    knowledge_dir = tmp_path / "knowledge"
+    monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
+    APP.state = AppState(country="日本", view="runtime")
+    APP.agent.record_rag_eval_failure_feedback(
+        "日本",
+        query="日本寿司图是否符合本土饮食价值观",
+        expected_parent_id="JP_KB_SUSHI_FOOD",
+        retrieved_parent_ids=("JP_KB_ONSEN_TRAVEL",),
+        note="补充寿司 hard negative",
+    )
+    patch_id = str(APP.agent.rag_knowledge_patch_drafts("日本")["items"][0]["patch_id"])
+    APP.agent.approve_rag_knowledge_patch_draft("日本", patch_id, human_note="运营确认补入日本饮食价值观")
+
+    handle_action(
+        "/apply_approved_rag_patch_markdown",
+        {
+            "country": ["日本"],
+            "view": ["runtime"],
+        },
+    )
+
+    latest_manifest_path = knowledge_dir / "patch_manifests" / "rag_patch_apply_日本.json"
+    assert APP.state.view == "runtime"
+    assert "已应用已审核 RAG Markdown 补丁" in APP.state.sync_message
+    assert latest_manifest_path.exists()
+    manifest = json.loads(latest_manifest_path.read_text(encoding="utf-8"))
+    assert Path(str(manifest["raw_patch_path"])).exists()
+    assert manifest["applied_patch_count"] >= 1

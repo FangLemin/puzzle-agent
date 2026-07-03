@@ -409,6 +409,16 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         state.sync_message = f"已导出已审核 RAG Markdown 补丁：{export_path}"
         state.sync_url = ""
         state.view = "runtime"
+    elif path == "/apply_approved_rag_patch_markdown":
+        result = agent.apply_approved_rag_patch_markdown_to_raw(state.country)
+        state.sync_message = (
+            "已应用已审核 RAG Markdown 补丁："
+            f"raw={result.get('raw_patch_path', '')}；"
+            f"manifest={result.get('manifest_path', '')}；"
+            f"patches={result.get('applied_patch_count', 0)}"
+        )
+        state.sync_url = ""
+        state.view = "runtime"
     elif path == "/approve_rag_knowledge_patch_draft":
         try:
             memory_id = agent.approve_rag_knowledge_patch_draft(

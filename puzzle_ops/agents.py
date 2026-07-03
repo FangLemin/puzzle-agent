@@ -662,6 +662,54 @@ class PuzzleOpsAgent:
         path.write_text("\n".join(lines), encoding="utf-8")
         return path
 
+    def apply_approved_rag_patch_markdown_to_raw(self, country: str) -> dict[str, object]:
+        root = _rag_knowledge_dir()
+        raw_dir = root / "raw"
+        manifests_dir = root / "patch_manifests"
+        runs_dir = manifests_dir / "runs"
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        runs_dir.mkdir(parents=True, exist_ok=True)
+        run_id = _manifest_run_id()
+        raw_patch_path = raw_dir / f"approved_rag_patch_{country}_{run_id}.md"
+        self.export_approved_rag_patch_markdown(country, raw_patch_path)
+
+        patch_ids: list[str] = []
+        source_memory_ids: list[int] = []
+        for memory in self.repository.layered_memories(country, layer="long_term", include_inactive=True):
+            if memory.get("memory_type") != "approved_rag_knowledge_patch":
+                continue
+            if not memory.get("human_verified") or memory.get("status") != "active":
+                continue
+            payload = memory.get("payload", {})
+            if isinstance(payload, dict):
+                patch_id = str(payload.get("patch_id", "")).strip()
+                if patch_id:
+                    patch_ids.append(patch_id)
+            source_memory_ids.append(int(memory.get("memory_id", 0) or 0))
+
+        status = "applied" if patch_ids else "skipped_no_approved_patches"
+        manifest = {
+            "run_id": run_id,
+            "created_at": date.today().isoformat(),
+            "country": country,
+            "status": status,
+            "source_type": "approved_rag_patch",
+            "raw_patch_path": str(raw_patch_path),
+            "applied_patch_count": len(patch_ids),
+            "patch_ids": patch_ids,
+            "source_memory_ids": source_memory_ids,
+            "next_step": "人工确认后点击重建RAG知识库，再按需重建并入库Qdrant。",
+        }
+        manifest_path = runs_dir / f"rag_patch_apply_{country}_{run_id}.json"
+        latest_manifest_path = manifests_dir / f"rag_patch_apply_{country}.json"
+        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        latest_manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {
+            **manifest,
+            "manifest_path": str(manifest_path),
+            "latest_manifest_path": str(latest_manifest_path),
+        }
+
     def approve_rag_knowledge_patch_draft(self, country: str, patch_id: str, *, human_note: str) -> int:
         draft = next(
             (item for item in self.rag_knowledge_patch_drafts(country, limit=10_000).get("items", ()) if isinstance(item, dict) and item.get("patch_id") == patch_id),

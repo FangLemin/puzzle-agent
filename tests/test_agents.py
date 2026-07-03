@@ -862,6 +862,37 @@ def test_agent_exports_approved_rag_patch_memory_as_raw_markdown_patch(tmp_path)
     assert "人工审核备注" in content
 
 
+def test_agent_applies_approved_rag_patch_markdown_to_raw_with_manifest(monkeypatch, tmp_path):
+    knowledge_dir = tmp_path / "knowledge"
+    monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent.record_rag_eval_failure_feedback(
+        "日本",
+        query="日本寿司图是否符合本土饮食价值观",
+        expected_parent_id="JP_KB_SUSHI_FOOD",
+        retrieved_parent_ids=("JP_KB_ONSEN_TRAVEL",),
+        note="补充寿司 hard negative",
+    )
+    agent.approve_rag_knowledge_patch_draft("日本", "patch-日本-1", human_note="运营确认补入日本饮食价值观")
+
+    result = agent.apply_approved_rag_patch_markdown_to_raw("日本")
+
+    raw_patch_path = Path(str(result["raw_patch_path"]))
+    manifest_path = Path(str(result["manifest_path"]))
+    latest_manifest_path = Path(str(result["latest_manifest_path"]))
+    assert raw_patch_path.exists()
+    assert raw_patch_path.parent == knowledge_dir / "raw"
+    assert "source_type: approved_rag_patch" in raw_patch_path.read_text(encoding="utf-8")
+    assert manifest_path.exists()
+    assert latest_manifest_path.exists()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["status"] == "applied"
+    assert manifest["country"] == "日本"
+    assert manifest["applied_patch_count"] == 1
+    assert manifest["raw_patch_path"] == str(raw_patch_path)
+    assert manifest["patch_ids"] == ["patch-日本-1"]
+
+
 def test_agent_rag_answer_can_cite_human_gold_harness_sample(monkeypatch, tmp_path):
     image_path = tmp_path / "france-picnic.png"
     image_path.write_bytes(b"fake-png")
