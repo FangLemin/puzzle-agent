@@ -903,6 +903,7 @@ class PuzzleOpsAgent:
         embedding_provider: LocalEmbeddingProvider | None = None,
         rerank_provider=None,
         vector_store: QdrantVectorStore | None = None,
+        preflight_mode: str = "fast",
     ) -> dict[str, object]:
         stats = RagRuntimeStats()
         default_embedding, default_rerank = providers_from_config(
@@ -916,7 +917,7 @@ class PuzzleOpsAgent:
         store = vector_store or QdrantVectorStore(self.rag_vector_store_config)
         output = Path(output_dir)
         summary_path = output / f"rag_acceptance_full_summary_{country}.json"
-        preflight = self._rag_acceptance_preflight(embedding, rerank, store)
+        preflight = self._rag_acceptance_preflight(embedding, rerank, store, mode=preflight_mode)
         try:
             reindex = self.reindex_rag_qdrant_from_raw(
                 country,
@@ -1028,14 +1029,22 @@ class PuzzleOpsAgent:
         result["summary_path"] = str(summary_path)
         return result
 
-    def _rag_acceptance_preflight(self, embedding_provider, rerank_provider, vector_store) -> dict[str, object]:
+    def _rag_acceptance_preflight(self, embedding_provider, rerank_provider, vector_store, *, mode: str = "fast") -> dict[str, object]:
+        if mode == "live":
+            return {
+                "mode": "live",
+                "embedding": _provider_healthcheck(
+                    embedding_provider,
+                    fallback=lambda: _embedding_provider_smoke(embedding_provider),
+                ),
+                "qdrant": _provider_healthcheck(vector_store),
+                "rerank": _provider_healthcheck(rerank_provider),
+            }
         return {
-            "embedding": _provider_healthcheck(
-                embedding_provider,
-                fallback=lambda: _embedding_provider_smoke(embedding_provider),
-            ),
-            "qdrant": _provider_healthcheck(vector_store),
-            "rerank": _provider_healthcheck(rerank_provider),
+            "mode": "fast",
+            "embedding": _fast_provider_status(embedding_provider),
+            "qdrant": _fast_provider_status(vector_store),
+            "rerank": _fast_provider_status(rerank_provider),
         }
 
     def _rag_acceptance_diagnostics(
@@ -2571,6 +2580,17 @@ def _provider_healthcheck(provider, fallback=None) -> dict[str, object]:
     status.setdefault("provider", name)
     status.setdefault("ready", bool(status.get("configured", True)))
     return status
+
+
+def _fast_provider_status(provider) -> dict[str, object]:
+    name = getattr(provider, "provider_name", provider.__class__.__name__)
+    return {
+        "provider": name,
+        "ready": True,
+        "configured": True,
+        "mode": "fast",
+        "note": "Fast preflight skips live network/API checks.",
+    }
 
 
 def _embedding_provider_smoke(provider) -> dict[str, object]:

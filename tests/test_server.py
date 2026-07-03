@@ -1330,8 +1330,9 @@ def test_export_rag_acceptance_report_action_writes_report(monkeypatch):
 def test_run_full_rag_acceptance_action_reports_reindex_and_hit_rate(monkeypatch):
     APP.state = AppState(country="日本", view="runtime")
 
-    def fake_full_acceptance(country, output_dir):
+    def fake_full_acceptance(country, output_dir, preflight_mode="fast"):
         assert country == "日本"
+        assert preflight_mode == "live"
         return {
             "status": "passed",
             "report_path": str(output_dir / "rag_acceptance_full_日本.json"),
@@ -1366,7 +1367,8 @@ def test_run_full_rag_acceptance_action_reports_reindex_and_hit_rate(monkeypatch
 def test_run_full_rag_acceptance_action_reports_failure_stage(monkeypatch):
     APP.state = AppState(country="日本", view="runtime")
 
-    def fake_full_acceptance(country, output_dir):
+    def fake_full_acceptance(country, output_dir, preflight_mode="fast"):
+        assert preflight_mode == "live"
         return {
             "status": "failed",
             "failure_stage": "qdrant_reindex",

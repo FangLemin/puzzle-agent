@@ -2,6 +2,39 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.5.3 - Fast/Live RAG Preflight Modes
+
+日期：2026-07-03
+
+阶段目标：
+
+- 解决 v0.5.2 暴露出的工程问题：preflight 在真实 `.env` 下可能触发网络/API 检查，导致测试和普通调用变慢。
+- 保持真实验收能力，同时让测试默认轻量、可控、快速。
+
+已完成：
+
+- Agent：
+  - `run_full_rag_industrial_acceptance()` 新增 `preflight_mode` 参数。
+  - 默认 `preflight_mode="fast"`，只读取 provider 配置，不触发 live healthcheck / embedding smoke。
+  - `preflight_mode="live"` 时才调用真实 provider `healthcheck()` 或 embedding smoke。
+  - `preflight.mode` 写入结果和 summary。
+- Server：
+  - Runtime 页面的一键验收仍显式传 `preflight_mode="live"`，保留真实检查语义。
+- 测试隔离：
+  - 新增测试确保默认 fast preflight 不调用 provider healthcheck。
+  - server 测试断言页面动作会传 `preflight_mode="live"`。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_full_rag_acceptance_defaults_to_fast_preflight_without_live_healthchecks tests/test_agents.py::test_agent_runs_full_rag_industrial_acceptance_with_qdrant_and_bge -q`：先因缺少 `preflight_mode` 和 `preflight.mode` 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_full_rag_acceptance_defaults_to_fast_preflight_without_live_healthchecks tests/test_agents.py::test_agent_runs_full_rag_industrial_acceptance_with_qdrant_and_bge tests/test_server.py::test_run_full_rag_acceptance_action_reports_reindex_and_hit_rate tests/test_server.py::test_run_full_rag_acceptance_action_reports_failure_stage -q`：4 passed。
+
+当前限制：
+
+- 页面一键验收仍会做 live preflight；这是符合业务语义的真实检查，但如果外部服务慢，页面动作也会相应变慢。
+
 ## v0.5.2 - RAG Preflight Checks
 
 日期：2026-07-03

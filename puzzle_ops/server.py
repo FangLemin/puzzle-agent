@@ -373,7 +373,7 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         state.view = "runtime"
     elif path == "/run_full_rag_acceptance":
         output_dir = agent._runtime_dir / "rag_acceptance_reports"
-        result = agent.run_full_rag_industrial_acceptance(state.country, output_dir)
+        result = agent.run_full_rag_industrial_acceptance(state.country, output_dir, preflight_mode="live")
         reindex = result.get("reindex", {}) if isinstance(result.get("reindex"), dict) else {}
         report = result.get("report", {}) if isinstance(result.get("report"), dict) else {}
         observed = report.get("observed_retrieval", {}) if isinstance(report.get("observed_retrieval"), dict) else {}

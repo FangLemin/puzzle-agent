@@ -1847,6 +1847,7 @@ knowledge_version: unit-test
         embedding_provider=embedding,
         rerank_provider=rerank,
         vector_store=store,
+        preflight_mode="live",
     )
 
     assert result["status"] == "passed"
@@ -1862,6 +1863,89 @@ knowledge_version: unit-test
     assert Path(result["report_path"]).exists()
     summary = json.loads(Path(result["summary_path"]).read_text(encoding="utf-8"))
     assert summary["preflight"]["embedding"]["probe_vector_dim"] == 3
+
+
+def test_agent_full_rag_acceptance_defaults_to_fast_preflight_without_live_healthchecks(monkeypatch, tmp_path):
+    knowledge_dir = tmp_path / "knowledge"
+    raw = knowledge_dir / "raw"
+    eval_dir = knowledge_dir / "eval"
+    raw.mkdir(parents=True)
+    eval_dir.mkdir(parents=True)
+    (raw / "japan.md").write_text(
+        """---
+country: 日本
+source_type: value_rule
+knowledge_version: unit-test
+---
+# 日本价值观
+
+## 寿司文化 {#JP_KB_SUSHI_FOOD}
+寿司属于日本本土饮食文化，适合清爽餐桌近景。
+""",
+        encoding="utf-8",
+    )
+    (eval_dir / "value_audit_cases.jsonl").write_text(
+        json.dumps({"query": "日本寿司图是否符合本土饮食价值观", "country": "日本", "expected_parent_id": "JP_KB_SUSHI_FOOD"}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "rag_fast_preflight.db"))
+
+    class FakeEmbedding:
+        provider_name = "dashscope:text-embedding-v4"
+
+        def __init__(self):
+            self.stats = RagRuntimeStats()
+            self.healthcheck_calls = 0
+
+        def query_vector(self, text: str):
+            self.stats.embedding_remote_calls += 1
+            return (0.1, 0.2, 0.3)
+
+        def similarities(self, query: str, texts: tuple[str, ...]):
+            return tuple(0.9 for _ in texts)
+
+        def healthcheck(self):
+            self.healthcheck_calls += 1
+            raise AssertionError("default preflight must not call live embedding healthcheck")
+
+    class FakeStore:
+        provider_name = "qdrant"
+
+        def __init__(self):
+            self.points = ()
+            self.healthcheck_calls = 0
+
+        def ensure_collection(self, vector_size):
+            return {"status": "created", "vector_size": vector_size, "collection": "puzzle_ops_rag"}
+
+        def upsert(self, points):
+            self.points = points
+            return {"status": "ok"}
+
+        def search(self, query_vector, *, country, top_k):
+            return {str(self.points[0].payload["chunk_id"]): 0.99}
+
+        def healthcheck(self):
+            self.healthcheck_calls += 1
+            raise AssertionError("default preflight must not call live qdrant healthcheck")
+
+    embedding = FakeEmbedding()
+    store = FakeStore()
+
+    result = agent.run_full_rag_industrial_acceptance(
+        "日本",
+        tmp_path / "rag_fast_preflight",
+        embedding_provider=embedding,
+        vector_store=store,
+    )
+
+    assert result["status"] == "passed"
+    assert result["preflight"]["mode"] == "fast"
+    assert result["preflight"]["embedding"]["ready"] is True
+    assert result["preflight"]["qdrant"]["ready"] is True
+    assert embedding.healthcheck_calls == 0
+    assert store.healthcheck_calls == 0
 
 
 def test_agent_full_rag_acceptance_returns_diagnostics_when_qdrant_fails(monkeypatch, tmp_path):
