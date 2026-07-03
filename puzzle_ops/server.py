@@ -431,6 +431,21 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         )
         state.sync_url = ""
         state.view = "runtime"
+    elif path == "/rollback_latest_rag_patch_and_rebuild":
+        try:
+            result = agent.rollback_latest_approved_rag_patch_and_rebuild(state.country)
+            state.sync_message = (
+                "已回滚最新 RAG 补丁并重建："
+                f"removed={result.get('removed_raw_patch_path', '')}；"
+                f"processed={result.get('processed_path', '')}；"
+                f"hit@5={result.get('hit@5', 0)}；"
+                f"mrr@5={result.get('mrr@5', 0)}；"
+                f"manifest={result.get('manifest_path', '')}"
+            )
+        except ValueError as exc:
+            state.sync_message = f"回滚最新 RAG 补丁失败：{exc}"
+        state.sync_url = ""
+        state.view = "runtime"
     elif path == "/approve_rag_knowledge_patch_draft":
         try:
             memory_id = agent.approve_rag_knowledge_patch_draft(

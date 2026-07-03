@@ -2,6 +2,45 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.6.4 - Rollback Latest RAG Patch
+
+日期：2026-07-04
+
+阶段目标：
+
+- 给已审核 RAG 补丁的 raw 生效层增加回滚能力，避免知识库补丁只能单向写入。
+- 回滚后自动 rebuild processed RAG 文档，并把回滚证据写回 patch manifest。
+
+已完成：
+
+- Agent：
+  - 新增 `rollback_latest_approved_rag_patch_and_rebuild(country)`。
+  - 读取 `knowledge/patch_manifests/rag_patch_apply_<国家>.json`。
+  - 删除 latest manifest 指向的 `knowledge/raw/approved_rag_patch_<国家>_<run_id>.md`。
+  - 自动执行 `rebuild_rag_knowledge_from_raw(country)`。
+  - 将 latest manifest 和对应 run manifest 的 status 更新为 `rolled_back_rebuilt`。
+  - manifest 新增 `rollback` 和 `rebuild_after_rollback` 区块，记录 removed_raw_patch_path、processed_path、hit@5、mrr@5、passed_threshold、eval_total。
+- Runtime 页面：
+  - `价值观与审核 RAG` 操作区新增 `回滚最新补丁并重建` 按钮。
+- Server：
+  - 新增 `/rollback_latest_rag_patch_and_rebuild` action。
+  - 成功后展示 removed、processed、hit@5、mrr@5 和 manifest 路径。
+  - 找不到 latest manifest 或 raw patch 时返回明确失败信息。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_rolls_back_latest_approved_rag_patch_and_rebuilds tests/test_renderer.py::test_runtime_page_shows_rag_knowledge_patch_drafts tests/test_server.py::test_rollback_latest_rag_patch_and_rebuild_action_reports_eval -q`：先因缺少 rollback 方法、页面入口和 server action 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_rolls_back_latest_approved_rag_patch_and_rebuilds tests/test_renderer.py::test_runtime_page_shows_rag_knowledge_patch_drafts tests/test_server.py::test_rollback_latest_rag_patch_and_rebuild_action_reports_eval -q`：3 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py tests/test_server.py -q`：212 passed。
+  - `PYTHONPATH=. pytest tests -q`：359 passed。
+
+当前限制：
+
+- 本版本回滚的是 raw 知识库生效文件，不删除长期 memory 中的人工审核记录。
+- 回滚后不会自动更新 Qdrant；如果线上向量库已经入库，需要继续执行 Qdrant 重建或未来补 Qdrant 联动回滚。
+
 ## v0.6.3 - Apply Patch and Rebuild RAG
 
 日期：2026-07-04

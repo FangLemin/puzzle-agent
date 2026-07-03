@@ -1706,3 +1706,49 @@ def test_apply_approved_rag_patch_and_rebuild_action_reports_eval(monkeypatch, t
     assert "hit@5=1.0" in APP.state.sync_message
     assert manifest["status"] == "applied_rebuilt"
     assert manifest["rebuild"]["hit@5"] == 1.0
+
+
+def test_rollback_latest_rag_patch_and_rebuild_action_reports_eval(monkeypatch, tmp_path):
+    knowledge_dir = tmp_path / "knowledge"
+    eval_dir = knowledge_dir / "eval"
+    eval_dir.mkdir(parents=True)
+    (eval_dir / "value_audit_cases.jsonl").write_text(
+        json.dumps(
+            {
+                "query": "日本寿司图是否符合本土饮食价值观",
+                "country": "日本",
+                "expected_parent_id": "JP_KB_SUSHI_FOOD",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
+    APP.state = AppState(country="日本", view="runtime")
+    APP.agent.record_rag_eval_failure_feedback(
+        "日本",
+        query="日本寿司图是否符合本土饮食价值观",
+        expected_parent_id="JP_KB_SUSHI_FOOD",
+        retrieved_parent_ids=("JP_KB_ONSEN_TRAVEL",),
+        note="补充寿司 hard negative",
+    )
+    patch_id = str(APP.agent.rag_knowledge_patch_drafts("日本")["items"][0]["patch_id"])
+    APP.agent.approve_rag_knowledge_patch_draft("日本", patch_id, human_note="运营确认补入日本饮食价值观")
+    applied = APP.agent.apply_approved_rag_patch_and_rebuild("日本")
+
+    handle_action(
+        "/rollback_latest_rag_patch_and_rebuild",
+        {
+            "country": ["日本"],
+            "view": ["runtime"],
+        },
+    )
+
+    manifest = json.loads((knowledge_dir / "patch_manifests" / "rag_patch_apply_日本.json").read_text(encoding="utf-8"))
+    assert APP.state.view == "runtime"
+    assert "已回滚最新 RAG 补丁并重建" in APP.state.sync_message
+    assert "hit@5=0.0" in APP.state.sync_message
+    assert not Path(str(applied["raw_patch_path"])).exists()
+    assert manifest["status"] == "rolled_back_rebuilt"
+    assert manifest["rollback"]["removed_raw_patch_path"] == str(applied["raw_patch_path"])

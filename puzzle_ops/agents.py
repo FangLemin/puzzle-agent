@@ -735,6 +735,49 @@ class PuzzleOpsAgent:
             "rebuild": manifest["rebuild"],
         }
 
+    def rollback_latest_approved_rag_patch_and_rebuild(self, country: str) -> dict[str, object]:
+        root = _rag_knowledge_dir()
+        latest_manifest_path = root / "patch_manifests" / f"rag_patch_apply_{country}.json"
+        manifest = _read_json_object(latest_manifest_path)
+        if not manifest:
+            raise ValueError(f"找不到最新 RAG patch manifest：{latest_manifest_path}")
+        if str(manifest.get("country", "")) != country:
+            raise ValueError(f"RAG patch manifest 国家不匹配：{manifest.get('country')} != {country}")
+        raw_patch_path = Path(str(manifest.get("raw_patch_path", "")))
+        if not raw_patch_path.exists():
+            raise ValueError(f"找不到要回滚的 raw patch：{raw_patch_path}")
+        raw_patch_path.unlink()
+        rebuild = self.rebuild_rag_knowledge_from_raw(country)
+        rollback = {
+            "removed_raw_patch_path": str(raw_patch_path),
+            "rolled_back_at": date.today().isoformat(),
+        }
+        manifest["status"] = "rolled_back_rebuilt"
+        manifest["rollback"] = rollback
+        manifest["rebuild_after_rollback"] = {
+            "processed_path": rebuild.get("processed_path", ""),
+            "document_count": rebuild.get("document_count", 0),
+            "hit@5": rebuild.get("hit@5", 0),
+            "mrr@5": rebuild.get("mrr@5", 0),
+            "passed_threshold": rebuild.get("passed_threshold", False),
+            "eval_total": rebuild.get("eval_total", 0),
+        }
+        latest_manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        run_id = str(manifest.get("run_id", "")).strip()
+        manifest_path = latest_manifest_path
+        if run_id:
+            run_manifest_path = latest_manifest_path.parent / "runs" / f"rag_patch_apply_{country}_{run_id}.json"
+            run_manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+            manifest_path = run_manifest_path
+        return {
+            **rebuild,
+            "status": "rolled_back_rebuilt",
+            "removed_raw_patch_path": str(raw_patch_path),
+            "manifest_path": str(manifest_path),
+            "latest_manifest_path": str(latest_manifest_path),
+            "rollback": rollback,
+        }
+
     def approve_rag_knowledge_patch_draft(self, country: str, patch_id: str, *, human_note: str) -> int:
         draft = next(
             (item for item in self.rag_knowledge_patch_drafts(country, limit=10_000).get("items", ()) if isinstance(item, dict) and item.get("patch_id") == patch_id),
