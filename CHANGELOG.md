@@ -2,6 +2,43 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.5.9 - RAG Knowledge Patch Drafts
+
+日期：2026-07-03
+
+阶段目标：
+
+- 把 RAG 失败反馈进一步转成可人工审核的知识库补丁草案。
+- 保持安全边界：草案不自动写入 raw/processed 知识库，避免未经确认的模型/检索错误污染 RAG。
+
+已完成：
+
+- Agent：
+  - 新增 `rag_knowledge_patch_drafts(country)`。
+  - 从 `rag_eval_failure_feedback` 队列生成 patch draft。
+  - 每条草案包含 patch_id、source_type、expected_parent_id、source_memory_id、query、draft_text、review_status、optimization_use。
+  - 新增 `export_rag_knowledge_patch_drafts(country, output_path)`，导出 JSONL。
+- Runtime 页面：
+  - 新增 `RAG知识补丁草案`卡片和明细表。
+  - 展示草案数量、source type、expected parent、审核状态和草案内容。
+  - RAG 操作区新增`导出知识补丁草案`按钮。
+- Server：
+  - 新增 `/export_rag_knowledge_patch_drafts` action。
+  - 默认导出到 `runtime/rag_knowledge_patch_drafts_<国家>.jsonl`。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_builds_and_exports_rag_knowledge_patch_drafts tests/test_renderer.py::test_runtime_page_shows_rag_knowledge_patch_drafts tests/test_server.py::test_export_rag_knowledge_patch_drafts_action_writes_jsonl -q`：先因缺少草案方法、页面展示和 server action 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_builds_and_exports_rag_knowledge_patch_drafts tests/test_renderer.py::test_runtime_page_shows_rag_knowledge_patch_drafts tests/test_server.py::test_export_rag_knowledge_patch_drafts_action_writes_jsonl -q`：3 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py tests/test_server.py -q`：202 passed。
+  - `PYTHONPATH=. pytest tests -q`：349 passed。
+
+当前限制：
+
+- 本版本只生成草案和导出文件；后续需要做人工审核通过后，才允许把草案转为 raw markdown 补丁或 long_term/facts memory。
+
 ## v0.5.8 - RAG Failure Feedback Export Queue
 
 日期：2026-07-03

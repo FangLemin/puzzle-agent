@@ -556,12 +556,60 @@ class PuzzleOpsAgent:
             "rag_eval_dataset": self.rag_eval_dataset_summary(country),
             "rag_eval_case_evidence": self.rag_eval_case_evidence(country),
             "rag_eval_failure_feedback": self.rag_eval_failure_feedback_summary(country),
+            "rag_knowledge_patch_drafts": self.rag_knowledge_patch_drafts(country),
             "latest_acceptance_summary": self.latest_rag_acceptance_summary(country),
             "knowledge_base": self._rag_knowledge_summary(country),
             "feedback_summary": self.rag_feedback_summary(country),
             "recent_traces": self.recent_rag_traces(country, limit=3),
             **self._last_rag_stats.as_dict(),
         }
+
+    def rag_knowledge_patch_drafts(self, country: str, *, limit: int = 8) -> dict[str, object]:
+        feedback = self.rag_eval_failure_feedback_summary(country, limit=limit)
+        drafts = []
+        for item in feedback.get("items", ()):
+            if not isinstance(item, dict):
+                continue
+            expected = str(item.get("expected_parent_id", ""))
+            source_type = "audit_policy_patch" if "AUDIT" in expected or "GLOBAL" in expected else "value_rule_patch"
+            patch_id = f"patch-{country}-{item.get('memory_id', 0)}"
+            query = str(item.get("query", ""))
+            note = str(item.get("note", ""))
+            retrieved = item.get("retrieved_parent_ids", ())
+            if isinstance(retrieved, (list, tuple)):
+                retrieved_text = "、".join(str(value) for value in retrieved)
+            else:
+                retrieved_text = str(retrieved)
+            draft_text = (
+                f"针对 RAG eval query「{query}」，expected parent「{expected}」未被召回；"
+                f"误召回/实际召回为「{retrieved_text or '无'}」。"
+                f"建议补充与该 expected parent 相关的价值观、审核规则或 hard negative 表述。"
+                f"人工备注：{note or '待运营补充'}"
+            )
+            drafts.append(
+                {
+                    "patch_id": patch_id,
+                    "country": country,
+                    "source_type": source_type,
+                    "title": f"RAG失败反馈补丁：{expected}",
+                    "expected_parent_id": expected,
+                    "source_memory_id": item.get("memory_id", 0),
+                    "query": query,
+                    "draft_text": draft_text,
+                    "review_status": "needs_human_review",
+                    "optimization_use": item.get("optimization_use", "hard_negative_or_knowledge_patch"),
+                }
+            )
+        return {"draft_count": len(drafts), "items": tuple(drafts)}
+
+    def export_rag_knowledge_patch_drafts(self, country: str, output_path: Path | str) -> Path:
+        drafts = self.rag_knowledge_patch_drafts(country, limit=10_000)
+        path = Path(output_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as handle:
+            for item in drafts.get("items", ()):
+                handle.write(json.dumps(item, ensure_ascii=False) + "\n")
+        return path
 
     def rag_eval_failure_feedback_summary(self, country: str, *, limit: int = 8) -> dict[str, object]:
         items = []

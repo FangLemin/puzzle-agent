@@ -793,6 +793,29 @@ def test_agent_summarizes_and_exports_rag_eval_failure_feedback(tmp_path):
     assert '"optimization_use": "hard_negative_or_knowledge_patch"' in content
 
 
+def test_agent_builds_and_exports_rag_knowledge_patch_drafts(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent.record_rag_eval_failure_feedback(
+        "日本",
+        query="日本寿司图是否符合本土饮食价值观",
+        expected_parent_id="JP_KB_SUSHI_FOOD",
+        retrieved_parent_ids=("JP_KB_ONSEN_TRAVEL",),
+        note="补充寿司 hard negative",
+    )
+
+    drafts = agent.rag_knowledge_patch_drafts("日本")
+    export_path = agent.export_rag_knowledge_patch_drafts("日本", tmp_path / "patches.jsonl")
+
+    assert drafts["draft_count"] == 1
+    assert drafts["items"][0]["expected_parent_id"] == "JP_KB_SUSHI_FOOD"
+    assert drafts["items"][0]["source_type"] == "value_rule_patch"
+    assert "日本寿司图是否符合本土饮食价值观" in drafts["items"][0]["draft_text"]
+    assert drafts["items"][0]["review_status"] == "needs_human_review"
+    content = export_path.read_text(encoding="utf-8")
+    assert '"source_type": "value_rule_patch"' in content
+    assert '"review_status": "needs_human_review"' in content
+
+
 def test_agent_rag_answer_can_cite_human_gold_harness_sample(monkeypatch, tmp_path):
     image_path = tmp_path / "france-picnic.png"
     image_path.write_bytes(b"fake-png")

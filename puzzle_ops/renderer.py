@@ -546,7 +546,7 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
 </section>
 <section class="panel"><h2>四层 Memory 概览</h2><div class="memory-grid">{memory_overview_cards}</div></section>
 <section class="panel"><h2>Memory Debug</h2><div class="table-wrap"><table><thead><tr><th>ID</th><th>层级/类型</th><th>状态</th><th>RAG Source</th><th>命中分</th><th>RAG Ready</th><th>来源</th><th>记忆内容</th><th>治理</th></tr></thead><tbody>{memory_debug_rows}</tbody></table></div></section>
-<section class="panel"><div class="section-line"><h2>价值观与审核 RAG</h2><div class="actions"><form method="post" action="/rebuild_rag_knowledge">{hidden_context(state, view="runtime")}<button>重建RAG知识库</button></form><form method="post" action="/export_rag_acceptance_report">{hidden_context(state, view="runtime")}<button>导出RAG验收报告</button></form><form method="post" action="/export_rag_eval_failure_feedback">{hidden_context(state, view="runtime")}<button>导出RAG失败反馈</button></form><form method="post" action="/run_full_rag_acceptance">{hidden_context(state, view="runtime")}<button>一键RAG全链路验收</button></form><form method="post" action="/reindex_rag_qdrant">{hidden_context(state, view="runtime")}<button>重建并入库Qdrant</button></form><form method="post" action="/qdrant_smoke_diagnostic">{hidden_context(state, view="runtime")}<button>Qdrant Smoke</button></form><form method="post" action="/rollback_qdrant_manifest">{hidden_context(state, view="runtime")}<input name="run_id" placeholder="run_id"><label class="inline-check"><input type="checkbox" name="restore_points" value="1">真实恢复 Qdrant points</label><button>回滚Qdrant Run</button></form></div></div>{rag_cards}</section>
+<section class="panel"><div class="section-line"><h2>价值观与审核 RAG</h2><div class="actions"><form method="post" action="/rebuild_rag_knowledge">{hidden_context(state, view="runtime")}<button>重建RAG知识库</button></form><form method="post" action="/export_rag_acceptance_report">{hidden_context(state, view="runtime")}<button>导出RAG验收报告</button></form><form method="post" action="/export_rag_eval_failure_feedback">{hidden_context(state, view="runtime")}<button>导出RAG失败反馈</button></form><form method="post" action="/export_rag_knowledge_patch_drafts">{hidden_context(state, view="runtime")}<button>导出知识补丁草案</button></form><form method="post" action="/run_full_rag_acceptance">{hidden_context(state, view="runtime")}<button>一键RAG全链路验收</button></form><form method="post" action="/reindex_rag_qdrant">{hidden_context(state, view="runtime")}<button>重建并入库Qdrant</button></form><form method="post" action="/qdrant_smoke_diagnostic">{hidden_context(state, view="runtime")}<button>Qdrant Smoke</button></form><form method="post" action="/rollback_qdrant_manifest">{hidden_context(state, view="runtime")}<input name="run_id" placeholder="run_id"><label class="inline-check"><input type="checkbox" name="restore_points" value="1">真实恢复 Qdrant points</label><button>回滚Qdrant Run</button></form></div></div>{rag_cards}</section>
 """
 
 
@@ -677,6 +677,7 @@ def render_rag_summary(summary: dict[str, object], state: AppState | None = None
     trace_details = render_rag_retrieval_trace_details(trace)
     eval_case_evidence = render_rag_eval_case_evidence(summary.get("rag_eval_case_evidence", {}), state)
     failure_feedback = render_rag_failure_feedback_queue(summary.get("rag_eval_failure_feedback", {}))
+    patch_drafts = render_rag_knowledge_patch_drafts(summary.get("rag_knowledge_patch_drafts", {}))
     recent_trace_rows = render_recent_rag_traces(summary.get("recent_traces", ()))
     feedback = summary.get("feedback_summary", {})
     feedback_card = render_rag_feedback_summary(feedback if isinstance(feedback, dict) else {})
@@ -697,17 +698,58 @@ def render_rag_summary(summary: dict[str, object], state: AppState | None = None
   {acceptance_card}
   <article><strong>版本化知识库</strong><span>Documents + Eval Cases</span><small>{escape(knowledge_text[:260])}</small></article>
   {render_rag_failure_feedback_card(summary.get("rag_eval_failure_feedback", {}))}
+  {render_rag_knowledge_patch_card(summary.get("rag_knowledge_patch_drafts", {}))}
   {feedback_card}
 </div>
 <h3>引用明细</h3>
 <div class="table-wrap"><table><thead><tr><th>引用ID</th><th>知识来源</th><th>父文档</th><th>标题</th><th>内容</th></tr></thead><tbody>{citation_rows}</tbody></table></div>
 {eval_case_evidence}
 {failure_feedback}
+{patch_drafts}
 <h3>RAG 检索 Trace</h3>
 {trace_details}
 <h3>最近 RAG Trace</h3>
 <div class="table-wrap"><table><thead><tr><th>Trace</th><th>Query</th><th>引用</th><th>可回放 prompt</th><th>详情</th></tr></thead><tbody>{recent_trace_rows}</tbody></table></div>
 """
+
+
+def render_rag_knowledge_patch_card(summary: object) -> str:
+    if not isinstance(summary, dict):
+        summary = {}
+    return (
+        "<article><strong>RAG知识补丁草案</strong>"
+        f"<span>草案={escape(str(summary.get('draft_count', 0)))}</span>"
+        "<small>草案不会自动进入知识库，需要人工审核后再补充 raw 文档或晋升为长期记忆。</small></article>"
+    )
+
+
+def render_rag_knowledge_patch_drafts(summary: object) -> str:
+    if not isinstance(summary, dict):
+        summary = {}
+    items = summary.get("items", ())
+    if not isinstance(items, (list, tuple)):
+        items = ()
+    rows = []
+    for item in items[:8]:
+        if not isinstance(item, dict):
+            continue
+        rows.append(
+            "<tr>"
+            f"<td>{escape(str(item.get('patch_id', '')))}</td>"
+            f"<td>{escape(str(item.get('source_type', '')))}</td>"
+            f"<td>{escape(str(item.get('expected_parent_id', '')))}</td>"
+            f"<td>{escape(str(item.get('review_status', '')))}</td>"
+            f"<td>{escape(str(item.get('draft_text', ''))[:220])}</td>"
+            "</tr>"
+        )
+    body = "".join(rows) or '<tr><td colspan="5">暂无 RAG 知识补丁草案。</td></tr>'
+    return (
+        "<h3>RAG知识补丁草案</h3>"
+        f"<p class=\"muted\">草案={escape(str(summary.get('draft_count', 0)))}</p>"
+        "<div class=\"table-wrap\"><table><thead><tr>"
+        "<th>Patch</th><th>Source Type</th><th>Expected Parent</th><th>审核状态</th><th>草案内容</th>"
+        f"</tr></thead><tbody>{body}</tbody></table></div>"
+    )
 
 
 def render_rag_failure_feedback_card(summary: object) -> str:
