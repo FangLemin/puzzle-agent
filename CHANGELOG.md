@@ -2,6 +2,40 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.2 - Human Gold RAG Business Gate
+
+日期：2026-07-05
+
+阶段目标：
+
+- 让 RAG 验收不再只看静态规则/审核案例的整体 `hit@5`，而是单独统计真实 `human_gold` 拼图样本的业务验收指标。
+- 避免“静态 eval 通过”掩盖真实业务样本召回失败的问题，让工业级 RAG 包装更可信。
+
+已完成：
+
+- Agent：
+  - 新增真实 `human_gold` 样本的 `business_sample_gate`。
+  - `value_audit_rag_eval_report(country)` 同时返回整体 eval 和真实业务样本 gate。
+  - `export_value_audit_rag_acceptance_report(country, output_dir)` 导出的 JSON 中写入 `business_sample_gate`。
+  - gate 包含 `case_count`、`hit@5`、`mrr@5`、`threshold`、`passed_threshold`、`failed_count` 和失败 case 明细。
+- Runtime 页面：
+  - `真实 Eval Dataset` 卡片新增 `business cases`、`business_hit@5` 和 `business_gate`。
+  - 页面能直接看出真实样本是否达到 `hit@5 >= 0.8`。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_acceptance_report_tracks_human_gold_business_sample_gate tests/test_renderer.py::test_runtime_page_shows_business_sample_rag_gate -q`：先因缺少 `business_sample_gate` 和页面字段失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_acceptance_report_tracks_human_gold_business_sample_gate tests/test_renderer.py::test_runtime_page_shows_business_sample_rag_gate -q`：2 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py -q`：148 passed。
+  - `PYTHONPATH=. pytest tests -q`：370 passed。
+
+当前限制：
+
+- `business_sample_gate` 只统计已人工确认的 `human_gold/reviewed` 样本；`ai_silver` 不会被当作最终业务验收标准。
+- 当前 gate 仍是检索层指标，后续还需要把真实 VLM 解析准确率、价值观判断一致率和风险召回率并入同一份实验对比。
+
 ## v0.7.1 - RAG Ops Report Export
 
 日期：2026-07-04

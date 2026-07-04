@@ -689,7 +689,10 @@ def render_rag_summary(summary: dict[str, object], state: AppState | None = None
     acceptance_card = render_rag_acceptance_preflight(acceptance if isinstance(acceptance, dict) else {})
     live_model_ops_card = render_rag_live_model_ops(summary.get("rag_live_model_ops", {}))
     eval_dataset = summary.get("rag_eval_dataset", {})
-    eval_dataset_card = render_rag_eval_dataset(eval_dataset if isinstance(eval_dataset, dict) else {})
+    eval_dataset_payload = dict(eval_dataset) if isinstance(eval_dataset, dict) else {}
+    if eval_report.get("business_sample_gate"):
+        eval_dataset_payload["business_sample_gate"] = eval_report.get("business_sample_gate")
+    eval_dataset_card = render_rag_eval_dataset(eval_dataset_payload)
     vector_store_search = "on" if summary.get("vector_store_search_enabled") else "off"
     return f"""
 <div class="rag-grid">
@@ -960,6 +963,12 @@ def render_rag_eval_case_evidence(summary: object, state: AppState | None = None
 
 
 def render_rag_eval_dataset(summary: dict[str, object]) -> str:
+    business_gate = summary.get("business_sample_gate", {})
+    if not isinstance(business_gate, dict):
+        business_gate = {}
+    business_status = business_gate.get("status", "not_evaluable")
+    if business_gate.get("passed_threshold"):
+        business_status = "passed"
     headline = (
         f"real={summary.get('real_sample_count', 0)}；"
         f"human_gold={summary.get('human_gold_count', 0)}；"
@@ -972,7 +981,10 @@ def render_rag_eval_dataset(summary: dict[str, object]) -> str:
         f"manual_grade={summary.get('manual_grade_count', 0)}；"
         f"target={summary.get('target_real_sample_range', '30-50')}；"
         f"hit@5 threshold={summary.get('hit_at_five_threshold', 0.8)}；"
-        f"status={summary.get('status', '')}"
+        f"status={summary.get('status', '')}；"
+        f"business cases={business_gate.get('case_count', 0)}；"
+        f"business_hit@5={business_gate.get('hit@5', 0)}；"
+        f"business_gate={business_status}"
     )
     return (
         "<article><strong>真实 Eval Dataset</strong>"

@@ -1399,7 +1399,7 @@ class PuzzleOpsAgent:
         eval_cases = (*file_cases, *harness_cases)
         cases = eval_cases or _rag_smoke_eval_cases(country, documents)
         dataset_kind = "business" if harness_cases else ("file" if file_cases else "smoke")
-        return evaluate_retrieval_report(
+        report = evaluate_retrieval_report(
             retriever,
             cases,
             k=5,
@@ -1407,6 +1407,8 @@ class PuzzleOpsAgent:
             dataset_name=f"{country}价值观审核RAG {dataset_kind} eval",
             knowledge_version=f"{country}-value-audit-{len(documents)}docs-{len(chunks)}chunks",
         )
+        report["business_sample_gate"] = self._business_sample_rag_gate(retriever, harness_cases)
+        return report
 
     def export_value_audit_rag_acceptance_report(self, country: str, output_dir: Path | str) -> dict[str, object]:
         documents = StaticDocumentLoaderAdapter(self._rag_documents(country)).load()
@@ -1446,7 +1448,50 @@ class PuzzleOpsAgent:
             provider_config=self.rag_provider_config,
             vector_store=self.rag_vector_store_config,
         )
+        report["business_sample_gate"] = self._business_sample_rag_gate(retriever, harness_cases)
+        path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         return {"path": str(path), **report}
+
+    def _business_sample_rag_gate(
+        self,
+        retriever: HybridRagRetriever,
+        harness_cases: tuple[RagRetrievalCase, ...],
+        *,
+        k: int = 5,
+        threshold: float = 0.8,
+    ) -> dict[str, object]:
+        if not harness_cases:
+            return {
+                "source": "human_gold",
+                "case_count": 0,
+                f"hit@{k}": 0,
+                f"mrr@{k}": 0,
+                "threshold": threshold,
+                "passed_threshold": False,
+                "status": "not_evaluable",
+                "failed_count": 0,
+                "cases": (),
+            }
+        report = evaluate_retrieval_report(
+            retriever,
+            harness_cases,
+            k=k,
+            threshold=threshold,
+            dataset_name="真实 human_gold 业务样本 RAG gate",
+            knowledge_version=f"human_gold-{len(harness_cases)}cases",
+        )
+        failed_count = sum(1 for item in report.get("cases", ()) if isinstance(item, dict) and not item.get("hit"))
+        return {
+            "source": "human_gold",
+            "case_count": report.get("total", 0),
+            f"hit@{k}": report.get(f"hit@{k}", 0),
+            f"mrr@{k}": report.get(f"mrr@{k}", 0),
+            "threshold": threshold,
+            "passed_threshold": report.get("passed_threshold", False),
+            "status": "passed" if report.get("passed_threshold", False) else "failed",
+            "failed_count": failed_count,
+            "cases": report.get("cases", ()),
+        }
 
     def run_full_rag_industrial_acceptance(
         self,

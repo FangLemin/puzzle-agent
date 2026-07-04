@@ -2142,6 +2142,33 @@ def test_agent_exports_value_audit_rag_acceptance_report(tmp_path):
     assert "embedding_remote_calls" in result["runtime_stats"]
 
 
+def test_agent_acceptance_report_tracks_human_gold_business_sample_gate(monkeypatch, tmp_path):
+    image_path = tmp_path / "france-picnic.png"
+    image_path.write_bytes(b"fake-png")
+    dataset = tmp_path / "gold_samples.csv"
+    dataset.write_text(
+        "\n".join(
+            (
+                "sample_id,country,local_image_path,operation_tag,subject,js_category,source,position,open_rate,completion_rate,avg_finish_time,gold_grade,gold_subject,gold_color_mood,gold_composition,gold_value_labels,gold_risk_labels,human_note,label_source,label_status",
+                f"fr-real-001,法国,{image_path},试新_法国_海滩野餐0624,海滩野餐,lifestyle,real,7,0.42,0.91,38,A,海滩野餐,暖色,海滩沙滩,生活艺术,,人工确认,human_gold,reviewed",
+            )
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_HARNESS_DATASET", str(dataset))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "rag_acceptance.db"))
+    agent.rag_provider_config = RagProviderConfig()
+
+    result = agent.export_value_audit_rag_acceptance_report("法国", tmp_path / "rag_acceptance")
+
+    gate = result["business_sample_gate"]
+    assert gate["case_count"] == 1
+    assert gate["hit@5"] == 1.0
+    assert gate["passed_threshold"] is True
+    assert gate["threshold"] == 0.8
+    assert gate["source"] == "human_gold"
+
+
 def test_agent_loads_versioned_knowledge_documents_and_eval_cases(monkeypatch, tmp_path):
     knowledge_dir = tmp_path / "knowledge"
     processed = knowledge_dir / "processed"
