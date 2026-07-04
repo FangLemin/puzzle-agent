@@ -446,6 +446,16 @@ def test_runtime_rag_summary_shows_patch_ops_status():
                 "qdrant_status": "indexed",
                 "qdrant_points": 9,
                 "qdrant_vector_size": 3,
+                "recent_runs": (
+                    {
+                        "run_id": "run-001",
+                        "status": "applied_rebuilt_qdrant_indexed",
+                        "patch_count": 1,
+                        "rebuild_hit@5": 1.0,
+                        "qdrant_status": "indexed",
+                        "qdrant_points": 9,
+                    },
+                ),
             },
         },
         AppState(country="日本", view="runtime"),
@@ -457,6 +467,9 @@ def test_runtime_rag_summary_shows_patch_ops_status():
     assert "hit@5=1.0" in html
     assert "qdrant=indexed" in html
     assert "points=9" in html
+    assert "RAG Patch Runs" in html
+    assert "run-001" in html
+    assert "applied_rebuilt_qdrant_indexed" in html
 
 
 def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):

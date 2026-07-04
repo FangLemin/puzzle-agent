@@ -2,6 +2,40 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.6.7 - RAG Patch Runs History
+
+日期：2026-07-04
+
+阶段目标：
+
+- 在 `RAG Patch Ops` latest 状态卡之外，增加最近 patch run 历史复盘。
+- 让运营和面试讲解可以看到最近几次 apply/rebuild/rollback/Qdrant 入库的状态变化，而不只看最新状态。
+
+已完成：
+
+- Agent：
+  - `rag_patch_ops_summary(country)` 新增 `recent_runs`。
+  - 读取 `knowledge/patch_manifests/runs/rag_patch_apply_<国家>_*.json`。
+  - 每条 run 统一解析 run_id、status、patch_count、raw patch、rebuild hit@5/mrr@5、Qdrant status/points/vector_size、rollback removed path。
+  - latest summary 与 recent run 共用 manifest row 解析逻辑。
+- Runtime 页面：
+  - 新增 `RAG Patch Runs` 表格。
+  - 展示 Run、状态、Patch 数、hit@5、Qdrant、Points、Rollback。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_rag_patch_ops_summary_includes_recent_runs tests/test_renderer.py::test_runtime_rag_summary_shows_patch_ops_status -q`：先因缺少 recent_runs 和页面表格失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_rag_patch_ops_summary_includes_recent_runs tests/test_renderer.py::test_runtime_rag_summary_shows_patch_ops_status -q`：2 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py tests/test_server.py -q`：217 passed。
+  - `PYTHONPATH=. pytest tests -q`：364 passed。
+
+当前限制：
+
+- 本版本展示最近 8 条 patch run；还未提供页面上的 run_id 级详情展开或任意 run 对比。
+- 回滚后的 run 会展示回滚后的 rebuild 指标，这是为了直接呈现当前生效状态。
+
 ## v0.6.6 - Runtime RAG Patch Ops Status
 
 日期：2026-07-04

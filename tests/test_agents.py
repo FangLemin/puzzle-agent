@@ -1099,6 +1099,46 @@ def test_agent_rag_patch_ops_summary_reads_latest_patch_manifest(monkeypatch, tm
     assert summary["qdrant_vector_size"] == 3
 
 
+def test_agent_rag_patch_ops_summary_includes_recent_runs(monkeypatch, tmp_path):
+    knowledge_dir = tmp_path / "knowledge"
+    eval_dir = knowledge_dir / "eval"
+    eval_dir.mkdir(parents=True)
+    (eval_dir / "value_audit_cases.jsonl").write_text(
+        json.dumps(
+            {
+                "query": "日本寿司图是否符合本土饮食价值观",
+                "country": "日本",
+                "expected_parent_id": "JP_KB_SUSHI_FOOD",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent.record_rag_eval_failure_feedback(
+        "日本",
+        query="日本寿司图是否符合本土饮食价值观",
+        expected_parent_id="JP_KB_SUSHI_FOOD",
+        retrieved_parent_ids=("JP_KB_ONSEN_TRAVEL",),
+        note="补充寿司 hard negative",
+    )
+    agent.approve_rag_knowledge_patch_draft("日本", "patch-日本-1", human_note="运营确认补入日本饮食价值观")
+    first = agent.apply_approved_rag_patch_and_rebuild("日本")
+    agent.rollback_latest_approved_rag_patch_and_rebuild("日本")
+
+    summary = agent.rag_patch_ops_summary("日本")
+
+    runs = summary["recent_runs"]
+    assert len(runs) >= 1
+    assert runs[0]["run_id"] == first["run_id"]
+    assert runs[0]["status"] == "rolled_back_rebuilt"
+    assert runs[0]["patch_count"] == 1
+    assert runs[0]["rebuild_hit@5"] == 0.0
+    assert runs[0]["rollback_removed"].endswith(".md")
+
+
 def test_agent_rag_answer_can_cite_human_gold_harness_sample(monkeypatch, tmp_path):
     image_path = tmp_path / "france-picnic.png"
     image_path.write_bytes(b"fake-png")

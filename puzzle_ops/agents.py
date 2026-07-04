@@ -579,33 +579,21 @@ class PuzzleOpsAgent:
                 "qdrant_status": "none",
                 "qdrant_points": 0,
                 "qdrant_vector_size": 0,
+                "recent_runs": (),
             }
-        rebuild = manifest.get("rebuild_after_rollback") or manifest.get("rebuild") or {}
-        if not isinstance(rebuild, dict):
-            rebuild = {}
-        qdrant = manifest.get("qdrant", {})
-        if not isinstance(qdrant, dict):
-            qdrant = {}
-        rollback = manifest.get("rollback", {})
-        if not isinstance(rollback, dict):
-            rollback = {}
-        raw_patch_path = Path(str(manifest.get("raw_patch_path", "")))
+        latest = _rag_patch_manifest_row(manifest, latest_manifest_path)
+        runs_dir = latest_manifest_path.parent / "runs"
+        recent_runs: list[dict[str, object]] = []
+        if runs_dir.exists():
+            for path in sorted(runs_dir.glob(f"rag_patch_apply_{country}_*.json"), reverse=True):
+                payload = _read_json_object(path)
+                if payload:
+                    recent_runs.append(_rag_patch_manifest_row(payload, path))
+                if len(recent_runs) >= 8:
+                    break
         return {
-            "status": str(manifest.get("status", "")),
-            "run_id": str(manifest.get("run_id", "")),
-            "manifest_path": str(latest_manifest_path),
-            "patch_count": int(manifest.get("applied_patch_count", 0) or 0),
-            "patch_ids": tuple(str(item) for item in manifest.get("patch_ids", ()) if item),
-            "raw_patch_path": str(raw_patch_path),
-            "raw_patch_file": raw_patch_path.name,
-            "rebuild_hit@5": rebuild.get("hit@5", 0),
-            "rebuild_mrr@5": rebuild.get("mrr@5", 0),
-            "processed_path": str(rebuild.get("processed_path", "")),
-            "qdrant_status": str(qdrant.get("status", "none") or "none"),
-            "qdrant_points": int(qdrant.get("upserted_points", 0) or 0),
-            "qdrant_vector_size": int(qdrant.get("vector_size", 0) or 0),
-            "qdrant_manifest_path": str(qdrant.get("manifest_path", "")),
-            "rollback_removed": str(rollback.get("removed_raw_patch_path", "")),
+            **latest,
+            "recent_runs": tuple(recent_runs),
         }
 
     def rag_knowledge_patch_drafts(self, country: str, *, limit: int = 8) -> dict[str, object]:
@@ -3028,6 +3016,37 @@ def _read_json_object(path: Path) -> dict[str, object]:
     except (OSError, json.JSONDecodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _rag_patch_manifest_row(manifest: dict[str, object], path: Path) -> dict[str, object]:
+    rebuild = manifest.get("rebuild_after_rollback") or manifest.get("rebuild") or {}
+    if not isinstance(rebuild, dict):
+        rebuild = {}
+    qdrant = manifest.get("qdrant", {})
+    if not isinstance(qdrant, dict):
+        qdrant = {}
+    rollback = manifest.get("rollback", {})
+    if not isinstance(rollback, dict):
+        rollback = {}
+    raw_patch_path = Path(str(manifest.get("raw_patch_path", "")))
+    return {
+        "status": str(manifest.get("status", "")),
+        "run_id": str(manifest.get("run_id", "")),
+        "created_at": str(manifest.get("created_at", "")),
+        "manifest_path": str(path),
+        "patch_count": int(manifest.get("applied_patch_count", 0) or 0),
+        "patch_ids": tuple(str(item) for item in manifest.get("patch_ids", ()) if item),
+        "raw_patch_path": str(raw_patch_path),
+        "raw_patch_file": raw_patch_path.name,
+        "rebuild_hit@5": rebuild.get("hit@5", 0),
+        "rebuild_mrr@5": rebuild.get("mrr@5", 0),
+        "processed_path": str(rebuild.get("processed_path", "")),
+        "qdrant_status": str(qdrant.get("status", "none") or "none"),
+        "qdrant_points": int(qdrant.get("upserted_points", 0) or 0),
+        "qdrant_vector_size": int(qdrant.get("vector_size", 0) or 0),
+        "qdrant_manifest_path": str(qdrant.get("manifest_path", "")),
+        "rollback_removed": str(rollback.get("removed_raw_patch_path", "")),
+    }
 
 
 def _manifest_run_id() -> str:

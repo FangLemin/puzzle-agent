@@ -678,7 +678,9 @@ def render_rag_summary(summary: dict[str, object], state: AppState | None = None
     eval_case_evidence = render_rag_eval_case_evidence(summary.get("rag_eval_case_evidence", {}), state)
     failure_feedback = render_rag_failure_feedback_queue(summary.get("rag_eval_failure_feedback", {}))
     patch_drafts = render_rag_knowledge_patch_drafts(summary.get("rag_knowledge_patch_drafts", {}), state)
-    patch_ops_card = render_rag_patch_ops_card(summary.get("rag_patch_ops", {}))
+    patch_ops = summary.get("rag_patch_ops", {})
+    patch_ops_card = render_rag_patch_ops_card(patch_ops)
+    patch_runs = render_rag_patch_runs(patch_ops)
     recent_trace_rows = render_recent_rag_traces(summary.get("recent_traces", ()))
     feedback = summary.get("feedback_summary", {})
     feedback_card = render_rag_feedback_summary(feedback if isinstance(feedback, dict) else {})
@@ -708,6 +710,7 @@ def render_rag_summary(summary: dict[str, object], state: AppState | None = None
 {eval_case_evidence}
 {failure_feedback}
 {patch_drafts}
+{patch_runs}
 <h3>RAG 检索 Trace</h3>
 {trace_details}
 <h3>最近 RAG Trace</h3>
@@ -742,6 +745,36 @@ def render_rag_patch_ops_card(summary: object) -> str:
         "<article><strong>RAG Patch Ops</strong>"
         f"<span>{escape(status)}</span>"
         f"<small>{escape(text[:260])}</small></article>"
+    )
+
+
+def render_rag_patch_runs(summary: object) -> str:
+    if not isinstance(summary, dict):
+        summary = {}
+    runs = summary.get("recent_runs", ())
+    if not isinstance(runs, (list, tuple)):
+        runs = ()
+    rows = []
+    for item in runs[:8]:
+        if not isinstance(item, dict):
+            continue
+        rows.append(
+            "<tr>"
+            f"<td>{escape(str(item.get('run_id', '')))}</td>"
+            f"<td>{escape(str(item.get('status', '')))}</td>"
+            f"<td>{escape(str(item.get('patch_count', 0)))}</td>"
+            f"<td>{escape(str(item.get('rebuild_hit@5', 0)))}</td>"
+            f"<td>{escape(str(item.get('qdrant_status', 'none')))}</td>"
+            f"<td>{escape(str(item.get('qdrant_points', 0)))}</td>"
+            f"<td>{escape(str(item.get('rollback_removed', '')))}</td>"
+            "</tr>"
+        )
+    body = "".join(rows) or '<tr><td colspan="7">暂无 RAG patch run 记录。</td></tr>'
+    return (
+        "<h3>RAG Patch Runs</h3>"
+        "<div class=\"table-wrap\"><table><thead><tr>"
+        "<th>Run</th><th>状态</th><th>Patch数</th><th>hit@5</th><th>Qdrant</th><th>Points</th><th>Rollback</th>"
+        f"</tr></thead><tbody>{body}</tbody></table></div>"
     )
 
 
