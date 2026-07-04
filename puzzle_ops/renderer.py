@@ -687,6 +687,7 @@ def render_rag_summary(summary: dict[str, object], state: AppState | None = None
     feedback_card = render_rag_feedback_summary(feedback if isinstance(feedback, dict) else {})
     acceptance = summary.get("latest_acceptance_summary", {})
     acceptance_card = render_rag_acceptance_preflight(acceptance if isinstance(acceptance, dict) else {})
+    live_model_ops_card = render_rag_live_model_ops(summary.get("rag_live_model_ops", {}))
     eval_dataset = summary.get("rag_eval_dataset", {})
     eval_dataset_card = render_rag_eval_dataset(eval_dataset if isinstance(eval_dataset, dict) else {})
     vector_store_search = "on" if summary.get("vector_store_search_enabled") else "off"
@@ -700,6 +701,7 @@ def render_rag_summary(summary: dict[str, object], state: AppState | None = None
   <article><strong>RAG 检索评测</strong><span>hit@5 / mrr@5</span><small>{escape(eval_text)}；{escape(trace_text)}</small></article>
   {eval_dataset_card}
   {acceptance_card}
+  {live_model_ops_card}
   <article><strong>版本化知识库</strong><span>Documents + Eval Cases</span><small>{escape(knowledge_text[:260])}</small></article>
   {render_rag_failure_feedback_card(summary.get("rag_eval_failure_feedback", {}))}
   {render_rag_knowledge_patch_card(summary.get("rag_knowledge_patch_drafts", {}))}
@@ -1015,6 +1017,34 @@ def render_rag_acceptance_preflight(summary: dict[str, object]) -> str:
         "<article><strong>RAG Preflight</strong>"
         f"<span>{escape(status_line)}</span>"
         f"<small>{escape(detail)}</small></article>"
+    )
+
+
+def render_rag_live_model_ops(summary: object) -> str:
+    if not isinstance(summary, dict):
+        summary = {}
+    ready_text = (
+        f"embedding={'ready' if summary.get('embedding_ready') else 'not_ready'}；"
+        f"qdrant={'ready' if summary.get('qdrant_ready') else 'not_ready'}；"
+        f"rerank={'ready' if summary.get('rerank_ready') else 'not_ready'}"
+    )
+    metric_text = (
+        f"remote embedding={summary.get('embedding_remote_calls', 0)}；"
+        f"remote rerank={summary.get('rerank_remote_calls', 0)}；"
+        f"fallback embedding={summary.get('embedding_fallbacks', 0)}；"
+        f"fallback rerank={summary.get('rerank_fallbacks', 0)}；"
+        f"qdrant_hit={summary.get('qdrant_vector_hits', False)}；"
+        f"hit@5={summary.get('hit@5', 0)}"
+    )
+    provider_text = (
+        f"{summary.get('embedding_provider', '')}；"
+        f"{summary.get('qdrant_provider', '')}；"
+        f"{summary.get('rerank_provider', '')}"
+    )
+    return (
+        "<article><strong>RAG Live Model Ops</strong>"
+        f"<span>mode={escape(str(summary.get('mode', 'not_run')))}；{escape(ready_text)}</span>"
+        f"<small>{escape(metric_text)}；{escape(provider_text[:160])}</small></article>"
     )
 
 

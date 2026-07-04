@@ -2,6 +2,40 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.0 - RAG Live Model Ops
+
+日期：2026-07-04
+
+阶段目标：
+
+- 在 Runtime 中集中展示 Qwen embedding、Qdrant、BGE rerank 的 live/fast preflight 与真实调用统计。
+- 让“真实模型调用是否发生、是否 fallback、Qdrant 是否命中”不只存在于 JSON 报告和同步消息里，而是在页面上直接可见。
+
+已完成：
+
+- Agent：
+  - 新增 `rag_live_model_ops_summary(country)`。
+  - 基于最近一次 `rag_acceptance_full_summary_<国家>.json` 汇总 live model 状态。
+  - 输出 mode、status、failure_stage、embedding/qdrant/rerank ready、provider、embedding/rerank remote calls、fallbacks、qdrant_vector_hits、hit@5、mrr@5。
+  - 将 `rag_live_model_ops` 合入 `value_audit_rag_summary(country)`。
+- Runtime 页面：
+  - 新增 `RAG Live Model Ops` 卡片。
+  - 展示 embedding/qdrant/rerank ready 状态、remote/fallback 次数、qdrant_hit、hit@5 和 provider。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_rag_live_model_ops_summary_reads_latest_acceptance tests/test_renderer.py::test_runtime_page_shows_latest_rag_preflight_summary -q`：先因缺少 Agent summary 和页面卡片失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_rag_live_model_ops_summary_reads_latest_acceptance tests/test_renderer.py::test_runtime_page_shows_latest_rag_preflight_summary -q`：2 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py tests/test_server.py -q`：219 passed。
+  - `PYTHONPATH=. pytest tests -q`：366 passed。
+
+当前限制：
+
+- 页面展示的是最近一次 acceptance summary；真正的 live 检查仍由 `一键RAG全链路验收` 触发。
+- 如果没有运行过验收，会显示 `mode=not_run` 和当前配置状态，不会主动发起外部网络调用。
+
 ## v0.6.9 - RAG Patch Run Comparison
 
 日期：2026-07-04

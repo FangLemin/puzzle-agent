@@ -291,6 +291,12 @@ def test_runtime_page_shows_latest_rag_preflight_summary(tmp_path):
     assert "connection refused" in html
     assert "full hit@5=0.8" in html
     assert "qdrant_hit=True" in html
+    assert "RAG Live Model Ops" in html
+    assert "embedding=ready" in html
+    assert "rerank=not_ready" in html
+    assert "qdrant=ready" in html
+    assert "remote embedding=3" in html
+    assert "remote rerank=1" in html
 
 
 def test_runtime_page_shows_real_rag_eval_dataset_summary(monkeypatch, tmp_path):

@@ -558,11 +558,40 @@ class PuzzleOpsAgent:
             "rag_eval_failure_feedback": self.rag_eval_failure_feedback_summary(country),
             "rag_knowledge_patch_drafts": self.rag_knowledge_patch_drafts(country),
             "rag_patch_ops": self.rag_patch_ops_summary(country),
+            "rag_live_model_ops": self.rag_live_model_ops_summary(country),
             "latest_acceptance_summary": self.latest_rag_acceptance_summary(country),
             "knowledge_base": self._rag_knowledge_summary(country),
             "feedback_summary": self.rag_feedback_summary(country),
             "recent_traces": self.recent_rag_traces(country, limit=3),
             **self._last_rag_stats.as_dict(),
+        }
+
+    def rag_live_model_ops_summary(self, country: str) -> dict[str, object]:
+        acceptance = self.latest_rag_acceptance_summary(country)
+        preflight = acceptance.get("preflight", {}) if isinstance(acceptance.get("preflight"), dict) else {}
+        runtime_stats = acceptance.get("runtime_stats", {}) if isinstance(acceptance.get("runtime_stats"), dict) else {}
+        embedding = preflight.get("embedding", {}) if isinstance(preflight.get("embedding"), dict) else {}
+        qdrant = preflight.get("qdrant", {}) if isinstance(preflight.get("qdrant"), dict) else {}
+        rerank = preflight.get("rerank", {}) if isinstance(preflight.get("rerank"), dict) else {}
+        return {
+            "exists": bool(acceptance.get("exists")),
+            "mode": str(acceptance.get("mode", "") or "not_run"),
+            "status": str(acceptance.get("status", "")),
+            "failure_stage": str(acceptance.get("failure_stage", "")),
+            "embedding_ready": bool(embedding.get("ready", False)),
+            "embedding_provider": str(embedding.get("provider") or embedding.get("provider_name") or self.rag_provider_config.embedding_provider),
+            "qdrant_ready": bool(qdrant.get("ready", False)),
+            "qdrant_provider": str(qdrant.get("provider") or self.rag_vector_store_config.provider),
+            "rerank_ready": bool(rerank.get("ready", False)),
+            "rerank_provider": str(rerank.get("provider") or rerank.get("provider_name") or self.rag_provider_config.rerank_provider),
+            "embedding_remote_calls": int(runtime_stats.get("embedding_remote_calls", 0) or 0),
+            "embedding_fallbacks": int(runtime_stats.get("embedding_fallbacks", 0) or 0),
+            "rerank_remote_calls": int(runtime_stats.get("rerank_remote_calls", 0) or 0),
+            "rerank_fallbacks": int(runtime_stats.get("rerank_fallbacks", 0) or 0),
+            "qdrant_vector_hits": bool(acceptance.get("qdrant_vector_hits", False)),
+            "hit@5": acceptance.get("hit@5", 0),
+            "mrr@5": acceptance.get("mrr@5", 0),
+            "summary_path": str(acceptance.get("summary_path", "")),
         }
 
     def rag_patch_ops_summary(self, country: str) -> dict[str, object]:
