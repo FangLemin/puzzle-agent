@@ -462,6 +462,14 @@ def test_runtime_rag_summary_shows_patch_ops_status():
                         },
                     },
                 ),
+                "run_comparison": {
+                    "current_run_id": "run-001",
+                    "previous_run_id": "run-000",
+                    "hit@5_delta": 0.5,
+                    "mrr@5_delta": 0.3,
+                    "qdrant_points_delta": 4,
+                    "status_changed": True,
+                },
             },
         },
         AppState(country="日本", view="runtime"),
@@ -479,6 +487,10 @@ def test_runtime_rag_summary_shows_patch_ops_status():
     assert "证据" in html
     assert "patch-日本-1" in html
     assert "/tmp/qdrant.json" in html
+    assert "RAG Patch Compare" in html
+    assert "run-001 vs run-000" in html
+    assert "hit@5 Δ=0.5" in html
+    assert "points Δ=4" in html
 
 
 def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):

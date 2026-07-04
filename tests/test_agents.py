@@ -1142,6 +1142,48 @@ def test_agent_rag_patch_ops_summary_includes_recent_runs(monkeypatch, tmp_path)
     assert runs[0]["evidence"]["patch_ids"] == ("patch-日本-1",)
 
 
+def test_agent_rag_patch_ops_summary_compares_latest_two_runs(monkeypatch, tmp_path):
+    knowledge_dir = tmp_path / "knowledge"
+    runs_dir = knowledge_dir / "patch_manifests" / "runs"
+    runs_dir.mkdir(parents=True)
+    monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
+    older = {
+        "run_id": "run-old",
+        "created_at": "2026-07-04",
+        "country": "日本",
+        "status": "applied_rebuilt",
+        "raw_patch_path": "/tmp/old.md",
+        "applied_patch_count": 1,
+        "patch_ids": ["patch-old"],
+        "rebuild": {"hit@5": 0.4, "mrr@5": 0.2, "processed_path": "/tmp/old.jsonl"},
+        "qdrant": {"status": "indexed", "upserted_points": 5, "vector_size": 3},
+    }
+    newer = {
+        "run_id": "run-new",
+        "created_at": "2026-07-04",
+        "country": "日本",
+        "status": "applied_rebuilt_qdrant_indexed",
+        "raw_patch_path": "/tmp/new.md",
+        "applied_patch_count": 2,
+        "patch_ids": ["patch-new"],
+        "rebuild": {"hit@5": 0.9, "mrr@5": 0.7, "processed_path": "/tmp/new.jsonl"},
+        "qdrant": {"status": "indexed", "upserted_points": 8, "vector_size": 3},
+    }
+    (runs_dir / "rag_patch_apply_日本_20260704-old.json").write_text(json.dumps(older, ensure_ascii=False), encoding="utf-8")
+    (runs_dir / "rag_patch_apply_日本_20260704-new.json").write_text(json.dumps(newer, ensure_ascii=False), encoding="utf-8")
+    (knowledge_dir / "patch_manifests" / "rag_patch_apply_日本.json").write_text(json.dumps(newer, ensure_ascii=False), encoding="utf-8")
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+
+    comparison = agent.rag_patch_ops_summary("日本")["run_comparison"]
+
+    assert comparison["current_run_id"] == "run-new"
+    assert comparison["previous_run_id"] == "run-old"
+    assert comparison["hit@5_delta"] == 0.5
+    assert comparison["mrr@5_delta"] == 0.5
+    assert comparison["qdrant_points_delta"] == 3
+    assert comparison["status_changed"] is True
+
+
 def test_agent_rag_answer_can_cite_human_gold_harness_sample(monkeypatch, tmp_path):
     image_path = tmp_path / "france-picnic.png"
     image_path.write_bytes(b"fake-png")

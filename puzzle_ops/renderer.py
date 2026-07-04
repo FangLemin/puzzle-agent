@@ -680,6 +680,7 @@ def render_rag_summary(summary: dict[str, object], state: AppState | None = None
     patch_drafts = render_rag_knowledge_patch_drafts(summary.get("rag_knowledge_patch_drafts", {}), state)
     patch_ops = summary.get("rag_patch_ops", {})
     patch_ops_card = render_rag_patch_ops_card(patch_ops)
+    patch_compare_card = render_rag_patch_compare_card(patch_ops)
     patch_runs = render_rag_patch_runs(patch_ops)
     recent_trace_rows = render_recent_rag_traces(summary.get("recent_traces", ()))
     feedback = summary.get("feedback_summary", {})
@@ -703,6 +704,7 @@ def render_rag_summary(summary: dict[str, object], state: AppState | None = None
   {render_rag_failure_feedback_card(summary.get("rag_eval_failure_feedback", {}))}
   {render_rag_knowledge_patch_card(summary.get("rag_knowledge_patch_drafts", {}))}
   {patch_ops_card}
+  {patch_compare_card}
   {feedback_card}
 </div>
 <h3>引用明细</h3>
@@ -745,6 +747,28 @@ def render_rag_patch_ops_card(summary: object) -> str:
         "<article><strong>RAG Patch Ops</strong>"
         f"<span>{escape(status)}</span>"
         f"<small>{escape(text[:260])}</small></article>"
+    )
+
+
+def render_rag_patch_compare_card(summary: object) -> str:
+    if not isinstance(summary, dict):
+        summary = {}
+    comparison = summary.get("run_comparison", {})
+    if not isinstance(comparison, dict):
+        comparison = {}
+    current = str(comparison.get("current_run_id", ""))
+    previous = str(comparison.get("previous_run_id", ""))
+    label = f"{current} vs {previous}" if current or previous else "暂无对比"
+    text = (
+        f"hit@5 Δ={comparison.get('hit@5_delta', 0)}；"
+        f"mrr@5 Δ={comparison.get('mrr@5_delta', 0)}；"
+        f"points Δ={comparison.get('qdrant_points_delta', 0)}；"
+        f"status_changed={comparison.get('status_changed', False)}"
+    )
+    return (
+        "<article><strong>RAG Patch Compare</strong>"
+        f"<span>{escape(label)}</span>"
+        f"<small>{escape(text[:220])}</small></article>"
     )
 
 

@@ -591,9 +591,11 @@ class PuzzleOpsAgent:
                     recent_runs.append(_rag_patch_manifest_row(payload, path))
                 if len(recent_runs) >= 8:
                     break
+        comparison = _rag_patch_run_comparison(latest, tuple(recent_runs))
         return {
             **latest,
             "recent_runs": tuple(recent_runs),
+            "run_comparison": comparison,
         }
 
     def rag_knowledge_patch_drafts(self, country: str, *, limit: int = 8) -> dict[str, object]:
@@ -3059,6 +3061,27 @@ def _rag_patch_manifest_row(manifest: dict[str, object], path: Path) -> dict[str
             "qdrant_manifest_path": qdrant_manifest_path,
             "rollback_removed": rollback_removed,
         },
+    }
+
+
+def _rag_patch_run_comparison(current: dict[str, object], runs: tuple[dict[str, object], ...]) -> dict[str, object]:
+    previous = next((run for run in runs if run.get("run_id") != current.get("run_id")), {})
+    if not previous:
+        return {
+            "current_run_id": str(current.get("run_id", "")),
+            "previous_run_id": "",
+            "hit@5_delta": 0,
+            "mrr@5_delta": 0,
+            "qdrant_points_delta": 0,
+            "status_changed": False,
+        }
+    return {
+        "current_run_id": str(current.get("run_id", "")),
+        "previous_run_id": str(previous.get("run_id", "")),
+        "hit@5_delta": round(float(current.get("rebuild_hit@5", 0) or 0) - float(previous.get("rebuild_hit@5", 0) or 0), 4),
+        "mrr@5_delta": round(float(current.get("rebuild_mrr@5", 0) or 0) - float(previous.get("rebuild_mrr@5", 0) or 0), 4),
+        "qdrant_points_delta": int(current.get("qdrant_points", 0) or 0) - int(previous.get("qdrant_points", 0) or 0),
+        "status_changed": str(current.get("status", "")) != str(previous.get("status", "")),
     }
 
 

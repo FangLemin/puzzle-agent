@@ -2,6 +2,40 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.6.9 - RAG Patch Run Comparison
+
+日期：2026-07-04
+
+阶段目标：
+
+- 在 `RAG Patch Ops` 中增加 latest run 与上一 run 的对比摘要。
+- 让运营和面试讲解可以直观看到 patch 变更对 hit@5、mrr@5 和 Qdrant points 的影响。
+
+已完成：
+
+- Agent：
+  - `rag_patch_ops_summary(country)` 新增 `run_comparison`。
+  - 以 latest manifest 作为 current run，避免依赖文件名排序判断当前版本。
+  - 从 history runs 中选取第一个不同 run_id 作为 previous run。
+  - 输出 current_run_id、previous_run_id、hit@5_delta、mrr@5_delta、qdrant_points_delta、status_changed。
+- Runtime 页面：
+  - 新增 `RAG Patch Compare` 卡片。
+  - 展示 current vs previous、hit@5 Δ、mrr@5 Δ、points Δ、status_changed。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_rag_patch_ops_summary_compares_latest_two_runs tests/test_renderer.py::test_runtime_rag_summary_shows_patch_ops_status -q`：先因缺少 run_comparison 和页面 compare 卡片失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_rag_patch_ops_summary_compares_latest_two_runs tests/test_renderer.py::test_runtime_rag_summary_shows_patch_ops_status -q`：2 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py tests/test_server.py -q`：218 passed。
+  - `PYTHONPATH=. pytest tests -q`：365 passed。
+
+当前限制：
+
+- 当前只对比 latest 与上一条不同 run；还未支持任意两个 run 的手动选择。
+- 对比指标先覆盖 hit@5、mrr@5、Qdrant points 和状态变化；更细的失败样本差异后续可接 Harness case evidence。
+
 ## v0.6.8 - RAG Patch Run Evidence Details
 
 日期：2026-07-04
