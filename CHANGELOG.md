@@ -2,6 +2,41 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.1 - RAG Ops Report Export
+
+日期：2026-07-04
+
+阶段目标：
+
+- 把 Runtime 中分散的 RAG Live Model Ops、Patch Ops、Acceptance、真实样本评测集和 Qdrant 知识库状态汇总为一份可导出的 Ops 报告。
+- 为“工业级 RAG”包装补一层可复盘证据：既能给机器读取 JSON，也能给业务/面试复盘直接阅读 Markdown。
+
+已完成：
+
+- Agent：
+  - 新增 `export_rag_ops_report(country, output_dir)`。
+  - 导出 `rag_ops_report_<国家>.json` 和 `rag_ops_report_<国家>.md`。
+  - 报告汇总 live model 状态、embedding/rerank 远程调用次数、fallback 次数、Qdrant 命中、hit@5、mrr@5、补丁状态、真实样本集状态和 Qdrant manifest。
+- Runtime 页面：
+  - 在 `价值观与审核 RAG` 操作区新增 `导出RAG Ops报告`。
+- Server：
+  - 新增 `/export_rag_ops_report` action。
+  - 点击后写入 `runtime/rag_acceptance_reports`，并在页面消息中回显 JSON/Markdown 路径。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_rag_ops_report_json_and_markdown tests/test_renderer.py::test_runtime_page_shows_rag_knowledge_patch_drafts tests/test_server.py::test_export_rag_ops_report_action_writes_json_and_markdown -q`：先因缺少 Agent 导出方法、页面按钮和 Server action 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_rag_ops_report_json_and_markdown tests/test_renderer.py::test_runtime_page_shows_rag_knowledge_patch_drafts tests/test_server.py::test_export_rag_ops_report_action_writes_json_and_markdown -q`：3 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py tests/test_server.py -q`：221 passed。
+  - `PYTHONPATH=. pytest tests -q`：368 passed。
+
+当前限制：
+
+- 报告读取的是最近一次 RAG acceptance summary 和 patch manifest，不会主动触发真实模型调用。
+- 若还没有跑过 `一键RAG全链路验收`，报告会明确显示 `mode=not_run` 或空验收状态。
+
 ## v0.7.0 - RAG Live Model Ops
 
 日期：2026-07-04

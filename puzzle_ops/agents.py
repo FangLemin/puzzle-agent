@@ -594,6 +594,79 @@ class PuzzleOpsAgent:
             "summary_path": str(acceptance.get("summary_path", "")),
         }
 
+    def export_rag_ops_report(self, country: str, output_dir: Path) -> dict[str, object]:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        live_model_ops = self.rag_live_model_ops_summary(country)
+        patch_ops = self.rag_patch_ops_summary(country)
+        latest_acceptance = self.latest_rag_acceptance_summary(country)
+        rag_eval_dataset = self.rag_eval_dataset_summary(country)
+        knowledge_base = self._rag_knowledge_summary(country)
+        payload: dict[str, object] = {
+            "country": country,
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "live_model_ops": live_model_ops,
+            "patch_ops": patch_ops,
+            "latest_acceptance": latest_acceptance,
+            "rag_eval_dataset": rag_eval_dataset,
+            "knowledge_base": knowledge_base,
+        }
+        json_path = output_dir / f"rag_ops_report_{country}.json"
+        markdown_path = output_dir / f"rag_ops_report_{country}.md"
+        json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        markdown_path.write_text(self._rag_ops_report_markdown(payload), encoding="utf-8")
+        return {"json_path": str(json_path), "markdown_path": str(markdown_path), "country": country}
+
+    def _rag_ops_report_markdown(self, payload: dict[str, object]) -> str:
+        live = payload.get("live_model_ops", {}) if isinstance(payload.get("live_model_ops"), dict) else {}
+        patch = payload.get("patch_ops", {}) if isinstance(payload.get("patch_ops"), dict) else {}
+        acceptance = payload.get("latest_acceptance", {}) if isinstance(payload.get("latest_acceptance"), dict) else {}
+        dataset = payload.get("rag_eval_dataset", {}) if isinstance(payload.get("rag_eval_dataset"), dict) else {}
+        knowledge = payload.get("knowledge_base", {}) if isinstance(payload.get("knowledge_base"), dict) else {}
+        lines = [
+            f"# RAG Ops Report - {payload.get('country', '')}",
+            "",
+            f"- generated_at: {payload.get('generated_at', '')}",
+            "",
+            "## RAG Live Model Ops",
+            f"- mode: {live.get('mode', 'not_run')}",
+            f"- status: {live.get('status', '')}",
+            f"- embedding: ready={live.get('embedding_ready', False)} provider={live.get('embedding_provider', '')}",
+            f"- qdrant: ready={live.get('qdrant_ready', False)} provider={live.get('qdrant_provider', '')} hit={live.get('qdrant_vector_hits', False)}",
+            f"- rerank: ready={live.get('rerank_ready', False)} provider={live.get('rerank_provider', '')}",
+            f"- remote_calls: embedding={live.get('embedding_remote_calls', 0)} rerank={live.get('rerank_remote_calls', 0)}",
+            f"- fallbacks: embedding={live.get('embedding_fallbacks', 0)} rerank={live.get('rerank_fallbacks', 0)}",
+            f"- hit@5: {live.get('hit@5', 0)}",
+            f"- mrr@5: {live.get('mrr@5', 0)}",
+            "",
+            "## RAG Patch Ops",
+            f"- status: {patch.get('status', 'none')}",
+            f"- patch_count: {patch.get('patch_count', 0)}",
+            f"- rebuild_hit@5: {patch.get('rebuild_hit@5', 0)}",
+            f"- rebuild_mrr@5: {patch.get('rebuild_mrr@5', 0)}",
+            f"- qdrant_status: {patch.get('qdrant_status', 'none')}",
+            f"- qdrant_points: {patch.get('qdrant_points', 0)}",
+            f"- manifest_path: {patch.get('manifest_path', '')}",
+            "",
+            "## RAG Acceptance",
+            f"- exists: {acceptance.get('exists', False)}",
+            f"- status: {acceptance.get('status', '')}",
+            f"- failure_stage: {acceptance.get('failure_stage', '')}",
+            f"- report_path: {acceptance.get('report_path', '')}",
+            "",
+            "## RAG Eval Dataset",
+            f"- real_sample_count: {dataset.get('real_sample_count', 0)}",
+            f"- human_gold_count: {dataset.get('human_gold_count', 0)}",
+            f"- ai_silver_count: {dataset.get('ai_silver_count', 0)}",
+            f"- status: {dataset.get('status', '')}",
+            "",
+            "## Knowledge Base",
+            f"- root: {knowledge.get('root', '')}",
+            f"- qdrant_manifest_status: {knowledge.get('qdrant_manifest_status', '')}",
+            f"- qdrant_manifest_points: {knowledge.get('qdrant_manifest_upserted_points', 0)}",
+            f"- qdrant_manifest_vector_size: {knowledge.get('qdrant_manifest_vector_size', 0)}",
+        ]
+        return "\n".join(lines) + "\n"
+
     def rag_patch_ops_summary(self, country: str) -> dict[str, object]:
         latest_manifest_path = _rag_knowledge_dir() / "patch_manifests" / f"rag_patch_apply_{country}.json"
         manifest = _read_json_object(latest_manifest_path)

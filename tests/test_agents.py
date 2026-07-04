@@ -1228,6 +1228,48 @@ def test_agent_rag_live_model_ops_summary_reads_latest_acceptance(tmp_path):
     assert summary["qdrant_vector_hits"] is True
 
 
+def test_agent_exports_rag_ops_report_json_and_markdown(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent._runtime_dir = tmp_path / "runtime"
+    report_dir = agent._runtime_dir / "rag_acceptance_reports"
+    report_dir.mkdir(parents=True)
+    (report_dir / "rag_acceptance_full_summary_日本.json").write_text(
+        json.dumps(
+            {
+                "status": "completed",
+                "preflight": {
+                    "mode": "live",
+                    "embedding": {"ready": True, "provider": "dashscope:text-embedding-v4"},
+                    "qdrant": {"ready": True, "provider": "qdrant"},
+                    "rerank": {"ready": True, "provider": "bge:BAAI/bge-reranker-v2-m3"},
+                },
+                "report": {
+                    "hit@5": 1.0,
+                    "mrr@5": 0.9,
+                    "observed_retrieval": {"qdrant_vector_hits": True},
+                    "runtime_stats": {"embedding_remote_calls": 2, "rerank_remote_calls": 1},
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = agent.export_rag_ops_report("日本", tmp_path / "rag_ops")
+
+    json_path = Path(str(result["json_path"]))
+    markdown_path = Path(str(result["markdown_path"]))
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    markdown = markdown_path.read_text(encoding="utf-8")
+    assert payload["country"] == "日本"
+    assert payload["live_model_ops"]["mode"] == "live"
+    assert payload["live_model_ops"]["embedding_remote_calls"] == 2
+    assert "RAG Ops Report" in markdown
+    assert "RAG Live Model Ops" in markdown
+    assert "RAG Patch Ops" in markdown
+    assert "hit@5" in markdown
+
+
 def test_agent_rag_answer_can_cite_human_gold_harness_sample(monkeypatch, tmp_path):
     image_path = tmp_path / "france-picnic.png"
     image_path.write_bytes(b"fake-png")

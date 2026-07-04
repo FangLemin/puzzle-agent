@@ -1328,6 +1328,29 @@ def test_export_rag_acceptance_report_action_writes_report(monkeypatch):
     assert payload["retrieval_routes"]["bm25"] is True
 
 
+def test_export_rag_ops_report_action_writes_json_and_markdown(monkeypatch):
+    APP.state = AppState(country="日本", view="runtime")
+
+    def fake_export(country, output_dir):
+        assert country == "日本"
+        assert str(output_dir).endswith("rag_acceptance_reports")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        json_path = output_dir / "rag_ops_report_日本.json"
+        markdown_path = output_dir / "rag_ops_report_日本.md"
+        json_path.write_text('{"country":"日本"}', encoding="utf-8")
+        markdown_path.write_text("# RAG Ops Report", encoding="utf-8")
+        return {"json_path": str(json_path), "markdown_path": str(markdown_path)}
+
+    monkeypatch.setattr(APP.agent, "export_rag_ops_report", fake_export)
+
+    handle_action("/export_rag_ops_report", {"country": ["日本"], "view": ["runtime"]})
+
+    assert APP.state.view == "runtime"
+    assert "RAG Ops 报告已导出" in APP.state.sync_message
+    assert "rag_ops_report_日本.json" in APP.state.sync_message
+    assert "rag_ops_report_日本.md" in APP.state.sync_message
+
+
 def test_run_full_rag_acceptance_action_reports_reindex_and_hit_rate(monkeypatch):
     APP.state = AppState(country="日本", view="runtime")
 
