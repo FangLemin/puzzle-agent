@@ -2,6 +2,40 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.6.8 - RAG Patch Run Evidence Details
+
+日期：2026-07-04
+
+阶段目标：
+
+- 让 `RAG Patch Runs` 不只展示状态，还能展开查看每个 run 的证据链。
+- 补强 Agent Harness/RAG Ops 的可追溯性：从 run 行可以追到 patch ids、raw patch、processed 文档、patch manifest、Qdrant manifest 和 rollback 文件。
+
+已完成：
+
+- Agent：
+  - `_rag_patch_manifest_row()` 新增 `evidence` 字段。
+  - evidence 包含 patch_ids、raw_patch_path、processed_path、patch_manifest_path、qdrant_manifest_path、rollback_removed。
+  - `rag_patch_ops_summary(country)` 的 latest 与 recent runs 均携带同结构 evidence。
+- Runtime 页面：
+  - `RAG Patch Runs` 表格新增 `证据` 列。
+  - 每条 run 支持 `<details>` 展开证据明细。
+  - 展示 patch_ids、raw、processed、patch_manifest、qdrant_manifest、rollback。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_rag_patch_ops_summary_includes_recent_runs tests/test_renderer.py::test_runtime_rag_summary_shows_patch_ops_status -q`：先因缺少 evidence 字段和页面详情展示失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_rag_patch_ops_summary_includes_recent_runs tests/test_renderer.py::test_runtime_rag_summary_shows_patch_ops_status -q`：2 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py tests/test_server.py -q`：217 passed。
+  - `PYTHONPATH=. pytest tests -q`：364 passed。
+
+当前限制：
+
+- 证据详情目前以文本形式展示路径；还未提供点击打开文件、diff 对比或下载 manifest。
+- 只展示最近 8 条 run。
+
 ## v0.6.7 - RAG Patch Runs History
 
 日期：2026-07-04

@@ -758,6 +758,22 @@ def render_rag_patch_runs(summary: object) -> str:
     for item in runs[:8]:
         if not isinstance(item, dict):
             continue
+        evidence = item.get("evidence", {})
+        if not isinstance(evidence, dict):
+            evidence = {}
+        patch_ids = evidence.get("patch_ids", ())
+        if isinstance(patch_ids, (list, tuple)):
+            patch_ids_text = "、".join(str(value) for value in patch_ids)
+        else:
+            patch_ids_text = str(patch_ids)
+        evidence_text = (
+            f"patch_ids={patch_ids_text}\n"
+            f"raw={evidence.get('raw_patch_path', '')}\n"
+            f"processed={evidence.get('processed_path', '')}\n"
+            f"patch_manifest={evidence.get('patch_manifest_path', '')}\n"
+            f"qdrant_manifest={evidence.get('qdrant_manifest_path', '')}\n"
+            f"rollback={evidence.get('rollback_removed', '')}"
+        )
         rows.append(
             "<tr>"
             f"<td>{escape(str(item.get('run_id', '')))}</td>"
@@ -767,13 +783,14 @@ def render_rag_patch_runs(summary: object) -> str:
             f"<td>{escape(str(item.get('qdrant_status', 'none')))}</td>"
             f"<td>{escape(str(item.get('qdrant_points', 0)))}</td>"
             f"<td>{escape(str(item.get('rollback_removed', '')))}</td>"
+            f"<td><details><summary>证据</summary><pre>{escape(evidence_text)}</pre></details></td>"
             "</tr>"
         )
-    body = "".join(rows) or '<tr><td colspan="7">暂无 RAG patch run 记录。</td></tr>'
+    body = "".join(rows) or '<tr><td colspan="8">暂无 RAG patch run 记录。</td></tr>'
     return (
         "<h3>RAG Patch Runs</h3>"
         "<div class=\"table-wrap\"><table><thead><tr>"
-        "<th>Run</th><th>状态</th><th>Patch数</th><th>hit@5</th><th>Qdrant</th><th>Points</th><th>Rollback</th>"
+        "<th>Run</th><th>状态</th><th>Patch数</th><th>hit@5</th><th>Qdrant</th><th>Points</th><th>Rollback</th><th>证据</th>"
         f"</tr></thead><tbody>{body}</tbody></table></div>"
     )
 

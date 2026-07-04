@@ -454,6 +454,12 @@ def test_runtime_rag_summary_shows_patch_ops_status():
                         "rebuild_hit@5": 1.0,
                         "qdrant_status": "indexed",
                         "qdrant_points": 9,
+                        "evidence": {
+                            "raw_patch_path": "/tmp/approved.md",
+                            "processed_path": "/tmp/value_audit_documents.jsonl",
+                            "qdrant_manifest_path": "/tmp/qdrant.json",
+                            "patch_ids": ("patch-日本-1",),
+                        },
                     },
                 ),
             },
@@ -470,6 +476,9 @@ def test_runtime_rag_summary_shows_patch_ops_status():
     assert "RAG Patch Runs" in html
     assert "run-001" in html
     assert "applied_rebuilt_qdrant_indexed" in html
+    assert "证据" in html
+    assert "patch-日本-1" in html
+    assert "/tmp/qdrant.json" in html
 
 
 def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):

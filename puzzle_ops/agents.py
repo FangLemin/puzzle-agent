@@ -3029,23 +3029,36 @@ def _rag_patch_manifest_row(manifest: dict[str, object], path: Path) -> dict[str
     if not isinstance(rollback, dict):
         rollback = {}
     raw_patch_path = Path(str(manifest.get("raw_patch_path", "")))
+    patch_ids = tuple(str(item) for item in manifest.get("patch_ids", ()) if item)
+    raw_patch_text = str(raw_patch_path)
+    processed_path = str(rebuild.get("processed_path", ""))
+    qdrant_manifest_path = str(qdrant.get("manifest_path", ""))
+    rollback_removed = str(rollback.get("removed_raw_patch_path", ""))
     return {
         "status": str(manifest.get("status", "")),
         "run_id": str(manifest.get("run_id", "")),
         "created_at": str(manifest.get("created_at", "")),
         "manifest_path": str(path),
         "patch_count": int(manifest.get("applied_patch_count", 0) or 0),
-        "patch_ids": tuple(str(item) for item in manifest.get("patch_ids", ()) if item),
-        "raw_patch_path": str(raw_patch_path),
+        "patch_ids": patch_ids,
+        "raw_patch_path": raw_patch_text,
         "raw_patch_file": raw_patch_path.name,
         "rebuild_hit@5": rebuild.get("hit@5", 0),
         "rebuild_mrr@5": rebuild.get("mrr@5", 0),
-        "processed_path": str(rebuild.get("processed_path", "")),
+        "processed_path": processed_path,
         "qdrant_status": str(qdrant.get("status", "none") or "none"),
         "qdrant_points": int(qdrant.get("upserted_points", 0) or 0),
         "qdrant_vector_size": int(qdrant.get("vector_size", 0) or 0),
-        "qdrant_manifest_path": str(qdrant.get("manifest_path", "")),
-        "rollback_removed": str(rollback.get("removed_raw_patch_path", "")),
+        "qdrant_manifest_path": qdrant_manifest_path,
+        "rollback_removed": rollback_removed,
+        "evidence": {
+            "patch_ids": patch_ids,
+            "raw_patch_path": raw_patch_text,
+            "processed_path": processed_path,
+            "patch_manifest_path": str(path),
+            "qdrant_manifest_path": qdrant_manifest_path,
+            "rollback_removed": rollback_removed,
+        },
     }
 
 

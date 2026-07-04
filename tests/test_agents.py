@@ -1137,6 +1137,9 @@ def test_agent_rag_patch_ops_summary_includes_recent_runs(monkeypatch, tmp_path)
     assert runs[0]["patch_count"] == 1
     assert runs[0]["rebuild_hit@5"] == 0.0
     assert runs[0]["rollback_removed"].endswith(".md")
+    assert "raw_patch_path" in runs[0]["evidence"]
+    assert "processed_path" in runs[0]["evidence"]
+    assert runs[0]["evidence"]["patch_ids"] == ("patch-日本-1",)
 
 
 def test_agent_rag_answer_can_cite_human_gold_harness_sample(monkeypatch, tmp_path):
