@@ -678,6 +678,7 @@ def render_rag_summary(summary: dict[str, object], state: AppState | None = None
     eval_case_evidence = render_rag_eval_case_evidence(summary.get("rag_eval_case_evidence", {}), state)
     failure_feedback = render_rag_failure_feedback_queue(summary.get("rag_eval_failure_feedback", {}))
     patch_drafts = render_rag_knowledge_patch_drafts(summary.get("rag_knowledge_patch_drafts", {}), state)
+    patch_ops_card = render_rag_patch_ops_card(summary.get("rag_patch_ops", {}))
     recent_trace_rows = render_recent_rag_traces(summary.get("recent_traces", ()))
     feedback = summary.get("feedback_summary", {})
     feedback_card = render_rag_feedback_summary(feedback if isinstance(feedback, dict) else {})
@@ -699,6 +700,7 @@ def render_rag_summary(summary: dict[str, object], state: AppState | None = None
   <article><strong>版本化知识库</strong><span>Documents + Eval Cases</span><small>{escape(knowledge_text[:260])}</small></article>
   {render_rag_failure_feedback_card(summary.get("rag_eval_failure_feedback", {}))}
   {render_rag_knowledge_patch_card(summary.get("rag_knowledge_patch_drafts", {}))}
+  {patch_ops_card}
   {feedback_card}
 </div>
 <h3>引用明细</h3>
@@ -720,6 +722,26 @@ def render_rag_knowledge_patch_card(summary: object) -> str:
         "<article><strong>RAG知识补丁草案</strong>"
         f"<span>草案={escape(str(summary.get('draft_count', 0)))}</span>"
         "<small>草案不会自动进入知识库，需要人工审核后再补充 raw 文档或晋升为长期记忆。</small></article>"
+    )
+
+
+def render_rag_patch_ops_card(summary: object) -> str:
+    if not isinstance(summary, dict):
+        summary = {}
+    status = str(summary.get("status", "none") or "none")
+    text = (
+        f"patches={summary.get('patch_count', 0)}；"
+        f"hit@5={summary.get('rebuild_hit@5', 0)}；"
+        f"mrr@5={summary.get('rebuild_mrr@5', 0)}；"
+        f"qdrant={summary.get('qdrant_status', 'none')}；"
+        f"points={summary.get('qdrant_points', 0)}；"
+        f"vector_size={summary.get('qdrant_vector_size', 0)}；"
+        f"{summary.get('raw_patch_file', '')}"
+    )
+    return (
+        "<article><strong>RAG Patch Ops</strong>"
+        f"<span>{escape(status)}</span>"
+        f"<small>{escape(text[:260])}</small></article>"
     )
 
 

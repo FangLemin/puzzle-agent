@@ -2,6 +2,41 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.6.6 - Runtime RAG Patch Ops Status
+
+日期：2026-07-04
+
+阶段目标：
+
+- 把 RAG patch 的 raw、processed、eval、Qdrant 入库证据集中展示到 Runtime 页面。
+- 让运营和面试讲解时可以直接看到 latest patch 的状态，而不是只依赖操作后的同步消息。
+
+已完成：
+
+- Agent：
+  - 新增 `rag_patch_ops_summary(country)`。
+  - 读取 `knowledge/patch_manifests/rag_patch_apply_<国家>.json`。
+  - 汇总 status、run_id、patch_count、patch_ids、raw_patch_file、processed_path、rebuild hit@5/mrr@5、qdrant status/points/vector_size/manifest、rollback removed path。
+  - 将 `rag_patch_ops` 合入 `value_audit_rag_summary(country)`。
+  - 无 manifest 时返回稳定的 `status=none`。
+- Runtime 页面：
+  - 新增 `RAG Patch Ops` 卡片。
+  - 展示 patch 数量、rebuild hit@5/mrr@5、Qdrant status、points、vector_size 和 raw patch 文件名。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_rag_patch_ops_summary_reads_latest_patch_manifest tests/test_renderer.py::test_runtime_rag_summary_shows_patch_ops_status -q`：先因缺少 Agent summary 和页面卡片失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_rag_patch_ops_summary_reads_latest_patch_manifest tests/test_renderer.py::test_runtime_rag_summary_shows_patch_ops_status -q`：2 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py tests/test_server.py -q`：216 passed。
+  - `PYTHONPATH=. pytest tests -q`：363 passed。
+
+当前限制：
+
+- 本版本只展示 latest patch manifest；历史 run 的完整对比还未做成页面表格。
+- Qdrant 真实可用性仍以 reindex/acceptance action 的运行结果为准。
+
 ## v0.6.5 - RAG Patch Qdrant Acceptance
 
 日期：2026-07-04

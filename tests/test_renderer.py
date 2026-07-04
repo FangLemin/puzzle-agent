@@ -1,7 +1,7 @@
 import json
 
 from puzzle_ops.agents import PuzzleOpsAgent
-from puzzle_ops.renderer import AppState, render_page
+from puzzle_ops.renderer import AppState, render_page, render_rag_summary
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.vision_llm import MissingVisionLLMConfig
 from puzzle_ops.image_generation import CloudImageGenerationProvider, DashScopeImageGenerationProvider, ComfyUIImageGenerationProvider
@@ -413,6 +413,50 @@ def test_runtime_page_shows_rag_knowledge_patch_drafts(tmp_path):
     assert "回滚最新补丁并重建" in html
     assert 'action="/apply_rag_patch_rebuild_and_reindex_qdrant"' in html
     assert "应用补丁并入库Qdrant" in html
+
+
+def test_runtime_rag_summary_shows_patch_ops_status():
+    html = render_rag_summary(
+        {
+            "chunk_count": 3,
+            "source_counts": {},
+            "citations": (),
+            "context": "",
+            "prompt": "",
+            "embedding_provider": "dashscope",
+            "embedding_model": "text-embedding-v4",
+            "rerank_provider": "bge",
+            "rerank_model": "BAAI/bge-reranker-v2-m3",
+            "provider_status": "ready",
+            "offline_loader": "FileDocumentLoaderAdapter",
+            "splitter": "sentence_token",
+            "chunk_size_tokens": 600,
+            "chunk_overlap_tokens": 100,
+            "vector_store": "qdrant",
+            "vector_store_collection": "puzzle_ops_rag",
+            "vector_store_search_enabled": True,
+            "retrieval_eval_report": {"hit@5": 1.0, "mrr@5": 1.0, "threshold": 0.8, "passed_threshold": True},
+            "retrieval_trace": {"merged_candidate_count": 0, "eligible_chunk_count": 0},
+            "knowledge_base": {},
+            "rag_patch_ops": {
+                "status": "applied_rebuilt_qdrant_indexed",
+                "patch_count": 1,
+                "raw_patch_file": "approved_rag_patch_日本_run.md",
+                "rebuild_hit@5": 1.0,
+                "qdrant_status": "indexed",
+                "qdrant_points": 9,
+                "qdrant_vector_size": 3,
+            },
+        },
+        AppState(country="日本", view="runtime"),
+    )
+
+    assert "RAG Patch Ops" in html
+    assert "applied_rebuilt_qdrant_indexed" in html
+    assert "patches=1" in html
+    assert "hit@5=1.0" in html
+    assert "qdrant=indexed" in html
+    assert "points=9" in html
 
 
 def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):

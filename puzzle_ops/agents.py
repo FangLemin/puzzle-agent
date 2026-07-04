@@ -557,11 +557,55 @@ class PuzzleOpsAgent:
             "rag_eval_case_evidence": self.rag_eval_case_evidence(country),
             "rag_eval_failure_feedback": self.rag_eval_failure_feedback_summary(country),
             "rag_knowledge_patch_drafts": self.rag_knowledge_patch_drafts(country),
+            "rag_patch_ops": self.rag_patch_ops_summary(country),
             "latest_acceptance_summary": self.latest_rag_acceptance_summary(country),
             "knowledge_base": self._rag_knowledge_summary(country),
             "feedback_summary": self.rag_feedback_summary(country),
             "recent_traces": self.recent_rag_traces(country, limit=3),
             **self._last_rag_stats.as_dict(),
+        }
+
+    def rag_patch_ops_summary(self, country: str) -> dict[str, object]:
+        latest_manifest_path = _rag_knowledge_dir() / "patch_manifests" / f"rag_patch_apply_{country}.json"
+        manifest = _read_json_object(latest_manifest_path)
+        if not manifest:
+            return {
+                "status": "none",
+                "manifest_path": str(latest_manifest_path),
+                "patch_count": 0,
+                "raw_patch_file": "",
+                "rebuild_hit@5": 0,
+                "rebuild_mrr@5": 0,
+                "qdrant_status": "none",
+                "qdrant_points": 0,
+                "qdrant_vector_size": 0,
+            }
+        rebuild = manifest.get("rebuild_after_rollback") or manifest.get("rebuild") or {}
+        if not isinstance(rebuild, dict):
+            rebuild = {}
+        qdrant = manifest.get("qdrant", {})
+        if not isinstance(qdrant, dict):
+            qdrant = {}
+        rollback = manifest.get("rollback", {})
+        if not isinstance(rollback, dict):
+            rollback = {}
+        raw_patch_path = Path(str(manifest.get("raw_patch_path", "")))
+        return {
+            "status": str(manifest.get("status", "")),
+            "run_id": str(manifest.get("run_id", "")),
+            "manifest_path": str(latest_manifest_path),
+            "patch_count": int(manifest.get("applied_patch_count", 0) or 0),
+            "patch_ids": tuple(str(item) for item in manifest.get("patch_ids", ()) if item),
+            "raw_patch_path": str(raw_patch_path),
+            "raw_patch_file": raw_patch_path.name,
+            "rebuild_hit@5": rebuild.get("hit@5", 0),
+            "rebuild_mrr@5": rebuild.get("mrr@5", 0),
+            "processed_path": str(rebuild.get("processed_path", "")),
+            "qdrant_status": str(qdrant.get("status", "none") or "none"),
+            "qdrant_points": int(qdrant.get("upserted_points", 0) or 0),
+            "qdrant_vector_size": int(qdrant.get("vector_size", 0) or 0),
+            "qdrant_manifest_path": str(qdrant.get("manifest_path", "")),
+            "rollback_removed": str(rollback.get("removed_raw_patch_path", "")),
         }
 
     def rag_knowledge_patch_drafts(self, country: str, *, limit: int = 8) -> dict[str, object]:
