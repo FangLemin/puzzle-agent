@@ -885,6 +885,8 @@ class PuzzleOpsAgent:
             "mrr@5": rebuild.get("mrr@5", 0),
             "passed_threshold": rebuild.get("passed_threshold", False),
             "eval_total": rebuild.get("eval_total", 0),
+            "failed_count": rebuild.get("failed_count", 0),
+            "cases": rebuild.get("cases", ()),
         }
         manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
         latest_manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -921,6 +923,8 @@ class PuzzleOpsAgent:
             "mrr@5": rebuild.get("mrr@5", 0),
             "passed_threshold": rebuild.get("passed_threshold", False),
             "eval_total": rebuild.get("eval_total", 0),
+            "failed_count": rebuild.get("failed_count", 0),
+            "cases": rebuild.get("cases", ()),
         }
         latest_manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
         run_id = str(manifest.get("run_id", "")).strip()
@@ -1245,6 +1249,8 @@ class PuzzleOpsAgent:
             "mrr@5": report.get("mrr@5", 0),
             "passed_threshold": report.get("passed_threshold", False),
             "eval_total": report.get("total", 0),
+            "failed_count": sum(1 for case in report.get("cases", ()) if isinstance(case, dict) and not case.get("hit")),
+            "cases": report.get("cases", ()),
         }
 
     def reindex_rag_qdrant_from_raw(

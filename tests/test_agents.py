@@ -966,6 +966,9 @@ def test_agent_applies_approved_rag_patch_and_rebuilds_processed_with_eval(monke
     assert manifest["status"] == "applied_rebuilt"
     assert manifest["rebuild"]["processed_path"] == str(processed_path)
     assert manifest["rebuild"]["hit@5"] == 1.0
+    assert manifest["rebuild"]["cases"][0]["expected_parent_id"] == "JP_KB_SUSHI_FOOD"
+    assert manifest["rebuild"]["cases"][0]["hit"] is True
+    assert manifest["rebuild"]["failed_count"] == 0
 
 
 def test_agent_rolls_back_latest_approved_rag_patch_and_rebuilds(monkeypatch, tmp_path):

@@ -2,6 +2,37 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.8 - RAG Patch Manifest Eval Cases
+
+日期：2026-07-05
+
+阶段目标：
+
+- 补齐 v0.7.7 case-level diff 的数据生产链路。
+- 确保每次应用 RAG 知识补丁并重建时，patch manifest 自动记录完整 eval case 明细，后续 run comparison 可以稳定判断哪些失败样本被修复、哪些失败样本新增。
+
+已完成：
+
+- Agent：
+  - `rebuild_rag_knowledge_from_raw(country)` 返回 `failed_count` 和完整 `cases`。
+  - `apply_approved_rag_patch_and_rebuild(country)` 的 manifest `rebuild` 写入 `failed_count` 和 `cases`。
+  - `rollback_latest_approved_rag_patch_and_rebuild(country)` 的 manifest `rebuild_after_rollback` 同样写入 `failed_count` 和 `cases`。
+  - 新 patch run 不再只记录总分，也记录 case-level replay 数据。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_applies_approved_rag_patch_and_rebuilds_processed_with_eval -q`：先因 manifest 缺少 `rebuild.cases` 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_applies_approved_rag_patch_and_rebuilds_processed_with_eval -q`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py -q`：99 passed。
+  - `PYTHONPATH=. pytest tests -q`：374 passed。
+
+当前限制：
+
+- 旧历史 manifest 仍然没有 `rebuild.cases`，只能从 v0.7.8 之后的新 run 开始完整 case diff。
+- case 明细来自当前本地 RAG eval，不代表真实线上用户反馈；后续仍需和真实 human_gold / HITL 修正闭环结合。
+
 ## v0.7.7 - RAG Patch Case Diff
 
 日期：2026-07-05
