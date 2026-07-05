@@ -563,6 +563,10 @@ def test_runtime_rag_summary_shows_patch_ops_status():
                     "mrr@5_delta": 0.3,
                     "qdrant_points_delta": 4,
                     "status_changed": True,
+                    "fixed_failure_count": 1,
+                    "new_failure_count": 1,
+                    "fixed_failures": ("JP_KB_SUSHI",),
+                    "new_failures": ("JP_KB_MOUNT_FUJI",),
                 },
                 "priority_impact": {
                     "pending_P0": 2,
@@ -593,6 +597,9 @@ def test_runtime_rag_summary_shows_patch_ops_status():
     assert "pending_P0=2" in html
     assert "effect=improved" in html
     assert "continue_apply_priority_patches" in html
+    assert "fixed=1" in html
+    assert "new_failures=1" in html
+    assert "JP_KB_SUSHI" in html
 
 
 def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):

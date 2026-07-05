@@ -1188,7 +1188,15 @@ def test_agent_rag_patch_ops_summary_compares_latest_two_runs(monkeypatch, tmp_p
         "raw_patch_path": "/tmp/old.md",
         "applied_patch_count": 1,
         "patch_ids": ["patch-old"],
-        "rebuild": {"hit@5": 0.4, "mrr@5": 0.2, "processed_path": "/tmp/old.jsonl"},
+        "rebuild": {
+            "hit@5": 0.4,
+            "mrr@5": 0.2,
+            "processed_path": "/tmp/old.jsonl",
+            "cases": [
+                {"expected_parent_id": "JP_KB_SUSHI", "hit": False},
+                {"expected_parent_id": "JP_KB_ONSEN", "hit": True},
+            ],
+        },
         "qdrant": {"status": "indexed", "upserted_points": 5, "vector_size": 3},
     }
     newer = {
@@ -1199,7 +1207,16 @@ def test_agent_rag_patch_ops_summary_compares_latest_two_runs(monkeypatch, tmp_p
         "raw_patch_path": "/tmp/new.md",
         "applied_patch_count": 2,
         "patch_ids": ["patch-new"],
-        "rebuild": {"hit@5": 0.9, "mrr@5": 0.7, "processed_path": "/tmp/new.jsonl"},
+        "rebuild": {
+            "hit@5": 0.9,
+            "mrr@5": 0.7,
+            "processed_path": "/tmp/new.jsonl",
+            "cases": [
+                {"expected_parent_id": "JP_KB_SUSHI", "hit": True},
+                {"expected_parent_id": "JP_KB_ONSEN", "hit": True},
+                {"expected_parent_id": "JP_KB_MOUNT_FUJI", "hit": False},
+            ],
+        },
         "qdrant": {"status": "indexed", "upserted_points": 8, "vector_size": 3},
     }
     (runs_dir / "rag_patch_apply_日本_20260704-old.json").write_text(json.dumps(older, ensure_ascii=False), encoding="utf-8")
@@ -1226,6 +1243,10 @@ def test_agent_rag_patch_ops_summary_compares_latest_two_runs(monkeypatch, tmp_p
     assert comparison["mrr@5_delta"] == 0.5
     assert comparison["qdrant_points_delta"] == 3
     assert comparison["status_changed"] is True
+    assert comparison["fixed_failure_count"] == 1
+    assert comparison["new_failure_count"] == 1
+    assert "JP_KB_SUSHI" in comparison["fixed_failures"]
+    assert "JP_KB_MOUNT_FUJI" in comparison["new_failures"]
     assert impact["pending_P0"] == 1
     assert impact["effect"] == "improved"
     assert impact["recommended_action"] == "continue_apply_priority_patches"

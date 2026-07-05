@@ -3230,6 +3230,7 @@ def _rag_patch_manifest_row(manifest: dict[str, object], path: Path) -> dict[str
         "raw_patch_file": raw_patch_path.name,
         "rebuild_hit@5": rebuild.get("hit@5", 0),
         "rebuild_mrr@5": rebuild.get("mrr@5", 0),
+        "rebuild_cases": tuple(item for item in rebuild.get("cases", ()) if isinstance(item, dict)),
         "processed_path": processed_path,
         "qdrant_status": str(qdrant.get("status", "none") or "none"),
         "qdrant_points": int(qdrant.get("upserted_points", 0) or 0),
@@ -3257,7 +3258,12 @@ def _rag_patch_run_comparison(current: dict[str, object], runs: tuple[dict[str, 
             "mrr@5_delta": 0,
             "qdrant_points_delta": 0,
             "status_changed": False,
+            "fixed_failure_count": 0,
+            "new_failure_count": 0,
+            "fixed_failures": (),
+            "new_failures": (),
         }
+    case_diff = _rag_patch_case_diff(current.get("rebuild_cases", ()), previous.get("rebuild_cases", ()))
     return {
         "current_run_id": str(current.get("run_id", "")),
         "previous_run_id": str(previous.get("run_id", "")),
@@ -3265,7 +3271,34 @@ def _rag_patch_run_comparison(current: dict[str, object], runs: tuple[dict[str, 
         "mrr@5_delta": round(float(current.get("rebuild_mrr@5", 0) or 0) - float(previous.get("rebuild_mrr@5", 0) or 0), 4),
         "qdrant_points_delta": int(current.get("qdrant_points", 0) or 0) - int(previous.get("qdrant_points", 0) or 0),
         "status_changed": str(current.get("status", "")) != str(previous.get("status", "")),
+        **case_diff,
     }
+
+
+def _rag_patch_case_diff(current_cases: object, previous_cases: object) -> dict[str, object]:
+    current = _case_hit_map(current_cases)
+    previous = _case_hit_map(previous_cases)
+    fixed = tuple(sorted(parent_id for parent_id, was_hit in previous.items() if not was_hit and current.get(parent_id) is True))
+    new_failures = tuple(sorted(parent_id for parent_id, is_hit in current.items() if not is_hit and previous.get(parent_id, True) is True))
+    return {
+        "fixed_failure_count": len(fixed),
+        "new_failure_count": len(new_failures),
+        "fixed_failures": fixed,
+        "new_failures": new_failures,
+    }
+
+
+def _case_hit_map(cases: object) -> dict[str, bool]:
+    if not isinstance(cases, (list, tuple)):
+        return {}
+    result: dict[str, bool] = {}
+    for item in cases:
+        if not isinstance(item, dict):
+            continue
+        parent_id = str(item.get("expected_parent_id", ""))
+        if parent_id:
+            result[parent_id] = bool(item.get("hit"))
+    return result
 
 
 def _manifest_run_id() -> str:

@@ -782,7 +782,10 @@ def render_rag_patch_compare_card(summary: object) -> str:
         f"status_changed={comparison.get('status_changed', False)}；"
         f"pending_P0={impact.get('pending_P0', 0)}；"
         f"effect={impact.get('effect', 'unknown')}；"
-        f"{impact.get('recommended_action', '')}"
+        f"{impact.get('recommended_action', '')}；"
+        f"fixed={comparison.get('fixed_failure_count', 0)}；"
+        f"new_failures={comparison.get('new_failure_count', 0)}；"
+        f"fixed_ids={','.join(str(item) for item in comparison.get('fixed_failures', ())[:3]) if isinstance(comparison.get('fixed_failures', ()), (tuple, list)) else ''}"
     )
     return (
         "<article><strong>RAG Patch Compare</strong>"

@@ -2,6 +2,39 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.7 - RAG Patch Case Diff
+
+日期：2026-07-05
+
+阶段目标：
+
+- 将 patch run 对比从总分层面推进到 case 级别。
+- 让 RAG Ops 能说明“哪些失败样本被修复了、哪些失败样本是新增的”，而不是只看 `hit@5` 总分变化。
+
+已完成：
+
+- Agent：
+  - `_rag_patch_manifest_row(...)` 从 manifest 的 `rebuild.cases` 中保留 `rebuild_cases`。
+  - `_rag_patch_run_comparison(...)` 新增 case-level diff。
+  - 新增 `fixed_failure_count`、`new_failure_count`、`fixed_failures`、`new_failures`。
+  - 兼容老 manifest：没有 cases 时返回空 diff，不影响现有 patch runs。
+- Runtime 页面：
+  - `RAG Patch Compare` 卡片新增 `fixed`、`new_failures` 和前 3 个 fixed ids。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_rag_patch_ops_summary_compares_latest_two_runs tests/test_renderer.py::test_runtime_rag_summary_shows_patch_ops_status -q`：先因缺少 case diff 字段和页面展示失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_rag_patch_ops_summary_compares_latest_two_runs tests/test_renderer.py::test_runtime_rag_summary_shows_patch_ops_status -q`：2 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py -q`：151 passed。
+  - `PYTHONPATH=. pytest tests -q`：374 passed。
+
+当前限制：
+
+- case diff 依赖 patch manifest 中存在 `rebuild.cases`；历史旧 run 没有该字段时只能显示空 diff。
+- 后续应在 patch apply 阶段完整写入 eval cases，保证所有新 run 都可做 case-level replay。
+
 ## v0.7.6 - RAG Patch Priority Impact
 
 日期：2026-07-05
