@@ -2,6 +2,38 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.9 - RAG Ops Report Case Diff
+
+日期：2026-07-05
+
+阶段目标：
+
+- 让导出的 RAG Ops 报告不仅展示 patch run 总体指标，还能直接说明 case 级别的修复与新增失败。
+- 支撑后续工业级 RAG 验收：每次知识补丁应用后，可以在 JSON/Markdown 报告中追踪“修好了哪些 query / 又引入了哪些失败”。
+
+已完成：
+
+- Agent：
+  - `export_rag_ops_report(country, output_dir)` 新增顶层 `patch_case_diff`。
+  - `patch_case_diff` 包含 `fixed_failure_count`、`new_failure_count`、`fixed_failures`、`new_failures`。
+  - Markdown 报告新增 `RAG Patch Case Diff` 小节。
+  - 报告复用 v0.7.7/v0.7.8 已建立的 patch run comparison 和 manifest eval cases，不新增外部依赖。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_rag_ops_report_json_and_markdown -q`：先因缺少 `patch_case_diff` 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_rag_ops_report_json_and_markdown -q`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py -q`：99 passed。
+  - `PYTHONPATH=. pytest tests -q`：374 passed。
+  - `git diff --check`：passed。
+
+当前限制：
+
+- 报告中的 case diff 依赖 patch manifest 已记录 `rebuild.cases`；v0.7.8 之前的历史 run 仍只能显示空 diff。
+- 当前只导出 case id，后续可以继续扩展为 query、gold chunk、实际召回 chunk、失败诊断和人工修正建议。
+
 ## v0.7.8 - RAG Patch Manifest Eval Cases
 
 日期：2026-07-05

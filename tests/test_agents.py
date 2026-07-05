@@ -1299,9 +1299,46 @@ def test_agent_rag_live_model_ops_summary_reads_latest_acceptance(tmp_path):
     assert summary["qdrant_vector_hits"] is True
 
 
-def test_agent_exports_rag_ops_report_json_and_markdown(tmp_path):
+def test_agent_exports_rag_ops_report_json_and_markdown(monkeypatch, tmp_path):
     agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
     agent._runtime_dir = tmp_path / "runtime"
+    knowledge_dir = tmp_path / "rag_knowledge"
+    monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
+    manifest_dir = knowledge_dir / "patch_manifests"
+    runs_dir = manifest_dir / "runs"
+    runs_dir.mkdir(parents=True)
+    old_manifest = {
+        "run_id": "run-old",
+        "status": "completed",
+        "patch_count": 1,
+        "rebuild": {
+            "hit@5": 0.4,
+            "mrr@5": 0.2,
+            "qdrant": {"status": "ok", "upserted_points": 5},
+            "cases": (
+                {"expected_parent_id": "JP_KB_SUSHI", "hit": False},
+                {"expected_parent_id": "JP_KB_ONSEN", "hit": True},
+            ),
+        },
+    }
+    new_manifest = {
+        "run_id": "run-new",
+        "status": "completed",
+        "patch_count": 2,
+        "rebuild": {
+            "hit@5": 0.9,
+            "mrr@5": 0.7,
+            "qdrant": {"status": "ok", "upserted_points": 8},
+            "cases": (
+                {"expected_parent_id": "JP_KB_SUSHI", "hit": True},
+                {"expected_parent_id": "JP_KB_ONSEN", "hit": True},
+                {"expected_parent_id": "JP_KB_MOUNT_FUJI", "hit": False},
+            ),
+        },
+    }
+    (manifest_dir / "rag_patch_apply_日本.json").write_text(json.dumps(new_manifest, ensure_ascii=False), encoding="utf-8")
+    (runs_dir / "rag_patch_apply_日本_old.json").write_text(json.dumps(old_manifest, ensure_ascii=False), encoding="utf-8")
+    (runs_dir / "rag_patch_apply_日本_new.json").write_text(json.dumps(new_manifest, ensure_ascii=False), encoding="utf-8")
     report_dir = agent._runtime_dir / "rag_acceptance_reports"
     report_dir.mkdir(parents=True)
     (report_dir / "rag_acceptance_full_summary_日本.json").write_text(
@@ -1347,10 +1384,17 @@ def test_agent_exports_rag_ops_report_json_and_markdown(tmp_path):
     assert payload["live_model_ops"]["embedding_remote_calls"] == 2
     assert payload["patch_priority_summary"]["P0"] == 1
     assert payload["patch_priority_summary"]["top_patch"]["priority_band"] == "P0"
+    assert payload["patch_case_diff"]["fixed_failure_count"] == 1
+    assert payload["patch_case_diff"]["new_failure_count"] == 1
+    assert "JP_KB_SUSHI" in payload["patch_case_diff"]["fixed_failures"]
+    assert "JP_KB_MOUNT_FUJI" in payload["patch_case_diff"]["new_failures"]
     assert "RAG Ops Report" in markdown
     assert "RAG Live Model Ops" in markdown
     assert "RAG Patch Ops" in markdown
     assert "RAG Patch Priority" in markdown
+    assert "RAG Patch Case Diff" in markdown
+    assert "JP_KB_SUSHI" in markdown
+    assert "JP_KB_MOUNT_FUJI" in markdown
     assert "hit@5" in markdown
 
 

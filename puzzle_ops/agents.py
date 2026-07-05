@@ -602,6 +602,13 @@ class PuzzleOpsAgent:
         rag_eval_dataset = self.rag_eval_dataset_summary(country)
         knowledge_base = self._rag_knowledge_summary(country)
         patch_priority_summary = self.rag_knowledge_patch_drafts(country, limit=10_000).get("priority_summary", {})
+        run_comparison = patch_ops.get("run_comparison", {}) if isinstance(patch_ops.get("run_comparison"), dict) else {}
+        patch_case_diff = {
+            "fixed_failure_count": int(run_comparison.get("fixed_failure_count", 0) or 0),
+            "new_failure_count": int(run_comparison.get("new_failure_count", 0) or 0),
+            "fixed_failures": tuple(str(item) for item in run_comparison.get("fixed_failures", ()) if str(item)),
+            "new_failures": tuple(str(item) for item in run_comparison.get("new_failures", ()) if str(item)),
+        }
         payload: dict[str, object] = {
             "country": country,
             "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -611,6 +618,7 @@ class PuzzleOpsAgent:
             "rag_eval_dataset": rag_eval_dataset,
             "knowledge_base": knowledge_base,
             "patch_priority_summary": patch_priority_summary,
+            "patch_case_diff": patch_case_diff,
         }
         json_path = output_dir / f"rag_ops_report_{country}.json"
         markdown_path = output_dir / f"rag_ops_report_{country}.md"
@@ -623,9 +631,12 @@ class PuzzleOpsAgent:
         patch = payload.get("patch_ops", {}) if isinstance(payload.get("patch_ops"), dict) else {}
         priority = payload.get("patch_priority_summary", {}) if isinstance(payload.get("patch_priority_summary"), dict) else {}
         top_patch = priority.get("top_patch", {}) if isinstance(priority.get("top_patch"), dict) else {}
+        case_diff = payload.get("patch_case_diff", {}) if isinstance(payload.get("patch_case_diff"), dict) else {}
         acceptance = payload.get("latest_acceptance", {}) if isinstance(payload.get("latest_acceptance"), dict) else {}
         dataset = payload.get("rag_eval_dataset", {}) if isinstance(payload.get("rag_eval_dataset"), dict) else {}
         knowledge = payload.get("knowledge_base", {}) if isinstance(payload.get("knowledge_base"), dict) else {}
+        fixed_failures = ", ".join(str(item) for item in case_diff.get("fixed_failures", ()) if str(item))
+        new_failures = ", ".join(str(item) for item in case_diff.get("new_failures", ()) if str(item))
         lines = [
             f"# RAG Ops Report - {payload.get('country', '')}",
             "",
@@ -656,6 +667,12 @@ class PuzzleOpsAgent:
             f"- P1: {priority.get('P1', 0)}",
             f"- P2: {priority.get('P2', 0)}",
             f"- top_patch: {top_patch.get('patch_id', '')}",
+            "",
+            "## RAG Patch Case Diff",
+            f"- fixed_failure_count: {case_diff.get('fixed_failure_count', 0)}",
+            f"- new_failure_count: {case_diff.get('new_failure_count', 0)}",
+            f"- fixed_failures: {fixed_failures}",
+            f"- new_failures: {new_failures}",
             "",
             "## RAG Acceptance",
             f"- exists: {acceptance.get('exists', False)}",
