@@ -769,6 +769,9 @@ def render_rag_patch_compare_card(summary: object) -> str:
     comparison = summary.get("run_comparison", {})
     if not isinstance(comparison, dict):
         comparison = {}
+    impact = summary.get("priority_impact", {})
+    if not isinstance(impact, dict):
+        impact = {}
     current = str(comparison.get("current_run_id", ""))
     previous = str(comparison.get("previous_run_id", ""))
     label = f"{current} vs {previous}" if current or previous else "暂无对比"
@@ -776,7 +779,10 @@ def render_rag_patch_compare_card(summary: object) -> str:
         f"hit@5 Δ={comparison.get('hit@5_delta', 0)}；"
         f"mrr@5 Δ={comparison.get('mrr@5_delta', 0)}；"
         f"points Δ={comparison.get('qdrant_points_delta', 0)}；"
-        f"status_changed={comparison.get('status_changed', False)}"
+        f"status_changed={comparison.get('status_changed', False)}；"
+        f"pending_P0={impact.get('pending_P0', 0)}；"
+        f"effect={impact.get('effect', 'unknown')}；"
+        f"{impact.get('recommended_action', '')}"
     )
     return (
         "<article><strong>RAG Patch Compare</strong>"

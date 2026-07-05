@@ -681,6 +681,7 @@ class PuzzleOpsAgent:
         latest_manifest_path = _rag_knowledge_dir() / "patch_manifests" / f"rag_patch_apply_{country}.json"
         manifest = _read_json_object(latest_manifest_path)
         if not manifest:
+            priority_summary = self.rag_knowledge_patch_drafts(country, limit=10_000).get("priority_summary", {})
             return {
                 "status": "none",
                 "manifest_path": str(latest_manifest_path),
@@ -692,6 +693,8 @@ class PuzzleOpsAgent:
                 "qdrant_points": 0,
                 "qdrant_vector_size": 0,
                 "recent_runs": (),
+                "priority_summary": priority_summary,
+                "priority_impact": _rag_patch_priority_impact(priority_summary, {}),
             }
         latest = _rag_patch_manifest_row(manifest, latest_manifest_path)
         runs_dir = latest_manifest_path.parent / "runs"
@@ -704,10 +707,13 @@ class PuzzleOpsAgent:
                 if len(recent_runs) >= 8:
                     break
         comparison = _rag_patch_run_comparison(latest, tuple(recent_runs))
+        priority_summary = self.rag_knowledge_patch_drafts(country, limit=10_000).get("priority_summary", {})
         return {
             **latest,
             "recent_runs": tuple(recent_runs),
             "run_comparison": comparison,
+            "priority_summary": priority_summary,
+            "priority_impact": _rag_patch_priority_impact(priority_summary, comparison),
         }
 
     def rag_knowledge_patch_drafts(self, country: str, *, limit: int = 8) -> dict[str, object]:
@@ -3823,6 +3829,35 @@ def _rag_patch_priority_summary(drafts: list[dict[str, object]]) -> dict[str, ob
         }
         if top_patch
         else {},
+    }
+
+
+def _rag_patch_priority_impact(priority_summary: object, comparison: object) -> dict[str, object]:
+    priority = priority_summary if isinstance(priority_summary, dict) else {}
+    compare = comparison if isinstance(comparison, dict) else {}
+    pending_p0 = int(priority.get("P0", 0) or 0)
+    hit_delta = float(compare.get("hit@5_delta", 0) or 0)
+    mrr_delta = float(compare.get("mrr@5_delta", 0) or 0)
+    if not compare.get("previous_run_id"):
+        effect = "no_baseline"
+        action = "run_another_patch_experiment"
+    elif hit_delta > 0 or mrr_delta > 0:
+        effect = "improved"
+        action = "continue_apply_priority_patches" if pending_p0 else "monitor_next_failures"
+    elif hit_delta < 0 or mrr_delta < 0:
+        effect = "regressed"
+        action = "rollback_or_review_patch"
+    else:
+        effect = "no_change"
+        action = "review_priority_weights_or_rerank"
+    return {
+        "pending_P0": pending_p0,
+        "pending_P1": int(priority.get("P1", 0) or 0),
+        "pending_P2": int(priority.get("P2", 0) or 0),
+        "hit@5_delta": round(hit_delta, 4),
+        "mrr@5_delta": round(mrr_delta, 4),
+        "effect": effect,
+        "recommended_action": action,
     }
 
 

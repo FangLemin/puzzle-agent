@@ -564,6 +564,11 @@ def test_runtime_rag_summary_shows_patch_ops_status():
                     "qdrant_points_delta": 4,
                     "status_changed": True,
                 },
+                "priority_impact": {
+                    "pending_P0": 2,
+                    "effect": "improved",
+                    "recommended_action": "continue_apply_priority_patches",
+                },
             },
         },
         AppState(country="日本", view="runtime"),
@@ -585,6 +590,9 @@ def test_runtime_rag_summary_shows_patch_ops_status():
     assert "run-001 vs run-000" in html
     assert "hit@5 Δ=0.5" in html
     assert "points Δ=4" in html
+    assert "pending_P0=2" in html
+    assert "effect=improved" in html
+    assert "continue_apply_priority_patches" in html
 
 
 def test_eval_page_shows_gold_dataset_workbench(monkeypatch, tmp_path):

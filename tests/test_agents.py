@@ -1206,8 +1206,19 @@ def test_agent_rag_patch_ops_summary_compares_latest_two_runs(monkeypatch, tmp_p
     (runs_dir / "rag_patch_apply_日本_20260704-new.json").write_text(json.dumps(newer, ensure_ascii=False), encoding="utf-8")
     (knowledge_dir / "patch_manifests" / "rag_patch_apply_日本.json").write_text(json.dumps(newer, ensure_ascii=False), encoding="utf-8")
     agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent.record_rag_eval_failure_feedback(
+        "日本",
+        query="日本S级寿司饮食文化",
+        expected_parent_id="JP_KB_SUSHI",
+        retrieved_parent_ids=("JP_KB_ONSEN",),
+        diagnosis="knowledge_missing_or_query_mismatch",
+        gold_grade="S",
+        label_source="human_gold",
+    )
 
-    comparison = agent.rag_patch_ops_summary("日本")["run_comparison"]
+    summary = agent.rag_patch_ops_summary("日本")
+    comparison = summary["run_comparison"]
+    impact = summary["priority_impact"]
 
     assert comparison["current_run_id"] == "run-new"
     assert comparison["previous_run_id"] == "run-old"
@@ -1215,6 +1226,9 @@ def test_agent_rag_patch_ops_summary_compares_latest_two_runs(monkeypatch, tmp_p
     assert comparison["mrr@5_delta"] == 0.5
     assert comparison["qdrant_points_delta"] == 3
     assert comparison["status_changed"] is True
+    assert impact["pending_P0"] == 1
+    assert impact["effect"] == "improved"
+    assert impact["recommended_action"] == "continue_apply_priority_patches"
 
 
 def test_agent_rag_live_model_ops_summary_reads_latest_acceptance(tmp_path):

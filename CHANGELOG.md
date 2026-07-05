@@ -2,6 +2,43 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.6 - RAG Patch Priority Impact
+
+日期：2026-07-05
+
+阶段目标：
+
+- 把 P0/P1/P2 知识补丁队列和 patch run 指标对比打通。
+- 让 Runtime 不只展示“有多少高优先级补丁”，还展示最近 patch run 是否带来 `hit@5/mrr@5` 改善，以及下一步建议动作。
+
+已完成：
+
+- Agent：
+  - `rag_patch_ops_summary(country)` 新增 `priority_summary` 和 `priority_impact`。
+  - `priority_impact` 汇总 pending P0/P1/P2、`hit@5_delta`、`mrr@5_delta`、effect 和 recommended_action。
+  - effect 支持：
+    - `improved`
+    - `regressed`
+    - `no_change`
+    - `no_baseline`
+  - recommended_action 支持继续应用高优先级补丁、回滚/复核、调整权重或继续跑实验。
+- Runtime 页面：
+  - `RAG Patch Compare` 卡片新增 pending_P0、effect 和 recommended_action。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_rag_patch_ops_summary_compares_latest_two_runs tests/test_renderer.py::test_runtime_rag_summary_shows_patch_ops_status -q`：先因缺少 `priority_impact` 和页面展示失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_rag_patch_ops_summary_compares_latest_two_runs tests/test_renderer.py::test_runtime_rag_summary_shows_patch_ops_status -q`：2 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py -q`：151 passed。
+  - `PYTHONPATH=. pytest tests -q`：374 passed。
+
+当前限制：
+
+- 当前 impact 基于最近两个 patch run 的指标变化，不是完整 A/B 实验。
+- 后续可进一步引入按 case 的失败样本新增/修复对比，证明具体 P0 patch 修复了哪些真实 human_gold 样本。
+
 ## v0.7.5 - RAG Patch Priority Ops Summary
 
 日期：2026-07-05
