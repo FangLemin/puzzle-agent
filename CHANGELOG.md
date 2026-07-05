@@ -2,6 +2,39 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.5 - RAG Patch Priority Ops Summary
+
+日期：2026-07-05
+
+阶段目标：
+
+- 将 v0.7.4 的 P0/P1/P2 知识补丁优先级从表格行级信息，上升到 Runtime 摘要和 RAG Ops 报告。
+- 让运营/工程一眼看到高优先级 RAG 知识补丁积压，而不必逐行扫表。
+
+已完成：
+
+- Agent：
+  - `rag_knowledge_patch_drafts(...)` 新增 `priority_summary`。
+  - `priority_summary` 汇总 P0/P1/P2 数量、total、top_score 和 top_patch。
+  - `export_rag_ops_report(...)` 的 JSON 新增 `patch_priority_summary`。
+  - Markdown 报告新增 `RAG Patch Priority` 小节。
+- Runtime 页面：
+  - `RAG知识补丁草案` 摘要卡新增 P0/P1/P2 积压展示。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_rag_ops_report_json_and_markdown tests/test_renderer.py::test_runtime_page_shows_rag_patch_priority -q`：先因缺少 `patch_priority_summary` 和 Runtime 摘要失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_rag_ops_report_json_and_markdown tests/test_renderer.py::test_runtime_page_shows_rag_patch_priority -q`：2 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py -q`：151 passed。
+  - `PYTHONPATH=. pytest tests -q`：374 passed。
+
+当前限制：
+
+- 本版展示的是当前草案队列积压，不直接证明 patch 应用后的指标收益。
+- 后续应继续把 P0 patch 应用前后的 `hit@5/mrr@5/failed_count` 变化接入实验对比。
+
 ## v0.7.4 - RAG Patch Priority
 
 日期：2026-07-05

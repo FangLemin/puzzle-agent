@@ -728,10 +728,18 @@ def render_rag_summary(summary: dict[str, object], state: AppState | None = None
 def render_rag_knowledge_patch_card(summary: object) -> str:
     if not isinstance(summary, dict):
         summary = {}
+    priority = summary.get("priority_summary", {})
+    if not isinstance(priority, dict):
+        priority = {}
+    priority_text = (
+        f"P0={priority.get('P0', 0)}；"
+        f"P1={priority.get('P1', 0)}；"
+        f"P2={priority.get('P2', 0)}"
+    )
     return (
         "<article><strong>RAG知识补丁草案</strong>"
         f"<span>草案={escape(str(summary.get('draft_count', 0)))}</span>"
-        "<small>草案不会自动进入知识库，需要人工审核后再补充 raw 文档或晋升为长期记忆。</small></article>"
+        f"<small>{escape(priority_text)}；草案不会自动进入知识库，需要人工审核后再补充 raw 文档或晋升为长期记忆。</small></article>"
     )
 
 

@@ -601,6 +601,7 @@ class PuzzleOpsAgent:
         latest_acceptance = self.latest_rag_acceptance_summary(country)
         rag_eval_dataset = self.rag_eval_dataset_summary(country)
         knowledge_base = self._rag_knowledge_summary(country)
+        patch_priority_summary = self.rag_knowledge_patch_drafts(country, limit=10_000).get("priority_summary", {})
         payload: dict[str, object] = {
             "country": country,
             "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -609,6 +610,7 @@ class PuzzleOpsAgent:
             "latest_acceptance": latest_acceptance,
             "rag_eval_dataset": rag_eval_dataset,
             "knowledge_base": knowledge_base,
+            "patch_priority_summary": patch_priority_summary,
         }
         json_path = output_dir / f"rag_ops_report_{country}.json"
         markdown_path = output_dir / f"rag_ops_report_{country}.md"
@@ -619,6 +621,8 @@ class PuzzleOpsAgent:
     def _rag_ops_report_markdown(self, payload: dict[str, object]) -> str:
         live = payload.get("live_model_ops", {}) if isinstance(payload.get("live_model_ops"), dict) else {}
         patch = payload.get("patch_ops", {}) if isinstance(payload.get("patch_ops"), dict) else {}
+        priority = payload.get("patch_priority_summary", {}) if isinstance(payload.get("patch_priority_summary"), dict) else {}
+        top_patch = priority.get("top_patch", {}) if isinstance(priority.get("top_patch"), dict) else {}
         acceptance = payload.get("latest_acceptance", {}) if isinstance(payload.get("latest_acceptance"), dict) else {}
         dataset = payload.get("rag_eval_dataset", {}) if isinstance(payload.get("rag_eval_dataset"), dict) else {}
         knowledge = payload.get("knowledge_base", {}) if isinstance(payload.get("knowledge_base"), dict) else {}
@@ -646,6 +650,12 @@ class PuzzleOpsAgent:
             f"- qdrant_status: {patch.get('qdrant_status', 'none')}",
             f"- qdrant_points: {patch.get('qdrant_points', 0)}",
             f"- manifest_path: {patch.get('manifest_path', '')}",
+            "",
+            "## RAG Patch Priority",
+            f"- P0: {priority.get('P0', 0)}",
+            f"- P1: {priority.get('P1', 0)}",
+            f"- P2: {priority.get('P2', 0)}",
+            f"- top_patch: {top_patch.get('patch_id', '')}",
             "",
             "## RAG Acceptance",
             f"- exists: {acceptance.get('exists', False)}",
@@ -744,7 +754,7 @@ class PuzzleOpsAgent:
                 }
             )
         drafts = sorted(drafts, key=lambda item: (int(item.get("priority_score", 0)), int(item.get("source_memory_id", 0))), reverse=True)
-        return {"draft_count": len(drafts), "items": tuple(drafts)}
+        return {"draft_count": len(drafts), "items": tuple(drafts), "priority_summary": _rag_patch_priority_summary(drafts)}
 
     def export_rag_knowledge_patch_drafts(self, country: str, output_path: Path | str) -> Path:
         drafts = self.rag_knowledge_patch_drafts(country, limit=10_000)
@@ -3790,6 +3800,30 @@ def _rag_patch_priority(item: dict[str, object]) -> dict[str, object]:
         reasons.append("audit/global")
     band = "P0" if score >= 100 else ("P1" if score >= 75 else "P2")
     return {"score": score, "band": band, "reason": "；".join(reasons) or "default_failure"}
+
+
+def _rag_patch_priority_summary(drafts: list[dict[str, object]]) -> dict[str, object]:
+    counts = {"P0": 0, "P1": 0, "P2": 0}
+    for item in drafts:
+        band = str(item.get("priority_band", "P2"))
+        if band not in counts:
+            band = "P2"
+        counts[band] += 1
+    top_patch = drafts[0] if drafts else {}
+    return {
+        **counts,
+        "total": len(drafts),
+        "top_score": int(top_patch.get("priority_score", 0) or 0) if top_patch else 0,
+        "top_patch": {
+            "patch_id": str(top_patch.get("patch_id", "")),
+            "priority_band": str(top_patch.get("priority_band", "")),
+            "priority_score": int(top_patch.get("priority_score", 0) or 0),
+            "expected_parent_id": str(top_patch.get("expected_parent_id", "")),
+            "priority_reason": str(top_patch.get("priority_reason", "")),
+        }
+        if top_patch
+        else {},
+    }
 
 
 def _looks_like_audit_query(query: str) -> bool:

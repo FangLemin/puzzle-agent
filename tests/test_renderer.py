@@ -503,6 +503,9 @@ def test_runtime_page_shows_rag_patch_priority(tmp_path):
     assert "优先级" in html
     assert "P0" in html
     assert "priority_score" in html
+    assert "P0=1" in html
+    assert "P1=0" in html
+    assert "P2=0" in html
     assert "knowledge_missing_or_query_mismatch" in html
 
 

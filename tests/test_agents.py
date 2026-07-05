@@ -1287,6 +1287,16 @@ def test_agent_exports_rag_ops_report_json_and_markdown(tmp_path):
         ),
         encoding="utf-8",
     )
+    agent.record_rag_eval_failure_feedback(
+        "日本",
+        query="日本S级寿司饮食文化",
+        expected_parent_id="JP_KB_SUSHI",
+        retrieved_parent_ids=("JP_KB_ONSEN",),
+        note="真实高价值样本未召回",
+        diagnosis="knowledge_missing_or_query_mismatch",
+        gold_grade="S",
+        label_source="human_gold",
+    )
 
     result = agent.export_rag_ops_report("日本", tmp_path / "rag_ops")
 
@@ -1297,9 +1307,12 @@ def test_agent_exports_rag_ops_report_json_and_markdown(tmp_path):
     assert payload["country"] == "日本"
     assert payload["live_model_ops"]["mode"] == "live"
     assert payload["live_model_ops"]["embedding_remote_calls"] == 2
+    assert payload["patch_priority_summary"]["P0"] == 1
+    assert payload["patch_priority_summary"]["top_patch"]["priority_band"] == "P0"
     assert "RAG Ops Report" in markdown
     assert "RAG Live Model Ops" in markdown
     assert "RAG Patch Ops" in markdown
+    assert "RAG Patch Priority" in markdown
     assert "hit@5" in markdown
 
 
