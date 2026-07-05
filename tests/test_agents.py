@@ -816,6 +816,39 @@ def test_agent_builds_and_exports_rag_knowledge_patch_drafts(tmp_path):
     assert '"review_status": "needs_human_review"' in content
 
 
+def test_agent_prioritizes_rag_knowledge_patch_drafts_by_business_impact(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    low_id = agent.record_rag_eval_failure_feedback(
+        "法国",
+        query="法国普通花园图是否符合价值观",
+        expected_parent_id="FR_KB_GARDEN",
+        retrieved_parent_ids=("FR_KB_LAVENDER",),
+        note="普通失败",
+        diagnosis="rerank_filtered_expected",
+        gold_grade="C",
+        label_source="ai_silver",
+    )
+    high_id = agent.record_rag_eval_failure_feedback(
+        "法国",
+        query="法国S级海边野餐生活艺术",
+        expected_parent_id="FR_KB_PICNIC",
+        retrieved_parent_ids=("FR_KB_BREAD",),
+        note="真实S级样本未召回",
+        diagnosis="knowledge_missing_or_query_mismatch",
+        gold_grade="S",
+        label_source="human_gold",
+    )
+
+    drafts = agent.rag_knowledge_patch_drafts("法国")
+
+    assert drafts["items"][0]["source_memory_id"] == high_id
+    assert drafts["items"][1]["source_memory_id"] == low_id
+    assert drafts["items"][0]["priority_score"] > drafts["items"][1]["priority_score"]
+    assert drafts["items"][0]["priority_band"] == "P0"
+    assert "human_gold" in drafts["items"][0]["priority_reason"]
+    assert "knowledge_missing_or_query_mismatch" in drafts["items"][0]["priority_reason"]
+
+
 def test_agent_approves_rag_knowledge_patch_draft_into_long_term_memory(tmp_path):
     agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
     agent.record_rag_eval_failure_feedback(

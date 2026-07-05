@@ -846,6 +846,7 @@ def render_rag_knowledge_patch_drafts(summary: object, state: AppState | None = 
         rows.append(
             "<tr>"
             f"<td>{escape(str(item.get('patch_id', '')))}</td>"
+            f"<td>{escape(str(item.get('priority_band', 'P2')))}<br><small>priority_score={escape(str(item.get('priority_score', 0)))}；{escape(str(item.get('priority_reason', ''))[:90])}</small></td>"
             f"<td>{escape(str(item.get('source_type', '')))}</td>"
             f"<td>{escape(str(item.get('expected_parent_id', '')))}</td>"
             f"<td>{escape(str(item.get('review_status', '')))}</td>"
@@ -853,12 +854,12 @@ def render_rag_knowledge_patch_drafts(summary: object, state: AppState | None = 
             f"<td>{action}</td>"
             "</tr>"
         )
-    body = "".join(rows) or '<tr><td colspan="6">暂无 RAG 知识补丁草案。</td></tr>'
+    body = "".join(rows) or '<tr><td colspan="7">暂无 RAG 知识补丁草案。</td></tr>'
     return (
         "<h3>RAG知识补丁草案</h3>"
         f"<p class=\"muted\">草案={escape(str(summary.get('draft_count', 0)))}</p>"
         "<div class=\"table-wrap\"><table><thead><tr>"
-        "<th>Patch</th><th>Source Type</th><th>Expected Parent</th><th>审核状态</th><th>草案内容</th><th>HITL</th>"
+        "<th>Patch</th><th>优先级</th><th>Source Type</th><th>Expected Parent</th><th>审核状态</th><th>草案内容</th><th>HITL</th>"
         f"</tr></thead><tbody>{body}</tbody></table></div>"
     )
 

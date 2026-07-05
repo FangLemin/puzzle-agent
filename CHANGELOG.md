@@ -2,6 +2,45 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.4 - RAG Patch Priority
+
+日期：2026-07-05
+
+阶段目标：
+
+- 把 v0.7.3 的 RAG 失败诊断进一步转化为知识补丁优先级。
+- 让运营和工程不只是看到失败 case，而是知道哪些 patch 最应该优先审核和补入知识库。
+
+已完成：
+
+- Agent：
+  - `record_rag_eval_failure_feedback(...)` 支持记录 `diagnosis`、`suggested_action`、`gold_grade`、`label_source`。
+  - `rag_eval_failure_feedback_summary(...)` 透传诊断和业务标签。
+  - `rag_knowledge_patch_drafts(...)` 新增 `priority_score`、`priority_band`、`priority_reason`。
+  - 草案按 `priority_score` 排序，高价值真实样本优先。
+  - 评分考虑：
+    - `human_gold` / `ai_silver`
+    - S/A/B/C/D 等级
+    - 知识缺失、候选召回缺失、BM25/向量召回缺失、rerank 过滤等诊断
+    - audit/global 类型 expected parent
+- Runtime 页面：
+  - `RAG知识补丁草案` 表格新增 `优先级` 列。
+  - 展示 `P0/P1/P2`、`priority_score` 和优先级原因。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_prioritizes_rag_knowledge_patch_drafts_by_business_impact tests/test_renderer.py::test_runtime_page_shows_rag_patch_priority -q`：先因缺少诊断入参和优先级列失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_prioritizes_rag_knowledge_patch_drafts_by_business_impact tests/test_renderer.py::test_runtime_page_shows_rag_patch_priority -q`：2 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py -q`：151 passed。
+  - `PYTHONPATH=. pytest tests -q`：374 passed。
+
+当前限制：
+
+- 优先级评分是规则化权重，不是训练模型；后续可用真实修复收益反向校准权重。
+- 当前优先级只影响草案排序和展示，后续还可以接入 patch run 对比，证明 P0 patch 是否实际提升 hit@5。
+
 ## v0.7.3 - RAG Failure Diagnosis
 
 日期：2026-07-05

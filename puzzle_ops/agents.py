@@ -706,6 +706,7 @@ class PuzzleOpsAgent:
         for item in feedback.get("items", ()):
             if not isinstance(item, dict):
                 continue
+            priority = _rag_patch_priority(item)
             expected = str(item.get("expected_parent_id", ""))
             source_type = "audit_policy_patch" if "AUDIT" in expected or "GLOBAL" in expected else "value_rule_patch"
             patch_id = f"patch-{country}-{item.get('memory_id', 0)}"
@@ -734,8 +735,15 @@ class PuzzleOpsAgent:
                     "draft_text": draft_text,
                     "review_status": "needs_human_review",
                     "optimization_use": item.get("optimization_use", "hard_negative_or_knowledge_patch"),
+                    "priority_score": priority["score"],
+                    "priority_band": priority["band"],
+                    "priority_reason": priority["reason"],
+                    "diagnosis": item.get("diagnosis", ""),
+                    "gold_grade": item.get("gold_grade", ""),
+                    "label_source": item.get("label_source", ""),
                 }
             )
+        drafts = sorted(drafts, key=lambda item: (int(item.get("priority_score", 0)), int(item.get("source_memory_id", 0))), reverse=True)
         return {"draft_count": len(drafts), "items": tuple(drafts)}
 
     def export_rag_knowledge_patch_drafts(self, country: str, output_path: Path | str) -> Path:
@@ -995,6 +1003,10 @@ class PuzzleOpsAgent:
                     "expected_parent_id": str(payload.get("expected_parent_id", "")),
                     "retrieved_parent_ids": retrieved_ids,
                     "note": str(payload.get("note", "")),
+                    "diagnosis": str(payload.get("diagnosis", "")),
+                    "suggested_action": str(payload.get("suggested_action", "")),
+                    "gold_grade": str(payload.get("gold_grade", "")),
+                    "label_source": str(payload.get("label_source", "")),
                     "optimization_use": "hard_negative_or_knowledge_patch",
                     "status": str(memory.get("status", "active")),
                 }
@@ -2097,6 +2109,10 @@ class PuzzleOpsAgent:
         expected_parent_id: str,
         retrieved_parent_ids: tuple[str, ...] | list[str],
         note: str = "",
+        diagnosis: str = "",
+        suggested_action: str = "",
+        gold_grade: str = "",
+        label_source: str = "",
     ) -> int:
         expected = expected_parent_id.strip()
         if not query.strip() or not expected:
@@ -2110,6 +2126,10 @@ class PuzzleOpsAgent:
                 "expected_parent_id": expected,
                 "retrieved_parent_ids": list(retrieved),
                 "note": note.strip(),
+                "diagnosis": diagnosis.strip(),
+                "suggested_action": suggested_action.strip(),
+                "gold_grade": gold_grade.strip().upper(),
+                "label_source": label_source.strip(),
                 "task_type": "rag_eval_case_review",
             },
         )
@@ -3735,6 +3755,41 @@ def _rag_chunk_from_row(row: dict[str, object]) -> RagChunk:
         chunk_index=int(row["chunk_index"]),
         metadata=metadata if isinstance(metadata, dict) else {},
     )
+
+
+def _rag_patch_priority(item: dict[str, object]) -> dict[str, object]:
+    score = 50
+    reasons: list[str] = []
+    label_source = str(item.get("label_source", ""))
+    if label_source == "human_gold":
+        score += 30
+        reasons.append("human_gold")
+    elif label_source == "ai_silver":
+        score += 10
+        reasons.append("ai_silver")
+    grade = str(item.get("gold_grade", "")).upper()
+    grade_weight = {"S": 25, "A": 18, "B": 10, "C": 4, "D": 0}.get(grade, 0)
+    if grade:
+        score += grade_weight
+        reasons.append(f"grade={grade}")
+    diagnosis = str(item.get("diagnosis", ""))
+    diagnosis_weight = {
+        "country_knowledge_missing": 22,
+        "knowledge_missing_or_query_mismatch": 20,
+        "candidate_recall_missing": 14,
+        "vector_recall_missing": 12,
+        "bm25_recall_missing": 12,
+        "rerank_filtered_expected": 8,
+    }.get(diagnosis, 0)
+    if diagnosis:
+        score += diagnosis_weight
+        reasons.append(diagnosis)
+    expected = str(item.get("expected_parent_id", ""))
+    if "AUDIT" in expected or "GLOBAL" in expected:
+        score += 8
+        reasons.append("audit/global")
+    band = "P0" if score >= 100 else ("P1" if score >= 75 else "P2")
+    return {"score": score, "band": band, "reason": "；".join(reasons) or "default_failure"}
 
 
 def _looks_like_audit_query(query: str) -> bool:

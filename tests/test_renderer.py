@@ -485,6 +485,27 @@ def test_runtime_page_shows_rag_knowledge_patch_drafts(tmp_path):
     assert "应用补丁并入库Qdrant" in html
 
 
+def test_runtime_page_shows_rag_patch_priority(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent.record_rag_eval_failure_feedback(
+        "法国",
+        query="法国S级海边野餐生活艺术",
+        expected_parent_id="FR_KB_PICNIC",
+        retrieved_parent_ids=("FR_KB_BREAD",),
+        note="真实S级样本未召回",
+        diagnosis="knowledge_missing_or_query_mismatch",
+        gold_grade="S",
+        label_source="human_gold",
+    )
+
+    html = render_page(agent, AppState(country="法国", view="runtime"))
+
+    assert "优先级" in html
+    assert "P0" in html
+    assert "priority_score" in html
+    assert "knowledge_missing_or_query_mismatch" in html
+
+
 def test_runtime_rag_summary_shows_patch_ops_status():
     html = render_rag_summary(
         {
