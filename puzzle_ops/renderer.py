@@ -943,10 +943,12 @@ def render_rag_eval_case_evidence(summary: object, state: AppState | None = None
             f"<td>{escape(retrieved_text or '无')}</td>"
             f"<td>{escape(str(item.get('rank', 0)))}</td>"
             f"<td>{escape(str(item.get('failure_reason', '')) or '命中')}</td>"
+            f"<td>{escape(str(item.get('diagnosis', '')) or 'passed')}</td>"
+            f"<td>{escape(str(item.get('suggested_action', '')))}</td>"
             f"<td>{action}</td>"
             "</tr>"
         )
-    body = "".join(rows) or '<tr><td colspan="6">暂无 RAG eval case。</td></tr>'
+    body = "".join(rows) or '<tr><td colspan="9">暂无 RAG eval case。</td></tr>'
     headline = (
         f"dataset={summary.get('dataset_name', '')}；"
         f"hit@5={summary.get('hit@5', 0)}；"
@@ -957,7 +959,7 @@ def render_rag_eval_case_evidence(summary: object, state: AppState | None = None
         "<h3>RAG Eval Case 证据</h3>"
         f"<p class=\"muted\">{escape(headline)}</p>"
         "<div class=\"table-wrap\"><table><thead><tr>"
-        "<th>状态</th><th>Query</th><th>Expected Parent</th><th>Retrieved Parents</th><th>Rank</th><th>失败原因</th><th>HITL</th>"
+        "<th>状态</th><th>Query</th><th>Expected Parent</th><th>Retrieved Parents</th><th>Rank</th><th>失败原因</th><th>诊断</th><th>建议动作</th><th>HITL</th>"
         f"</tr></thead><tbody>{body}</tbody></table></div>"
     )
 

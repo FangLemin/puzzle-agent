@@ -1050,7 +1050,9 @@ def evaluate_retrieval_report(
     reciprocal_rank_sum = 0.0
     case_results = []
     for case in cases:
-        result_hits = retriever.search(rewrite_rag_query(case.query, country=case.country), country=case.country, top_k=k)
+        rewritten_query = rewrite_rag_query(case.query, country=case.country)
+        trace = retriever.search_with_trace(rewritten_query, country=case.country, top_k=k)
+        result_hits = trace.final_hits
         retrieved_parent_ids = tuple(hit.chunk.parent_id for hit in result_hits)
         rank = 0
         for index, parent_id in enumerate(retrieved_parent_ids, 1):
@@ -1060,6 +1062,7 @@ def evaluate_retrieval_report(
         if rank:
             hits += 1
             reciprocal_rank_sum += 1 / rank
+        diagnosis = _diagnose_retrieval_case(case, trace, rank, k)
         case_results.append(
             {
                 "query": case.query,
@@ -1068,6 +1071,10 @@ def evaluate_retrieval_report(
                 "retrieved_parent_ids": retrieved_parent_ids,
                 "hit": bool(rank),
                 "rank": rank,
+                "diagnosis": diagnosis["diagnosis"],
+                "suggested_action": diagnosis["suggested_action"],
+                "failure_reason": diagnosis["failure_reason"],
+                "route_evidence": diagnosis["route_evidence"],
             }
         )
     hit_rate = hits / total if total else 0.0
@@ -1083,6 +1090,65 @@ def evaluate_retrieval_report(
         "total": total,
         "cases": tuple(case_results),
     }
+
+
+def _diagnose_retrieval_case(case: RagRetrievalCase, trace: RagRetrievalTrace, rank: int, k: int) -> dict[str, object]:
+    expected = case.expected_parent_id
+    bm25_parent_ids = _parent_ids_from_chunk_ids(trace.bm25_candidates)
+    vector_parent_ids = _parent_ids_from_chunk_ids(trace.vector_candidates)
+    exact_parent_ids = _parent_ids_from_chunk_ids(trace.exact_match_candidates)
+    final_parent_ids = tuple(hit.chunk.parent_id for hit in trace.final_hits)
+    route_evidence = {
+        "bm25_has_expected": expected in bm25_parent_ids,
+        "vector_has_expected": expected in vector_parent_ids,
+        "exact_has_expected": expected in exact_parent_ids,
+        "final_has_expected": expected in final_parent_ids,
+        "merged_candidate_count": trace.merged_candidate_count,
+        "eligible_chunk_count": trace.eligible_chunk_count,
+        "bm25_candidate_count": len(trace.bm25_candidates),
+        "vector_candidate_count": len(trace.vector_candidates),
+        "final_parent_ids": final_parent_ids,
+    }
+    if rank:
+        return {
+            "diagnosis": "passed",
+            "suggested_action": "",
+            "failure_reason": "",
+            "route_evidence": route_evidence,
+        }
+    if trace.eligible_chunk_count == 0:
+        diagnosis = "country_knowledge_missing"
+        action = "补充该国家的价值观/审核知识文档，并重新构建 RAG 索引。"
+    elif expected not in bm25_parent_ids and expected not in vector_parent_ids and expected not in exact_parent_ids:
+        diagnosis = "knowledge_missing_or_query_mismatch"
+        action = "检查 expected parent 是否已入库；若未入库则补 human_gold 知识，若已入库则补同义词或调整 query rewrite。"
+    elif expected not in bm25_parent_ids and expected in vector_parent_ids:
+        diagnosis = "bm25_recall_missing"
+        action = "补充关键词、别名和运营 tag 词表，提高 BM25 对真实业务说法的召回。"
+    elif expected in bm25_parent_ids and expected not in vector_parent_ids:
+        diagnosis = "vector_recall_missing"
+        action = "检查 embedding 模型、向量入库和 chunk 文本语义，必要时重建 Qdrant 索引。"
+    elif expected in bm25_parent_ids or expected in vector_parent_ids or expected in exact_parent_ids:
+        diagnosis = "rerank_filtered_expected"
+        action = "expected parent 已进入候选池但未进 top-k，优先检查 rerank 模型、top-k 和 hard negative。"
+    else:
+        diagnosis = "candidate_recall_missing"
+        action = "扩大 BM25/vector top-k，并检查 chunk 切割是否把语义拆散。"
+    return {
+        "diagnosis": diagnosis,
+        "suggested_action": action,
+        "failure_reason": f"expected parent 未进入 top{k}：{expected}",
+        "route_evidence": route_evidence,
+    }
+
+
+def _parent_ids_from_chunk_ids(chunk_ids: tuple[str, ...]) -> tuple[str, ...]:
+    parent_ids: list[str] = []
+    for chunk_id in chunk_ids:
+        parent = str(chunk_id).split("#", 1)[0]
+        if parent not in parent_ids:
+            parent_ids.append(parent)
+    return tuple(parent_ids)
 
 
 def export_rag_acceptance_report(

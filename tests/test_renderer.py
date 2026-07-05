@@ -391,6 +391,46 @@ def test_runtime_page_shows_rag_eval_case_evidence(monkeypatch, tmp_path):
     assert "记录失败case" in html
 
 
+def test_runtime_rag_eval_case_evidence_shows_failure_diagnosis():
+    html = render_rag_summary(
+        {
+            "retrieval_eval_report": {
+                "dataset_name": "真实 human_gold 业务样本 RAG gate",
+                "hit@5": 0.0,
+                "mrr@5": 0.0,
+                "threshold": 0.8,
+                "passed_threshold": False,
+            },
+            "rag_eval_case_evidence": {
+                "dataset_name": "真实 human_gold 业务样本 RAG gate",
+                "hit@5": 0.0,
+                "mrr@5": 0.0,
+                "threshold": 0.8,
+                "total": 1,
+                "failed_count": 1,
+                "cases": (
+                    {
+                        "status": "FAIL",
+                        "query": "法国海边野餐生活艺术",
+                        "expected_parent_id": "FR_PICNIC",
+                        "retrieved_parent_ids": ("FR_BREAD",),
+                        "rank": 0,
+                        "failure_reason": "expected parent 未进入 top5",
+                        "diagnosis": "knowledge_missing_or_query_mismatch",
+                        "suggested_action": "补充 human_gold 知识文档或扩充同义词。",
+                    },
+                ),
+            },
+        },
+        AppState(country="法国", view="runtime"),
+    )
+
+    assert "诊断" in html
+    assert "建议动作" in html
+    assert "knowledge_missing_or_query_mismatch" in html
+    assert "补充 human_gold 知识文档或扩充同义词" in html
+
+
 def test_runtime_page_shows_rag_failure_feedback_queue(tmp_path):
     agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
     agent.record_rag_eval_failure_feedback(

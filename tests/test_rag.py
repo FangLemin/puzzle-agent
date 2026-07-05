@@ -554,6 +554,29 @@ def test_evaluate_retrieval_report_includes_hit_mrr_and_threshold_status():
     assert report["cases"][0]["rank"] == 1
 
 
+def test_evaluate_retrieval_report_diagnoses_failed_business_sample_routes():
+    documents = (
+        RagDocument("FR_BREAD", "法国", "value_rule", "法国饮食", "法棍和奶酪体现法国生活艺术。", {}),
+        RagDocument("FR_LAVENDER", "法国", "value_rule", "法国自然", "薰衣草田和风车体现法国乡村价值观。", {}),
+    )
+    chunks = tuple(chunk for document in documents for chunk in chunk_document(document, max_chars=80))
+    retriever = HybridRagRetriever(chunks)
+
+    report = evaluate_retrieval_report(
+        retriever,
+        (RagRetrievalCase("法国海边野餐生活艺术", "法国", "FR_PICNIC"),),
+        k=1,
+        threshold=0.8,
+        dataset_name="真实 human_gold 业务样本 RAG gate",
+    )
+
+    case = report["cases"][0]
+    assert case["hit"] is False
+    assert case["diagnosis"] in {"knowledge_missing_or_query_mismatch", "candidate_recall_missing", "rerank_filtered_expected"}
+    assert case["suggested_action"]
+    assert "expected parent 未进入 top1" in case["failure_reason"]
+
+
 def test_export_rag_acceptance_report_writes_hit_at_five_models_routes_and_traces(tmp_path):
     documents = (
         RagDocument("JP_SUSHI", "日本", "value_rule", "日本饮食", "寿司、抹茶、和果子属于日本本土饮食文化。", {}),

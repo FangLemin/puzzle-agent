@@ -2,6 +2,46 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.3 - RAG Failure Diagnosis
+
+日期：2026-07-05
+
+阶段目标：
+
+- 让真实样本 RAG gate 失败时不只给出 `FAIL`，而是解释失败更可能发生在知识缺失、候选召回、向量召回、BM25 召回或 rerank 阶段。
+- 将失败 case 变成可行动的优化线索，支撑后续补知识库、调 chunk、调 top-k、调 rerank 和 hard negative。
+
+已完成：
+
+- RAG 评测：
+  - `evaluate_retrieval_report(...)` 改为基于 `search_with_trace(...)` 生成 case 结果。
+  - 每个 case 新增 `diagnosis`、`suggested_action`、`failure_reason` 和 `route_evidence`。
+  - 失败诊断覆盖：
+    - `country_knowledge_missing`
+    - `knowledge_missing_or_query_mismatch`
+    - `bm25_recall_missing`
+    - `vector_recall_missing`
+    - `rerank_filtered_expected`
+    - `candidate_recall_missing`
+  - `route_evidence` 记录 BM25/vector/exact/final 是否包含 expected parent，以及候选池规模。
+- Runtime 页面：
+  - `RAG Eval Case 证据` 表格新增 `诊断` 和 `建议动作` 两列。
+  - 失败 case 可以直接看到下一步应补知识、扩同义词、重建 Qdrant、调 rerank 或扩大 top-k。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_rag.py::test_evaluate_retrieval_report_diagnoses_failed_business_sample_routes tests/test_renderer.py::test_runtime_rag_eval_case_evidence_shows_failure_diagnosis -q`：先因缺少诊断字段和页面列失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_rag.py::test_evaluate_retrieval_report_diagnoses_failed_business_sample_routes tests/test_renderer.py::test_runtime_rag_eval_case_evidence_shows_failure_diagnosis -q`：2 passed。
+  - `PYTHONPATH=. pytest tests/test_rag.py tests/test_agents.py tests/test_renderer.py -q`：194 passed。
+  - `PYTHONPATH=. pytest tests -q`：372 passed。
+
+当前限制：
+
+- 本版诊断是基于 trace 的规则化解释，不是 LLM 自动根因分析。
+- 诊断先解决检索层可运维问题；后续还需要把诊断结果沉淀到实验对比和知识补丁优先级中。
+
 ## v0.7.2 - Human Gold RAG Business Gate
 
 日期：2026-07-05
