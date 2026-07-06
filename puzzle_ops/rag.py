@@ -387,6 +387,17 @@ class RagVectorStoreConfig:
                 else "Qdrant 已声明但缺少 QDRANT_URL 或 QDRANT_COLLECTION"
             )
             return cls(provider, endpoint, collection, api_key, True, ready, status)
+        if provider == "milvus":
+            milvus_endpoint = os.getenv("MILVUS_URI", os.getenv("RAG_MILVUS_URI", "")).strip().rstrip("/")
+            milvus_collection = os.getenv("MILVUS_COLLECTION", os.getenv("RAG_MILVUS_COLLECTION", "puzzle_ops_rag")).strip() or "puzzle_ops_rag"
+            milvus_token = os.getenv("MILVUS_TOKEN", os.getenv("RAG_MILVUS_TOKEN", "")).strip()
+            ready = bool(milvus_endpoint and milvus_collection)
+            status = (
+                f"Milvus ready：{milvus_endpoint} / {milvus_collection}"
+                if ready
+                else "Milvus 已声明但缺少 MILVUS_URI 或 MILVUS_COLLECTION"
+            )
+            return cls(provider, milvus_endpoint, milvus_collection, milvus_token, True, ready, status)
         return cls()
 
 
@@ -619,13 +630,22 @@ class RagProviderConfig:
         else:
             rerank_endpoint = os.getenv("RAG_RERANK_ENDPOINT", "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank").strip()
         configured = embedding_provider != "local" or rerank_provider != "local"
-        embedding_ready = embedding_provider == "local" or bool(api_key)
+        model_errors = _rag_model_config_errors(embedding_model, rerank_model)
+        embedding_ready = embedding_provider == "local" or (bool(api_key) and not model_errors)
         rerank_ready = rerank_provider == "local" or (
             bool(rerank_endpoint) if rerank_provider in {"bge", "bge-reranker", "baai"} else bool(api_key)
         )
+        if model_errors:
+            rerank_ready = False
         remote_ready = configured and embedding_ready and rerank_ready
         remote_calls_enabled = remote_ready and os.getenv("RAG_ENABLE_REMOTE_CALLS", "").strip().lower() in {"1", "true", "yes", "on"}
-        if remote_ready:
+        if model_errors:
+            status = (
+                "外部 provider 已声明但模型用途不匹配："
+                + "；".join(model_errors)
+                + "；qwen3-vl 是视觉理解模型，不能作为 embedding/reranker。"
+            )
+        elif remote_ready:
             embedding_family = _embedding_model_family(embedding_model)
             status = (
                 f"外部 provider 可调用：Embedding={embedding_provider}/{embedding_model}（{embedding_family}）；Rerank={rerank_provider}/{rerank_model}"
@@ -1820,6 +1840,20 @@ def _rerank_model_family(provider: str, model: str) -> str:
     if normalized_provider == "local" or normalized_model.startswith("local"):
         return "Local"
     return "External"
+
+
+def _rag_model_config_errors(embedding_model: str, rerank_model: str) -> tuple[str, ...]:
+    errors = []
+    if _looks_like_vlm_model(embedding_model):
+        errors.append(f"Embedding 模型不能使用视觉理解模型 {embedding_model}")
+    if _looks_like_vlm_model(rerank_model):
+        errors.append(f"Rerank 模型不能使用视觉理解模型 {rerank_model}")
+    return tuple(errors)
+
+
+def _looks_like_vlm_model(model: str) -> bool:
+    normalized = model.lower()
+    return "qwen3-vl" in normalized or "qwen-vl" in normalized or normalized.endswith("-vl") or "vision" in normalized
 
 
 def _first_nonempty_env(*keys: str) -> str:

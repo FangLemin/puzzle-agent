@@ -362,6 +362,40 @@ def test_qdrant_vector_store_config_reports_ready_endpoint(monkeypatch):
     assert "Qdrant" in config.status_text
 
 
+def test_milvus_vector_store_config_reports_ready_uri(monkeypatch):
+    monkeypatch.setenv("RAG_VECTOR_STORE_PROVIDER", "milvus")
+    monkeypatch.setenv("MILVUS_URI", "http://127.0.0.1:19530")
+    monkeypatch.setenv("MILVUS_COLLECTION", "puzzle_ops_rag")
+    monkeypatch.setenv("MILVUS_TOKEN", "milvus-token")
+
+    config = RagVectorStoreConfig.from_env(load_env=False)
+
+    assert config.provider == "milvus"
+    assert config.endpoint == "http://127.0.0.1:19530"
+    assert config.collection == "puzzle_ops_rag"
+    assert config.api_key == "milvus-token"
+    assert config.configured is True
+    assert config.ready is True
+    assert "Milvus" in config.status_text
+
+
+def test_rag_provider_config_rejects_qwen3_vl_for_embedding_and_rerank(monkeypatch):
+    monkeypatch.setenv("RAG_EMBEDDING_PROVIDER", "dashscope")
+    monkeypatch.setenv("RAG_RERANK_PROVIDER", "dashscope")
+    monkeypatch.setenv("RAG_EMBEDDING_MODEL", "qwen3-vl-flash")
+    monkeypatch.setenv("RAG_RERANK_MODEL", "qwen3-vl-flash")
+    monkeypatch.setenv("QWEN_API_KEY", "qwen-test")
+    monkeypatch.setenv("RAG_ENABLE_REMOTE_CALLS", "true")
+
+    config = RagProviderConfig.from_env(load_env=False)
+
+    assert config.configured is True
+    assert config.remote_ready is False
+    assert config.remote_calls_enabled is False
+    assert "qwen3-vl" in config.status_text
+    assert "视觉理解模型" in config.status_text
+
+
 def test_bge_rerank_provider_requires_endpoint_for_remote_calls(monkeypatch):
     monkeypatch.setenv("RAG_EMBEDDING_PROVIDER", "dashscope")
     monkeypatch.setenv("RAG_RERANK_PROVIDER", "bge")

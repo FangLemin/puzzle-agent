@@ -2,6 +2,39 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.11 - Milvus Config and VLM Model Guard
+
+日期：2026-07-06
+
+阶段目标：
+
+- 响应新增方向：RAG 向量数据库从只支持 Qdrant 配置，推进到可声明 Milvus。
+- 防止把 `qwen3-vl` 这类视觉理解模型误配置成 embedding/reranker，避免 RAG 运行时出现“看似用了 Qwen，实际模型用途错误”的问题。
+
+已完成：
+
+- RAG：
+  - `RagVectorStoreConfig.from_env(...)` 支持 `RAG_VECTOR_STORE_PROVIDER=milvus`。
+  - Milvus 配置读取 `MILVUS_URI` / `RAG_MILVUS_URI`、`MILVUS_COLLECTION` / `RAG_MILVUS_COLLECTION`、`MILVUS_TOKEN` / `RAG_MILVUS_TOKEN`。
+  - Milvus ready 状态和 `status_text` 会进入现有向量库配置/manifest/report 链路。
+  - `RagProviderConfig.from_env(...)` 新增模型用途校验：如果 embedding 或 rerank 模型名像 `qwen3-vl` / `qwen-vl` / vision model，则 `remote_ready=False`、`remote_calls_enabled=False`。
+  - 新增 `_rag_model_config_errors(...)` 和 `_looks_like_vlm_model(...)`，把“VLM 不能当 embedding/reranker”变成代码级保护。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_rag.py::test_milvus_vector_store_config_reports_ready_uri tests/test_rag.py::test_rag_provider_config_rejects_qwen3_vl_for_embedding_and_rerank -q`：先因 Milvus 回落 sqlite、qwen3-vl 未拦截失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_rag.py::test_milvus_vector_store_config_reports_ready_uri tests/test_rag.py::test_rag_provider_config_rejects_qwen3_vl_for_embedding_and_rerank -q`：2 passed。
+  - `PYTHONPATH=. pytest tests/test_rag.py -q`：47 passed。
+  - `PYTHONPATH=. pytest tests -q`：376 passed。
+  - `git diff --check`：passed。
+
+当前限制：
+
+- 本版先完成 Milvus 配置层和报告链路，尚未接真实 Milvus 写入/查询 adapter。
+- `qwen3-vl` 保留给多模态图片理解；RAG embedding/reranker 应继续使用 Qwen3-Embedding / qwen3-rerank 或 BGE-Reranker-v2 等专用模型。
+
 ## v0.7.10 - RAG Live Model Evidence
 
 日期：2026-07-06
