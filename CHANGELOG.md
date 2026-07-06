@@ -2,6 +2,46 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.12 - Milvus Vector Store Adapter
+
+日期：2026-07-07
+
+阶段目标：
+
+- 将 v0.7.11 的 Milvus 配置层推进到真实向量库 adapter。
+- 让 RAG 在线检索能够在 `RAG_VECTOR_STORE_PROVIDER=milvus` 时走 Milvus vector search，而不是仍然只认 Qdrant。
+
+已完成：
+
+- RAG：
+  - 新增 `MilvusVectorStore`。
+  - 新增 `MilvusVectorStoreRetriever`。
+  - Milvus healthcheck 使用 `/v2/vectordb/collections/describe` 形态，读取 collection 与 vector dim。
+  - Milvus upsert 使用 `/v2/vectordb/entities/insert` 形态，把 chunk payload 展平成 entity 字段。
+  - Milvus search 使用 `/v2/vectordb/entities/search` 形态，按 `country in [当前国家, GLOBAL]` 过滤，并返回 `chunk_id -> score`。
+  - 新增 Milvus response 解析 helper：vector size、insert count、search score、filter value escaping。
+- Agent：
+  - `_rag_vector_store_search_enabled()` 支持 `RAG_MILVUS_SEARCH_ENABLED`。
+  - `_rag_vector_store_retriever()` 在 provider 为 `milvus` 时返回 `MilvusVectorStoreRetriever`。
+  - `value_audit_rag_summary(...)` 可以展示 Milvus provider 并让 retrieval trace 标记 `vector_store_provider=milvus`。
+
+验证：
+
+- TDD RED：
+  - Milvus adapter 相关测试先因 `MilvusVectorStore` / `MilvusVectorStoreRetriever` 不存在失败。
+  - Agent Milvus online search 测试先因 `_rag_vector_store_search_enabled()` 只认 Qdrant 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_rag.py -q`：51 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py -q`：101 passed。
+  - `PYTHONPATH=. pytest tests -q`：382 passed。
+  - `git diff --check`：passed。
+
+当前限制：
+
+- 旧页面和 server action 中仍有部分 `qdrant` 命名，这是历史 UI/路由命名债；核心 provider 已能识别并路由 Milvus。
+- 本地测试通过 fake transport 验证 Milvus REST payload，不要求测试机启动真实 Milvus 服务。
+- `qwen3-vl` 仍保留给视觉理解，不能作为 RAG embedding/reranker；RAG 模型链路仍应使用 Qwen3-Embedding / qwen3-rerank 或 BGE-Reranker-v2。
+
 ## v0.7.11 - Milvus Config and VLM Model Guard
 
 日期：2026-07-06

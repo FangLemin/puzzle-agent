@@ -576,6 +576,78 @@ class QdrantVectorStoreRetriever:
         return self.store.search(query_vector, country=country, top_k=top_k)
 
 
+class MilvusVectorStore:
+    provider_name = "milvus"
+
+    def __init__(
+        self,
+        config: RagVectorStoreConfig,
+        transport: Callable[[str, str, dict[str, object] | None, str], dict[str, object]] | None = None,
+    ):
+        self.config = config
+        self.transport = transport or _milvus_json_request
+
+    def healthcheck(self) -> dict[str, object]:
+        if self.config.provider != "milvus" or not self.config.ready:
+            return {"provider": self.config.provider, "configured": self.config.configured, "ready": False, "exists": False}
+        endpoint = f"{self.config.endpoint}/v2/vectordb/collections/describe"
+        payload = {"collectionName": self.config.collection}
+        try:
+            response = self.transport("POST", endpoint, payload, self.config.api_key)
+        except Exception as exc:
+            return {"provider": "milvus", "configured": True, "ready": False, "exists": False, "error": str(exc)}
+        vector_size = _milvus_vector_size(response)
+        return {
+            "provider": "milvus",
+            "configured": True,
+            "ready": bool(_milvus_success(response)),
+            "exists": bool(response.get("data")),
+            "collection": self.config.collection,
+            "vector_size": vector_size,
+        }
+
+    def upsert(self, points: tuple[QdrantPoint, ...]) -> dict[str, object]:
+        if self.config.provider != "milvus" or not self.config.ready:
+            raise RuntimeError("Milvus vector store 未就绪")
+        endpoint = f"{self.config.endpoint}/v2/vectordb/entities/insert"
+        payload = {
+            "collectionName": self.config.collection,
+            "data": [_milvus_entity_from_point(point) for point in points],
+        }
+        response = self.transport("POST", endpoint, payload, self.config.api_key)
+        return {
+            "status": "ok" if _milvus_success(response) else "failed",
+            "insert_count": _milvus_insert_count(response, len(points)),
+            "response": response,
+        }
+
+    def search(self, query_vector: tuple[float, ...], *, country: str, top_k: int) -> dict[str, float]:
+        if self.config.provider != "milvus" or not self.config.ready:
+            raise RuntimeError("Milvus vector store 未就绪")
+        if not query_vector or top_k <= 0:
+            return {}
+        endpoint = f"{self.config.endpoint}/v2/vectordb/entities/search"
+        payload = {
+            "collectionName": self.config.collection,
+            "data": [[float(value) for value in query_vector]],
+            "limit": int(top_k),
+            "filter": f'country in ["{_milvus_filter_value(country)}", "GLOBAL"]',
+            "outputFields": ["chunk_id", "parent_id", "country", "source_type", "title", "text", "chunk_index", "metadata"],
+        }
+        response = self.transport("POST", endpoint, payload, self.config.api_key)
+        return _milvus_search_scores(response)
+
+
+class MilvusVectorStoreRetriever:
+    provider_name = "milvus"
+
+    def __init__(self, store: MilvusVectorStore):
+        self.store = store
+
+    def search(self, query_vector: tuple[float, ...], *, country: str, top_k: int) -> dict[str, float]:
+        return self.store.search(query_vector, country=country, top_k=top_k)
+
+
 @dataclass
 class RagRuntimeStats:
     embedding_cache_hits: int = 0
@@ -1442,6 +1514,91 @@ def _qdrant_point_from_record(record: dict[str, object]) -> QdrantPoint:
     )
 
 
+def _milvus_entity_from_point(point: QdrantPoint) -> dict[str, object]:
+    entity: dict[str, object] = {
+        "id": point.id,
+        "vector": [float(value) for value in point.vector],
+    }
+    for key, value in point.payload.items():
+        if key == "metadata" and isinstance(value, dict):
+            entity[key] = json.dumps(value, ensure_ascii=False, sort_keys=True)
+        else:
+            entity[key] = value
+    return entity
+
+
+def _milvus_success(response: dict[str, object]) -> bool:
+    code = response.get("code", 0)
+    return code in {0, "0", None} and str(response.get("status", "")).lower() not in {"failed", "error"}
+
+
+def _milvus_insert_count(response: dict[str, object], fallback: int) -> int:
+    data = response.get("data")
+    if isinstance(data, dict):
+        for key in ("insertCount", "insert_count", "row_count", "count"):
+            if data.get(key) is not None:
+                try:
+                    return int(data[key])
+                except (TypeError, ValueError):
+                    continue
+    return fallback
+
+
+def _milvus_search_scores(response: dict[str, object]) -> dict[str, float]:
+    data = response.get("data", ())
+    if isinstance(data, dict):
+        raw_results = data.get("result", data.get("results", ()))
+    else:
+        raw_results = data
+    if not isinstance(raw_results, list):
+        return {}
+    rows = raw_results[0] if raw_results and isinstance(raw_results[0], list) else raw_results
+    scores: dict[str, float] = {}
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        entity = item.get("entity", item)
+        if not isinstance(entity, dict):
+            continue
+        chunk_id = str(entity.get("chunk_id", "")).strip()
+        if not chunk_id:
+            continue
+        raw_score = item.get("score", item.get("distance", item.get("relevance_score", 0.0)))
+        try:
+            scores[chunk_id] = float(raw_score)
+        except (TypeError, ValueError):
+            continue
+    return scores
+
+
+def _milvus_vector_size(response: dict[str, object]) -> int | None:
+    data = response.get("data")
+    if not isinstance(data, dict):
+        return None
+    schema = data.get("schema")
+    if not isinstance(schema, dict):
+        return None
+    fields = schema.get("fields")
+    if not isinstance(fields, list):
+        return None
+    for field in fields:
+        if not isinstance(field, dict):
+            continue
+        if str(field.get("name", "")) != "vector":
+            continue
+        params = field.get("params")
+        if isinstance(params, dict) and params.get("dim") is not None:
+            try:
+                return int(params["dim"])
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def _milvus_filter_value(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
 class HybridRagRetriever:
     def __init__(
         self,
@@ -1911,6 +2068,16 @@ def _qdrant_json_request(method: str, endpoint: str, payload: dict[str, object] 
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
         headers["api-key"] = api_key
+    req = request.Request(endpoint, data=data, headers=headers, method=method)
+    with request.urlopen(req, timeout=20) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _milvus_json_request(method: str, endpoint: str, payload: dict[str, object] | None, api_key: str) -> dict[str, object]:
+    data = None if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
     req = request.Request(endpoint, data=data, headers=headers, method=method)
     with request.urlopen(req, timeout=20) as resp:
         return json.loads(resp.read().decode("utf-8"))

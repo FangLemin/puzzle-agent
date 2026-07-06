@@ -10,6 +10,8 @@ from puzzle_ops.rag import (
     HybridRagRetriever,
     LocalEmbeddingProvider,
     LocalRerankProvider,
+    MilvusVectorStore,
+    MilvusVectorStoreRetriever,
     RagChunkingConfig,
     RagDocument,
     RagIndexArtifacts,
@@ -905,6 +907,126 @@ def test_qdrant_vector_store_restore_points_upserts_stored_point_records():
     assert calls[0][1]["points"][0]["id"] == "p1"
     assert calls[0][1]["points"][0]["vector"] == [0.1, 0.2]
     assert calls[0][1]["points"][0]["payload"]["chunk_id"] == "c1"
+
+
+def test_milvus_vector_store_healthcheck_describes_collection():
+    calls = []
+
+    def fake_transport(method, endpoint, payload, api_key):
+        calls.append((method, endpoint, payload, api_key))
+        return {"code": 0, "data": {"collectionName": "puzzle_ops_rag", "schema": {"fields": [{"name": "vector", "params": {"dim": 3}}]}}}
+
+    store = MilvusVectorStore(
+        RagVectorStoreConfig(provider="milvus", endpoint="http://127.0.0.1:19530", collection="puzzle_ops_rag", api_key="milvus-token", configured=True, ready=True),
+        transport=fake_transport,
+    )
+
+    status = store.healthcheck()
+
+    assert status["provider"] == "milvus"
+    assert status["ready"] is True
+    assert status["exists"] is True
+    assert status["collection"] == "puzzle_ops_rag"
+    assert status["vector_size"] == 3
+    assert calls[0] == ("POST", "http://127.0.0.1:19530/v2/vectordb/collections/describe", {"collectionName": "puzzle_ops_rag"}, "milvus-token")
+
+
+def test_milvus_vector_store_upserts_entities_with_metadata_payload():
+    calls = []
+
+    def fake_transport(method, endpoint, payload, api_key):
+        calls.append((method, endpoint, payload, api_key))
+        return {"code": 0, "data": {"insertCount": 1}}
+
+    chunk = chunk_document(RagDocument("JP_SUSHI", "日本", "value_rule", "日本饮食", "寿司属于日本本土饮食文化。", {}))[0]
+    points = prepare_qdrant_points((chunk,), {chunk.chunk_id: (0.1, 0.2)})
+    store = MilvusVectorStore(
+        RagVectorStoreConfig(provider="milvus", endpoint="http://127.0.0.1:19530", collection="puzzle_ops_rag", api_key="milvus-token", configured=True, ready=True),
+        transport=fake_transport,
+    )
+
+    response = store.upsert(points)
+
+    assert response["status"] == "ok"
+    assert response["insert_count"] == 1
+    assert calls[0][0] == "POST"
+    assert calls[0][1] == "http://127.0.0.1:19530/v2/vectordb/entities/insert"
+    assert calls[0][2]["collectionName"] == "puzzle_ops_rag"
+    assert calls[0][2]["data"][0]["id"] == points[0].id
+    assert calls[0][2]["data"][0]["vector"] == [0.1, 0.2]
+    assert calls[0][2]["data"][0]["chunk_id"] == chunk.chunk_id
+    assert calls[0][2]["data"][0]["text"] == "寿司属于日本本土饮食文化。"
+    assert calls[0][3] == "milvus-token"
+
+
+def test_milvus_vector_store_search_returns_chunk_scores_with_country_filter():
+    calls = []
+
+    def fake_transport(method, endpoint, payload, api_key):
+        calls.append((method, endpoint, payload, api_key))
+        return {
+            "code": 0,
+            "data": [
+                [
+                    {"distance": 0.93, "entity": {"chunk_id": "JP_SUSHI#chunk-1"}},
+                    {"score": 0.81, "entity": {"chunk_id": "GLOBAL_AUDIT#chunk-1"}},
+                ]
+            ],
+        }
+
+    store = MilvusVectorStore(
+        RagVectorStoreConfig(provider="milvus", endpoint="http://127.0.0.1:19530", collection="puzzle_ops_rag", api_key="milvus-token", configured=True, ready=True),
+        transport=fake_transport,
+    )
+
+    scores = store.search((0.1, 0.2), country="日本", top_k=2)
+
+    assert scores == {"JP_SUSHI#chunk-1": 0.93, "GLOBAL_AUDIT#chunk-1": 0.81}
+    assert calls[0][0] == "POST"
+    assert calls[0][1] == "http://127.0.0.1:19530/v2/vectordb/entities/search"
+    assert calls[0][2]["collectionName"] == "puzzle_ops_rag"
+    assert calls[0][2]["data"] == [[0.1, 0.2]]
+    assert calls[0][2]["limit"] == 2
+    assert calls[0][2]["filter"] == 'country in ["日本", "GLOBAL"]'
+    assert "chunk_id" in calls[0][2]["outputFields"]
+    assert calls[0][3] == "milvus-token"
+
+
+def test_hybrid_retriever_can_use_milvus_vector_scores_before_rerank():
+    class QueryVectorEmbedding(LocalEmbeddingProvider):
+        provider_name = "query-vector"
+
+        def query_vector(self, query: str) -> tuple[float, ...]:
+            return (0.1, 0.2)
+
+        def similarities(self, query: str, texts: tuple[str, ...]) -> tuple[float, ...]:
+            return tuple(0.0 for _ in texts)
+
+    class FakeMilvusStore:
+        provider_name = "milvus"
+
+        def search(self, query_vector, *, country: str, top_k: int):
+            assert query_vector == (0.1, 0.2)
+            assert country == "日本"
+            assert top_k == 1
+            return {"JP_VECTOR#chunk-1": 0.97}
+
+    documents = (
+        RagDocument("JP_KEYWORD", "日本", "value_rule", "饮食文化", "寿司属于日本本土饮食文化。", {}),
+        RagDocument("JP_VECTOR", "日本", "value_rule", "旅行场景", "温泉街浴衣灯笼适合治愈旅行。", {}),
+    )
+    chunks = tuple(chunk for document in documents for chunk in chunk_document(document, max_chars=80))
+    retriever = HybridRagRetriever(
+        chunks,
+        embedding_provider=QueryVectorEmbedding(),
+        vector_store_retriever=MilvusVectorStoreRetriever(FakeMilvusStore()),
+    )
+
+    trace = retriever.search_with_trace("日本寿司价值观", country="日本", top_k=2, bm25_top_k=1, vector_top_k=1)
+
+    assert "JP_VECTOR#chunk-1" in trace.vector_candidates
+    assert trace.as_dict()["vector_store_provider"] == "milvus"
+    assert any(hit.chunk.parent_id == "JP_VECTOR" and hit.vector_score == 0.97 for hit in trace.final_hits)
 
 
 def test_hybrid_retriever_can_use_qdrant_vector_scores_before_rerank():

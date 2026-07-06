@@ -16,7 +16,7 @@ from puzzle_ops.excel_importer import import_history_workbook
 from puzzle_ops.feishu import FeishuClientFactory, MockFeishuClient
 from puzzle_ops.models import AgentTrace, AnalysisReport, AnalysisRow, DemandRow, HolidayRecommendation, ImageProfile, ScheduleItem, TagMeta, ValuePredictionCard, ValueRuleCandidate
 from puzzle_ops.multimodal import ImageFeatureExtractor, SimilarImageRetriever, ValueInsightMiner
-from puzzle_ops.rag import FeedbackAwareRerankProvider, FileDocumentLoaderAdapter, HybridRagRetriever, LocalEmbeddingProvider, QdrantVectorStore, QdrantVectorStoreRetriever, RagChunk, RagChunkingConfig, RagDocument, RagPrompt, RagProviderConfig, RagRetrievalCase, RagRuntimeStats, RagVectorStoreConfig, RetrievalCaseLoaderAdapter, StaticDocumentLoaderAdapter, build_processed_documents_from_raw, build_rag_prompt, chunk_document, evaluate_retrieval_report, export_offline_rag_index, export_rag_acceptance_report, prepare_qdrant_points, providers_from_config, rewrite_rag_query
+from puzzle_ops.rag import FeedbackAwareRerankProvider, FileDocumentLoaderAdapter, HybridRagRetriever, LocalEmbeddingProvider, MilvusVectorStore, MilvusVectorStoreRetriever, QdrantVectorStore, QdrantVectorStoreRetriever, RagChunk, RagChunkingConfig, RagDocument, RagPrompt, RagProviderConfig, RagRetrievalCase, RagRuntimeStats, RagVectorStoreConfig, RetrievalCaseLoaderAdapter, StaticDocumentLoaderAdapter, build_processed_documents_from_raw, build_rag_prompt, chunk_document, evaluate_retrieval_report, export_offline_rag_index, export_rag_acceptance_report, prepare_qdrant_points, providers_from_config, rewrite_rag_query
 from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.trulens_eval import TruLensRAGEvaluator
 from puzzle_ops.trial_upload import TrialImageUploadService, _compact_tag_subject
@@ -1234,16 +1234,21 @@ class PuzzleOpsAgent:
             path.unlink(missing_ok=True)
 
     def _rag_vector_store_search_enabled(self) -> bool:
-        enabled = os.getenv("RAG_QDRANT_SEARCH_ENABLED", os.getenv("RAG_VECTOR_STORE_SEARCH_ENABLED", ""))
+        if self.rag_vector_store_config.provider == "milvus":
+            enabled = os.getenv("RAG_MILVUS_SEARCH_ENABLED", os.getenv("RAG_VECTOR_STORE_SEARCH_ENABLED", ""))
+        else:
+            enabled = os.getenv("RAG_QDRANT_SEARCH_ENABLED", os.getenv("RAG_VECTOR_STORE_SEARCH_ENABLED", ""))
         return (
-            self.rag_vector_store_config.provider == "qdrant"
+            self.rag_vector_store_config.provider in {"qdrant", "milvus"}
             and self.rag_vector_store_config.ready
             and enabled.strip().lower() in {"1", "true", "yes", "on"}
         )
 
-    def _rag_vector_store_retriever(self) -> QdrantVectorStoreRetriever | None:
+    def _rag_vector_store_retriever(self) -> QdrantVectorStoreRetriever | MilvusVectorStoreRetriever | None:
         if not self._rag_vector_store_search_enabled():
             return None
+        if self.rag_vector_store_config.provider == "milvus":
+            return MilvusVectorStoreRetriever(MilvusVectorStore(self.rag_vector_store_config))
         return QdrantVectorStoreRetriever(QdrantVectorStore(self.rag_vector_store_config))
 
     def export_value_audit_rag_artifacts(self, country: str, output_dir: Path | str) -> dict[str, object]:
