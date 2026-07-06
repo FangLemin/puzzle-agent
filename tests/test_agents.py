@@ -1356,6 +1356,27 @@ def test_agent_exports_rag_ops_report_json_and_markdown(monkeypatch, tmp_path):
                     "mrr@5": 0.9,
                     "observed_retrieval": {"qdrant_vector_hits": True},
                     "runtime_stats": {"embedding_remote_calls": 2, "rerank_remote_calls": 1},
+                    "live_model_evidence": {
+                        "overall": {"verified": True, "status": "verified", "blocking_reasons": []},
+                        "embedding": {
+                            "provider": "dashscope",
+                            "model": "text-embedding-v4",
+                            "model_family": "Qwen3-Embedding",
+                            "observed_remote_calls": 2,
+                            "fallbacks": 0,
+                            "verified_remote_call": True,
+                            "fallback_free": True,
+                        },
+                        "rerank": {
+                            "provider": "bge",
+                            "model": "BAAI/bge-reranker-v2-m3",
+                            "provider_family": "BGE-Reranker-v2",
+                            "observed_remote_calls": 1,
+                            "fallbacks": 0,
+                            "verified_remote_call": True,
+                            "fallback_free": True,
+                        },
+                    },
                 },
             },
             ensure_ascii=False,
@@ -1388,8 +1409,14 @@ def test_agent_exports_rag_ops_report_json_and_markdown(monkeypatch, tmp_path):
     assert payload["patch_case_diff"]["new_failure_count"] == 1
     assert "JP_KB_SUSHI" in payload["patch_case_diff"]["fixed_failures"]
     assert "JP_KB_MOUNT_FUJI" in payload["patch_case_diff"]["new_failures"]
+    assert payload["live_model_evidence"]["overall"]["verified"] is True
+    assert payload["live_model_evidence"]["embedding"]["model_family"] == "Qwen3-Embedding"
+    assert payload["live_model_evidence"]["rerank"]["provider_family"] == "BGE-Reranker-v2"
     assert "RAG Ops Report" in markdown
     assert "RAG Live Model Ops" in markdown
+    assert "RAG Live Model Evidence" in markdown
+    assert "Qwen3-Embedding" in markdown
+    assert "BGE-Reranker-v2" in markdown
     assert "RAG Patch Ops" in markdown
     assert "RAG Patch Priority" in markdown
     assert "RAG Patch Case Diff" in markdown

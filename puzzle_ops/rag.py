@@ -1182,6 +1182,7 @@ def export_rag_acceptance_report(
         for case in cases[: min(len(cases), 5)]
     )
     observed = _observed_retrieval_summary(traces)
+    runtime_stats = _retriever_runtime_stats(retriever)
     enriched: dict[str, object] = {
         **report,
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -1211,7 +1212,8 @@ def export_rag_acceptance_report(
             "citation_grounding_prompt": True,
         },
         "observed_retrieval": observed,
-        "runtime_stats": _retriever_runtime_stats(retriever),
+        "runtime_stats": runtime_stats,
+        "live_model_evidence": _live_model_evidence(provider_config, runtime_stats),
         "trace_samples": traces,
         "industrial_gate": {
             "metric": f"hit@{k}",
@@ -1339,6 +1341,72 @@ def _retriever_runtime_stats(retriever: "HybridRagRetriever") -> dict[str, int]:
         total.rerank_remote_calls += stats.rerank_remote_calls
         total.rerank_fallbacks += stats.rerank_fallbacks
     return total.as_dict()
+
+
+def _live_model_evidence(provider_config: RagProviderConfig, runtime_stats: dict[str, int]) -> dict[str, object]:
+    embedding_calls = int(runtime_stats.get("embedding_remote_calls", 0) or 0)
+    embedding_fallbacks = int(runtime_stats.get("embedding_fallbacks", 0) or 0)
+    rerank_calls = int(runtime_stats.get("rerank_remote_calls", 0) or 0)
+    rerank_fallbacks = int(runtime_stats.get("rerank_fallbacks", 0) or 0)
+    embedding_family = _embedding_model_family(provider_config.embedding_model)
+    rerank_family = _rerank_model_family(provider_config.rerank_provider, provider_config.rerank_model)
+    embedding_verified = (
+        provider_config.remote_calls_enabled
+        and provider_config.embedding_provider != "local"
+        and embedding_calls > 0
+        and embedding_fallbacks == 0
+    )
+    rerank_verified = (
+        provider_config.remote_calls_enabled
+        and provider_config.rerank_provider != "local"
+        and rerank_calls > 0
+        and rerank_fallbacks == 0
+    )
+    blocking_reasons = []
+    if not provider_config.remote_calls_enabled:
+        blocking_reasons.append("RAG_ENABLE_REMOTE_CALLS 未开启或远程配置未就绪")
+    if provider_config.embedding_provider != "local" and embedding_calls == 0:
+        blocking_reasons.append("未观测到 embedding 远程调用")
+    if embedding_fallbacks:
+        blocking_reasons.append("embedding 出现 fallback")
+    if provider_config.rerank_provider != "local" and rerank_calls == 0:
+        blocking_reasons.append("未观测到 rerank 远程调用")
+    if rerank_fallbacks:
+        blocking_reasons.append("rerank 出现 fallback")
+    verified = embedding_verified and rerank_verified
+    if verified:
+        status = "verified"
+    elif provider_config.remote_calls_enabled and (embedding_calls or rerank_calls):
+        status = "partial"
+    else:
+        status = "fallback"
+    return {
+        "overall": {
+            "verified": verified,
+            "status": status,
+            "blocking_reasons": tuple(blocking_reasons),
+        },
+        "embedding": {
+            "provider": provider_config.embedding_provider,
+            "model": provider_config.embedding_model,
+            "model_family": embedding_family,
+            "remote_calls_enabled": provider_config.remote_calls_enabled,
+            "observed_remote_calls": embedding_calls,
+            "fallbacks": embedding_fallbacks,
+            "verified_remote_call": embedding_verified,
+            "fallback_free": embedding_fallbacks == 0,
+        },
+        "rerank": {
+            "provider": provider_config.rerank_provider,
+            "model": provider_config.rerank_model,
+            "provider_family": rerank_family,
+            "remote_calls_enabled": provider_config.remote_calls_enabled,
+            "observed_remote_calls": rerank_calls,
+            "fallbacks": rerank_fallbacks,
+            "verified_remote_call": rerank_verified,
+            "fallback_free": rerank_fallbacks == 0,
+        },
+    }
 
 
 def _qdrant_point_from_record(record: dict[str, object]) -> QdrantPoint:
@@ -1736,6 +1804,20 @@ def _embedding_model_family(model: str) -> str:
     if normalized.startswith("text-embedding-v"):
         return "DashScope-Embedding"
     if normalized.startswith("local"):
+        return "Local"
+    return "External"
+
+
+def _rerank_model_family(provider: str, model: str) -> str:
+    normalized_provider = provider.lower()
+    normalized_model = model.lower()
+    if normalized_provider in {"bge", "bge-reranker", "baai"} or "bge-reranker-v2" in normalized_model:
+        return "BGE-Reranker-v2"
+    if "qwen3" in normalized_model:
+        return "Qwen3-Rerank"
+    if "gte" in normalized_model:
+        return "DashScope-Rerank"
+    if normalized_provider == "local" or normalized_model.startswith("local"):
         return "Local"
     return "External"
 

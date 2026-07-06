@@ -698,6 +698,16 @@ def test_export_rag_acceptance_report_records_observed_runtime_routes_and_stats(
     assert saved["observed_retrieval"]["qdrant_vector_hits"] is True
     assert saved["runtime_stats"]["embedding_remote_calls"] >= 1
     assert saved["runtime_stats"]["rerank_remote_calls"] >= 1
+    evidence = saved["live_model_evidence"]
+    assert evidence["overall"]["verified"] is True
+    assert evidence["overall"]["status"] == "verified"
+    assert evidence["embedding"]["provider"] == "dashscope"
+    assert evidence["embedding"]["model_family"] == "Qwen3-Embedding"
+    assert evidence["embedding"]["verified_remote_call"] is True
+    assert evidence["embedding"]["fallback_free"] is True
+    assert evidence["rerank"]["provider_family"] == "BGE-Reranker-v2"
+    assert evidence["rerank"]["verified_remote_call"] is True
+    assert evidence["rerank"]["fallback_free"] is True
 
 
 def test_prepare_qdrant_points_keeps_vector_text_and_parent_payload():

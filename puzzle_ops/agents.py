@@ -609,10 +609,14 @@ class PuzzleOpsAgent:
             "fixed_failures": tuple(str(item) for item in run_comparison.get("fixed_failures", ()) if str(item)),
             "new_failures": tuple(str(item) for item in run_comparison.get("new_failures", ()) if str(item)),
         }
+        live_model_evidence = latest_acceptance.get("live_model_evidence", {})
+        if not isinstance(live_model_evidence, dict):
+            live_model_evidence = {}
         payload: dict[str, object] = {
             "country": country,
             "generated_at": datetime.now().isoformat(timespec="seconds"),
             "live_model_ops": live_model_ops,
+            "live_model_evidence": live_model_evidence,
             "patch_ops": patch_ops,
             "latest_acceptance": latest_acceptance,
             "rag_eval_dataset": rag_eval_dataset,
@@ -632,6 +636,10 @@ class PuzzleOpsAgent:
         priority = payload.get("patch_priority_summary", {}) if isinstance(payload.get("patch_priority_summary"), dict) else {}
         top_patch = priority.get("top_patch", {}) if isinstance(priority.get("top_patch"), dict) else {}
         case_diff = payload.get("patch_case_diff", {}) if isinstance(payload.get("patch_case_diff"), dict) else {}
+        evidence = payload.get("live_model_evidence", {}) if isinstance(payload.get("live_model_evidence"), dict) else {}
+        evidence_overall = evidence.get("overall", {}) if isinstance(evidence.get("overall"), dict) else {}
+        evidence_embedding = evidence.get("embedding", {}) if isinstance(evidence.get("embedding"), dict) else {}
+        evidence_rerank = evidence.get("rerank", {}) if isinstance(evidence.get("rerank"), dict) else {}
         acceptance = payload.get("latest_acceptance", {}) if isinstance(payload.get("latest_acceptance"), dict) else {}
         dataset = payload.get("rag_eval_dataset", {}) if isinstance(payload.get("rag_eval_dataset"), dict) else {}
         knowledge = payload.get("knowledge_base", {}) if isinstance(payload.get("knowledge_base"), dict) else {}
@@ -652,6 +660,12 @@ class PuzzleOpsAgent:
             f"- fallbacks: embedding={live.get('embedding_fallbacks', 0)} rerank={live.get('rerank_fallbacks', 0)}",
             f"- hit@5: {live.get('hit@5', 0)}",
             f"- mrr@5: {live.get('mrr@5', 0)}",
+            "",
+            "## RAG Live Model Evidence",
+            f"- status: {evidence_overall.get('status', 'unknown')}",
+            f"- verified: {evidence_overall.get('verified', False)}",
+            f"- embedding: provider={evidence_embedding.get('provider', '')} model={evidence_embedding.get('model', '')} family={evidence_embedding.get('model_family', '')} remote_calls={evidence_embedding.get('observed_remote_calls', 0)} fallback_free={evidence_embedding.get('fallback_free', False)}",
+            f"- rerank: provider={evidence_rerank.get('provider', '')} model={evidence_rerank.get('model', '')} family={evidence_rerank.get('provider_family', '')} remote_calls={evidence_rerank.get('observed_remote_calls', 0)} fallback_free={evidence_rerank.get('fallback_free', False)}",
             "",
             "## RAG Patch Ops",
             f"- status: {patch.get('status', 'none')}",
@@ -1140,6 +1154,7 @@ class PuzzleOpsAgent:
         preflight = payload.get("preflight", {}) if isinstance(payload.get("preflight"), dict) else {}
         observed = report.get("observed_retrieval", {}) if isinstance(report.get("observed_retrieval"), dict) else {}
         runtime_stats = report.get("runtime_stats", {}) if isinstance(report.get("runtime_stats"), dict) else {}
+        live_model_evidence = report.get("live_model_evidence", {}) if isinstance(report.get("live_model_evidence"), dict) else {}
         return {
             "exists": True,
             "summary_path": str(summary_path),
@@ -1153,6 +1168,7 @@ class PuzzleOpsAgent:
             "mrr@5": report.get("mrr@5", 0),
             "qdrant_vector_hits": observed.get("qdrant_vector_hits", False),
             "runtime_stats": runtime_stats,
+            "live_model_evidence": live_model_evidence,
         }
 
     def recent_rag_traces(self, country: str, *, limit: int = 5) -> tuple[dict[str, object], ...]:

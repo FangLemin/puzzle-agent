@@ -2,6 +2,45 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.10 - RAG Live Model Evidence
+
+日期：2026-07-06
+
+阶段目标：
+
+- 把“是否真实调用 Qwen3-Embedding / BGE-Reranker-v2”从口头说明升级为可导出的验收证据。
+- 在不把普通 pytest 变成付费外部调用的前提下，让真实 RAG acceptance run 和 RAG Ops report 能记录远程调用、fallback 与模型家族。
+
+已完成：
+
+- RAG：
+  - `export_rag_acceptance_report(...)` 新增 `live_model_evidence`。
+  - `live_model_evidence.embedding` 记录 provider、model、`model_family`、observed remote calls、fallbacks、是否 fallback-free。
+  - `live_model_evidence.rerank` 记录 provider、model、`provider_family`、observed remote calls、fallbacks、是否 fallback-free。
+  - 新增 `_rerank_model_family(...)`，将 BGE provider 或 `bge-reranker-v2` 模型归类为 `BGE-Reranker-v2`。
+  - `overall.verified` 只有在远程调用已开启、embedding/rerank 都观测到 remote call 且 fallback 为 0 时才为 true。
+- Agent：
+  - `latest_rag_acceptance_summary(country)` 透出 `live_model_evidence`。
+  - `export_rag_ops_report(country, output_dir)` 顶层导出 `live_model_evidence`。
+  - Markdown 报告新增 `RAG Live Model Evidence` 小节，展示 Qwen3-Embedding 与 BGE-Reranker-v2 证据。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_rag.py::test_export_rag_acceptance_report_records_observed_runtime_routes_and_stats -q`：先因缺少 `live_model_evidence` 失败。
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_rag_ops_report_json_and_markdown -q`：先因 Ops 报告未透出 `live_model_evidence` 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_rag.py::test_export_rag_acceptance_report_records_observed_runtime_routes_and_stats tests/test_agents.py::test_agent_exports_rag_ops_report_json_and_markdown -q`：2 passed。
+  - `PYTHONPATH=. pytest tests/test_rag.py -q`：45 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py -q`：99 passed。
+  - `PYTHONPATH=. pytest tests -q`：374 passed。
+  - `git diff --check`：passed。
+
+当前限制：
+
+- 普通自动化测试仍使用 fake transport / mock provider 证明证据结构，不会默认真实消耗阿里云费用。
+- 真正的外部调用证明需要在 `.env` 中配置 `RAG_ENABLE_REMOTE_CALLS=true`、DashScope/Qwen key、BGE rerank endpoint 后运行 live acceptance；报告会用 remote call/fallback 数据证明是否生效。
+
 ## v0.7.9 - RAG Ops Report Case Diff
 
 日期：2026-07-05
