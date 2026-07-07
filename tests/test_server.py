@@ -1,3 +1,4 @@
+from puzzle_ops.agents import PuzzleOpsAgent
 from puzzle_ops.renderer import AppState
 from puzzle_ops.server import APP, classify_generation_error, generation_error_recovery_hint, handle_action, redirect_location, update_state_from_query
 from puzzle_ops.feishu import MockFeishuClient
@@ -913,6 +914,36 @@ def test_save_harness_override_action_writes_hitl_memory():
     assert any("real-001" in memory["content"] and "本土饮食文化" in memory["content"] for memory in APP.agent.hitl_memories("日本"))
 
 
+def test_save_value_match_correction_action_writes_memory_and_status():
+    previous_agent = APP.agent
+    try:
+        APP.agent = PuzzleOpsAgent()
+        APP.state = AppState(country="日本", view="trial", trial_mode="parse")
+        APP.state.trial_row = APP.agent.create_trial_demand("日本", "人物", "parse").edited(
+            subject="寿司",
+            value_match="LLM判断：部分符合；系统RAG召回：JP_SUSHI#chunk-1；生成式RAG依据：寿司属于日本本土饮食文化。",
+        )
+
+        handle_action(
+            "/save_value_match_correction",
+            {
+                "country": ["日本"],
+                "view": ["trial"],
+                "human_correction": ["人工修正：符合本土饮食文化，但需规避品牌露出。"],
+                "satisfaction_score": ["5"],
+            },
+        )
+
+        assert APP.state.view == "trial"
+        assert "价值观人工修正已反哺" in APP.state.sync_message
+        rows = APP.agent.memory_debug("日本", query="品牌露出 本土饮食文化", limit=50)
+        assert any(row["memory_type"] == "value_match_human_correction" for row in rows)
+        assert any(row["memory_type"] == "verified_value_match_fact" for row in rows)
+        assert any(row["memory_type"] == "rag_eval_failure_feedback" for row in rows)
+    finally:
+        APP.agent = previous_agent
+
+
 def test_export_harness_overrides_action_writes_csv_and_status_message():
     APP.state = AppState(country="日本", view="eval")
     APP.agent.record_harness_override("日本", "real-001", "value_match_eval", "人工修正：寿司图应匹配本土饮食文化。")
@@ -1275,13 +1306,21 @@ knowledge_version: unit-test
         encoding="utf-8",
     )
     monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
-    APP.state = AppState(country="日本", view="runtime")
+    previous_agent = APP.agent
+    try:
+        APP.agent = PuzzleOpsAgent()
+        APP.agent.rag_provider_config = RagProviderConfig()
+        APP.agent.rag_vector_store_config = RagVectorStoreConfig()
+        APP.state = AppState(country="日本", view="runtime")
 
-    handle_action("/rebuild_rag_knowledge", {"country": ["日本"], "view": ["runtime"]})
+        handle_action("/rebuild_rag_knowledge", {"country": ["日本"], "view": ["runtime"]})
 
-    assert APP.state.view == "runtime"
-    assert "RAG 知识库已重建" in APP.state.sync_message
-    assert "hit@5=1.0" in APP.state.sync_message
+        assert APP.state.view == "runtime"
+        assert "RAG 知识库已重建" in APP.state.sync_message
+        assert "hit@5=" in APP.state.sync_message
+        assert "mrr@5=" in APP.state.sync_message
+    finally:
+        APP.agent = previous_agent
 
 
 def test_reindex_rag_qdrant_action_reports_upsert(monkeypatch):

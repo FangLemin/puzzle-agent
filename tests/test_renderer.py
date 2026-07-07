@@ -124,6 +124,23 @@ def test_trial_page_shows_value_match_rag_citation_details(tmp_path):
     assert 'name="usefulness" value="not_useful"' in html
 
 
+def test_trial_page_shows_value_match_human_correction_form(tmp_path):
+    agent = agent_without_vlm(tmp_path)
+    state = AppState(country="日本", view="trial", trial_mode="parse")
+    state.trial_row = agent.create_trial_demand("日本", "人物", mode="parse").edited(
+        subject="寿司",
+        value_match="LLM判断：部分符合；系统RAG召回：JP_VALUE_001#chunk-1",
+    )
+
+    html = render_page(agent, state)
+
+    assert "价值观人工修正" in html
+    assert 'action="/save_value_match_correction"' in html
+    assert 'name="human_correction"' in html
+    assert 'name="satisfaction_score"' in html
+    assert "反哺RAG/Memory" in html
+
+
 def test_trial_page_shows_real_generation_provider_status(tmp_path):
     agent = agent_without_vlm(tmp_path)
     agent.image_generator = CloudImageGenerationProvider(

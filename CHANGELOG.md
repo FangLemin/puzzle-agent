@@ -2,6 +2,48 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.22 - Value Match HITL UI and Qwen VL Default
+
+日期：2026-07-08
+
+阶段目标：
+
+- 将 v0.7.21 已完成的数据层“价值观人工修正 -> Memory/RAG feedback”闭环接到试新页面，减少只停留在后端接口里的落差。
+- 将图片理解默认模型从普通文本/多模态兼容口径收敛到 Qwen3-VL，避免真实图片解析继续被旧配置误导。
+- 明确 RAG rerank 使用 Qwen rerank 专用模型，而不是把视觉模型当成 rerank 模型使用。
+
+已完成：
+
+- 试新页面：
+  - 当已有价值观匹配结果时，展示“价值观人工修正”面板。
+  - 支持运营填写人工修正和满意度。
+  - 点击“反哺RAG/Memory”后调用 `/save_value_match_correction`。
+- Server action：
+  - 新增 `/save_value_match_correction`。
+  - 调用 `record_value_match_human_correction(...)` 写入 working memory、facts memory 和 RAG eval feedback。
+  - 页面返回清晰状态，包含本次写入的 memory id。
+- 多模态配置：
+  - `QwenVisionLLMClient` 默认模型改为 `qwen3-vl-plus`。
+  - `VisionLLMClientFactory` 默认 `QWEN_VISION_MODEL` 改为 `qwen3-vl-plus`。
+  - `.env.example` 同步为 `QWEN_VISION_MODEL=qwen3-vl-plus`。
+- RAG 文档口径：
+  - README 的 DashScope RAG 示例更新为 `text-embedding-v4` + `qwen3-rerank`。
+  - 明确 Milvus 是后续替换方向，当前版本仍是本地 Python RAG 存储与检索闭环。
+
+验证：
+
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_renderer.py::test_trial_page_shows_value_match_human_correction_form tests/test_server.py::test_save_value_match_correction_action_writes_memory_and_status tests/test_server.py::test_rebuild_rag_knowledge_action_reports_file_eval tests/test_vision_llm.py::test_vision_llm_factory_creates_qwen_client_when_configured tests/test_rag.py::test_dashscope_config_defaults_to_real_embedding_and_rerank_models -q`：5 passed。
+- 回归验证：
+  - `PYTHONPATH=. pytest tests/test_server.py -q`：76 passed。
+  - `PYTHONPATH=. pytest tests -q`：396 passed。
+
+当前限制：
+
+- 本地 `.env` 被 `.gitignore` 忽略，不会提交；如果 `.env` 仍写着 `QWEN_VISION_MODEL=qwen3.7-plus`，运行时会覆盖代码默认值，需要手动改成 `qwen3-vl-plus`。
+- 本轮没有接入 Milvus 服务端，也没有把 RAG 存储迁移到 Milvus；这属于下一次收口。
+- RAG rerank 使用 `qwen3-rerank` 专用模型；`qwen3-vl-plus` 只用于图片理解。
+
 ## v0.7.21 - Value Match HITL Feedback Memory Loop
 
 日期：2026-07-07

@@ -253,6 +253,7 @@ def render_trial(agent: PuzzleOpsAgent, state: AppState) -> str:
     generation_diagnostic = render_generation_provider_diagnostic(generation_status)
     generation_event = render_generation_event(state.generation_event)
     rag_details = render_trial_value_rag_details(agent, rows, state)
+    value_correction = render_value_match_correction_panel(row, state)
     approval_form = ""
     if any(item.generation_review_status == "passed" and not item.human_approved for item in state.trial_rows):
         approval_form = f'<form method="post" action="/approve_generated_derivatives">{context}<button>确认生成图可同步</button></form>'
@@ -267,6 +268,7 @@ def render_trial(agent: PuzzleOpsAgent, state: AppState) -> str:
   {sync_message}
   <form method="post" action="/save_trial">{context}<div class="demand-card-list trial-demand-list">{row_html}</div><div class="section-line"><button class="primary">保存试新修改</button><button formaction="/sync_trial_feishu" formmethod="post">一键同步到飞书表格</button></div></form>
   {rag_details}
+  {value_correction}
 </section>
 """
 
@@ -351,6 +353,24 @@ def render_trial_value_rag_details(agent: PuzzleOpsAgent, rows: tuple[DemandRow,
 <section class="subpanel rag-detail-panel">
   <h3>价值观 RAG 依据明细</h3>
   <div class="table-wrap"><table><thead><tr><th>引用ID</th><th>知识来源</th><th>父文档</th><th>标题</th><th>内容</th><th>反馈</th></tr></thead><tbody>{rows_html}</tbody></table></div>
+</section>
+"""
+
+
+def render_value_match_correction_panel(row: DemandRow, state: AppState) -> str:
+    if not row.value_match:
+        return ""
+    context = hidden_context(state, view="trial")
+    return f"""
+<section class="subpanel value-correction-panel">
+  <h3>价值观人工修正</h3>
+  <form method="post" action="/save_value_match_correction" class="value-correction-form">
+    {context}
+    <textarea name="human_correction" placeholder="填写运营人工修正，例如：符合本土饮食文化，但需规避品牌露出。"></textarea>
+    <label><span>满意度</span><input class="small-input" name="satisfaction_score" type="number" min="1" max="5" value="5"></label>
+    <button>反哺RAG/Memory</button>
+  </form>
+  <small>保存后会写入 working memory、facts memory 和 RAG eval feedback，用于下一轮评测与知识补丁。</small>
 </section>
 """
 

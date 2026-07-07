@@ -199,6 +199,22 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             row = state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)
             state.trial_row = agent.apply_value_master(row)
         state.view = "trial"
+    elif path == "/save_value_match_correction":
+        row = state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)
+        try:
+            result = agent.record_value_match_human_correction(
+                row,
+                human_correction=value(form, "human_correction", ""),
+                satisfaction_score=_optional_positive_int(value(form, "satisfaction_score", "")),
+            )
+            state.sync_message = (
+                "价值观人工修正已反哺RAG/Memory："
+                f"working={result['working_memory_id']}；facts={result['fact_memory_id']}；rag_feedback={result['rag_feedback_memory_id']}"
+            )
+        except ValueError as exc:
+            state.sync_message = f"价值观人工修正保存失败：{exc}"
+        state.sync_url = ""
+        state.view = "trial"
     elif path == "/simulate_trial_upload":
         state.trial_row = agent.simulate_trial_upload(state.country, state.category, state.trial_mode)
         state.trial_rows.append(state.trial_row)

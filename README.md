@@ -111,17 +111,17 @@ Harness 生成 trace 说明：Agent 评测页会读取本地 generation event me
 
 四层 Memory 说明：项目将 memory 拆为感知记忆、短期记忆、长期记忆和结构化事实。感知记忆承接试新图片解析与 VLM/本地视觉观察；短期记忆记录当前任务链路状态，例如 generation trace；长期记忆沉淀运营人工确认的价值观和规则；结构化事实保存主体、国家、运营 tag、图片路径等可评测字段。当前四层 memory 使用 SQLite 本地表落地，不引入向量库或前端工程栈。
 
-价值观与审核 RAG 说明：项目新增本地 RAG 知识层，把日本/法国静态价值观、运营审批价值观、四层 memory 事实、历史样本事实和审核手册规则组织成父子知识块。检索链路采用 Python 本地实现的 chunk 语义切分、父子存储、BM25 风格词面召回、向量召回、rerank 精排和带 citation 的 prompt 拼接。价值观大师会优先使用 RAG Top-K 引用依据再调用真实视觉 LLM 判断，页面会展示父子知识块数量、多路召回说明和引用依据，降低幻觉风险。默认可使用本地 fallback，本机 `.env` 已接入 DashScope 的真实 embedding 与 rerank；后续数据规模增长时仍可替换为 Milvus/FAISS/Elasticsearch。
+价值观与审核 RAG 说明：项目新增本地 RAG 知识层，把日本/法国静态价值观、运营审批价值观、四层 memory 事实、历史样本事实和审核手册规则组织成父子知识块。检索链路采用 Python 本地实现的 chunk 语义切分、父子存储、BM25 风格词面召回、向量召回、rerank 精排和带 citation 的 prompt 拼接。价值观大师会优先使用 RAG Top-K 引用依据再调用真实视觉 LLM 判断，页面会展示父子知识块数量、多路召回说明和引用依据，降低幻觉风险。默认可使用本地 fallback，本机 `.env` 可接入 DashScope 的真实 embedding 与 Qwen rerank；后续数据规模增长时计划替换为 Milvus。
 
 RAG Provider 说明：默认不需要额外配置，系统可使用本地 `local-token-cosine` embedding fallback 和 `local-rule-rerank` 精排。配置 `RAG_EMBEDDING_PROVIDER`、`RAG_EMBEDDING_MODEL`、`RAG_RERANK_PROVIDER`、`RAG_RERANK_MODEL`、API key，并显式设置 `RAG_ENABLE_REMOTE_CALLS=true` 后会发起真实远程请求；pytest 默认关闭远程调用，避免测试误产生费用。
 
-DashScope RAG Provider 说明：如需真实调用通义千问/DashScope embedding 与 rerank，可配置 `RAG_EMBEDDING_PROVIDER=dashscope`、`RAG_EMBEDDING_MODEL=text-embedding-v3`、`RAG_RERANK_PROVIDER=dashscope`、`RAG_RERANK_MODEL=gte-rerank-v2`，并提供 `RAG_API_KEY` 或 `DASHSCOPE_API_KEY`。为了保护业务数据和成本，系统即使检测到 key，也只有在 `.env` 显式设置 `RAG_ENABLE_REMOTE_CALLS=true` 后才会真正请求远程服务；否则页面会显示 provider/key 就绪但继续使用本地 fallback。可选配置 `RAG_EMBEDDING_ENDPOINT` 与 `RAG_RERANK_ENDPOINT` 覆盖默认 endpoint。
+DashScope RAG Provider 说明：如需真实调用通义千问/DashScope embedding 与 rerank，可配置 `RAG_EMBEDDING_PROVIDER=dashscope`、`RAG_EMBEDDING_MODEL=text-embedding-v4`、`RAG_RERANK_PROVIDER=dashscope`、`RAG_RERANK_MODEL=qwen3-rerank`，并提供 `RAG_API_KEY` 或 `DASHSCOPE_API_KEY`。为了保护业务数据和成本，系统即使检测到 key，也只有在 `.env` 显式设置 `RAG_ENABLE_REMOTE_CALLS=true` 后才会真正请求远程服务；否则页面会显示 provider/key 就绪但继续使用本地 fallback。可选配置 `RAG_EMBEDDING_ENDPOINT` 与 `RAG_RERANK_ENDPOINT` 覆盖默认 endpoint。
 
 RAG 可观测与缓存说明：远程 embedding 会优先读取 SQLite `rag_embedding_cache`，命中后不会重复请求 provider；未命中才会在远程调用开关开启时请求 DashScope，并写回缓存。多模态底座会展示本次 RAG 的 cache hit、embedding remote、embedding fallback、rerank remote、rerank fallback 指标，便于判断是否真的发生远程调用、是否发生降级，以及后续接入成本/耗时统计。
 
 Harness RAG 指标说明：Agent 评测页会把最近一次 RAG runtime stats 聚合为 `RAG缓存命中率`、`RAG远程调用率`、`RAG降级率`，并随 `HarnessRun` 一起保存。这样 RAG 不再只在多模态底座单次展示，而是能进入版本对比，用来观察不同版本的检索成本、远程依赖和稳定性。
 
-真实 RAG 模型说明：当前本地 `.env` 已配置为 DashScope RAG 真实调用链路，embedding 使用 `text-embedding-v3`，rerank 使用 `gte-rerank-v2`，并通过 `RAG_ENABLE_REMOTE_CALLS=true` 显式开启远程调用。自动化测试默认关闭远程调用，避免 pytest 误产生费用；真实运行页面或脚本时按 `.env` 生效。四层 memory（感知记忆、短期记忆、长期记忆、结构化事实）都会被转成 RAG 文档并参与召回，多模态底座会显示每层 `RAG Ready` 数量。
+真实 RAG 模型说明：推荐本地 `.env` 配置为 DashScope RAG 真实调用链路，embedding 使用 `text-embedding-v4`，rerank 使用 `qwen3-rerank`，并通过 `RAG_ENABLE_REMOTE_CALLS=true` 显式开启远程调用。自动化测试默认关闭远程调用，避免 pytest 误产生费用；真实运行页面或脚本时按 `.env` 生效。四层 memory（感知记忆、短期记忆、长期记忆、结构化事实）都会被转成 RAG 文档并参与召回，多模态底座会显示每层 `RAG Ready` 数量。
 
 Harness Case Trace 与 Memory Debug 说明：每个 Harness case 现在保存结构化 `evidence_trace`，区分视觉输入证据、RAG citation/context 和四层 memory 证据，并用 `failure_categories` 对缺图、缺 gold、风险漏召回、等级误判、生成 provider 未配置、生成失败和字段缺失进行业务分类。为控制真实模型成本，同一 Harness run 每个国家只执行一次真实 RAG 检索，再把 run 级引用证据关联到该国 case。多模态底座新增只读 Memory Debug 表，可按当前主体查看层级、memory type、RAG source、命中分、入库状态和内容。
 

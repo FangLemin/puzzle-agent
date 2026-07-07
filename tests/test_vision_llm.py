@@ -35,12 +35,13 @@ def test_vision_llm_factory_requires_real_qwen_key_by_default(monkeypatch):
 def test_vision_llm_factory_creates_qwen_client_when_configured(monkeypatch):
     monkeypatch.setenv("VISION_LLM_PROVIDER", "qwen")
     monkeypatch.setenv("QWEN_API_KEY", "qwen-test")
+    monkeypatch.delenv("QWEN_VISION_MODEL", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
     client = VisionLLMClientFactory.create(load_env=False)
 
     assert isinstance(client, QwenVisionLLMClient)
-    assert client.config_status()["model"] == "qwen3.7-plus"
+    assert client.config_status()["model"] == "qwen3-vl-plus"
 
 
 def test_openai_vision_client_builds_responses_payload_with_data_url():
