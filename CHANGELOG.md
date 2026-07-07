@@ -2,6 +2,49 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.16 - RAG Ops Quality Eval Report
+
+日期：2026-07-07
+
+阶段目标：
+
+- 将 v0.7.15 的 `quality_eval` 从底层 acceptance JSON 透出到 RAG Ops 报告。
+- 让 RAG Ops 不只展示检索和模型调用，也展示答案准确率、可信度、延迟、扩展性和用户体验指标摘要。
+
+已完成：
+
+- Agent：
+  - `latest_rag_acceptance_summary(country)` 透出 `quality_eval`。
+  - `export_rag_ops_report(country, output_dir)` 顶层写入 `quality_eval`。
+  - Markdown 报告新增 `RAG Quality Eval` 小节。
+  - Markdown 展示：
+    - `bleu1`
+    - `rouge_l`
+    - `support_overlap`
+    - `document_coverage`
+    - `average_ms`
+    - `p95_ms`
+    - `p99_ms`
+    - `qps`
+    - `corpus_document_count`
+    - `average_satisfaction`
+    - `satisfaction_rate`
+    - `readability_score`
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_rag_ops_report_json_and_markdown -q`：先因 Ops 报告缺少 `quality_eval` 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_rag_ops_report_json_and_markdown -q`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py -q`：103 passed。
+  - `PYTHONPATH=. pytest tests -q`：387 passed。
+  - `git diff --check`：passed。
+
+当前限制：
+
+- `quality_eval` 目前仍需调用方提供或从 acceptance 阶段传入；后续应从真实 trace、人工反馈和回答样本自动聚合。
+
 ## v0.7.15 - RAG Quality Evaluation
 
 日期：2026-07-07

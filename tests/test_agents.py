@@ -1356,6 +1356,13 @@ def test_agent_exports_rag_ops_report_json_and_markdown(monkeypatch, tmp_path):
                     "mrr@5": 0.9,
                     "observed_retrieval": {"qdrant_vector_hits": True},
                     "runtime_stats": {"embedding_remote_calls": 2, "rerank_remote_calls": 1},
+                    "quality_eval": {
+                        "answer_accuracy": {"bleu1": 0.82, "rouge_l": 0.76},
+                        "trustworthiness": {"support_overlap": 0.88, "document_coverage": 1.0},
+                        "latency": {"average_ms": 220.0, "p95_ms": 420.0, "p99_ms": 800.0},
+                        "scalability": {"qps": 4.5, "corpus_document_count": 120},
+                        "user_experience": {"average_satisfaction": 4.2, "satisfaction_rate": 0.8, "readability_score": 0.91},
+                    },
                     "live_model_evidence": {
                         "overall": {"verified": True, "status": "verified", "blocking_reasons": []},
                         "embedding": {
@@ -1412,9 +1419,15 @@ def test_agent_exports_rag_ops_report_json_and_markdown(monkeypatch, tmp_path):
     assert payload["live_model_evidence"]["overall"]["verified"] is True
     assert payload["live_model_evidence"]["embedding"]["model_family"] == "Qwen3-Embedding"
     assert payload["live_model_evidence"]["rerank"]["provider_family"] == "BGE-Reranker-v2"
+    assert payload["quality_eval"]["answer_accuracy"]["bleu1"] == 0.82
+    assert payload["quality_eval"]["trustworthiness"]["document_coverage"] == 1.0
+    assert payload["quality_eval"]["latency"]["p95_ms"] == 420.0
     assert "RAG Ops Report" in markdown
     assert "RAG Live Model Ops" in markdown
     assert "RAG Live Model Evidence" in markdown
+    assert "RAG Quality Eval" in markdown
+    assert "bleu1=0.82" in markdown
+    assert "p95_ms=420.0" in markdown
     assert "Qwen3-Embedding" in markdown
     assert "BGE-Reranker-v2" in markdown
     assert "RAG Patch Ops" in markdown
