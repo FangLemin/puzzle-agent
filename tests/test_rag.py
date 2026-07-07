@@ -590,6 +590,34 @@ def test_evaluate_retrieval_report_includes_hit_mrr_and_threshold_status():
     assert report["cases"][0]["rank"] == 1
 
 
+def test_evaluate_retrieval_report_includes_precision_recall_and_ndcg_for_multi_relevant_docs():
+    documents = (
+        RagDocument("JP_SUSHI", "日本", "value_rule", "日本饮食", "寿司属于日本本土饮食文化。", {}),
+        RagDocument("JP_MATCHA", "日本", "value_rule", "日本茶点", "抹茶和和果子体现日本饮食文化。", {}),
+        RagDocument("JP_ONSEN", "日本", "value_rule", "日本旅行", "温泉街浴衣灯笼适合治愈旅行。", {}),
+    )
+    chunks = tuple(chunk for document in documents for chunk in chunk_document(document, max_chars=80))
+    retriever = HybridRagRetriever(chunks)
+    cases = (
+        RagRetrievalCase(
+            "日本寿司和抹茶是否符合本土饮食价值观",
+            "日本",
+            "JP_SUSHI",
+            relevant_parent_ids=("JP_SUSHI", "JP_MATCHA"),
+        ),
+    )
+
+    report = evaluate_retrieval_report(retriever, cases, k=3)
+
+    assert report["precision@3"] == 2 / 3
+    assert report["recall@3"] == 1.0
+    assert 0.0 < report["ndcg@3"] <= 1.0
+    assert report["cases"][0]["relevant_parent_ids"] == ("JP_SUSHI", "JP_MATCHA")
+    assert report["cases"][0]["relevant_hit_count"] == 2
+    assert report["cases"][0]["precision@3"] == 2 / 3
+    assert report["cases"][0]["recall@3"] == 1.0
+
+
 def test_evaluate_retrieval_report_diagnoses_failed_business_sample_routes():
     documents = (
         RagDocument("FR_BREAD", "法国", "value_rule", "法国饮食", "法棍和奶酪体现法国生活艺术。", {}),

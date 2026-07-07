@@ -2,6 +2,49 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.14 - Retrieval Metrics Precision Recall NDCG
+
+日期：2026-07-07
+
+阶段目标：
+
+- 按新增要求补齐 RAG 检索评估指标：MRR、NDCG@K、Precision@K、Recall@K。
+- 支持一个查询对应多个相关父文档，适配多文档综合场景。
+
+已完成：
+
+- RAG：
+  - `RagRetrievalCase` 新增 `relevant_parent_ids`，兼容原有单 `expected_parent_id`。
+  - `evaluate_retrieval_report(...)` 输出：
+    - `hit@K`
+    - `mrr@K`
+    - `precision@K`
+    - `recall@K`
+    - `ndcg@K`
+  - case 级结果新增：
+    - `relevant_parent_ids`
+    - `relevant_hit_count`
+    - `precision@K`
+    - `recall@K`
+    - `ndcg@K`
+  - 新增 `_relevant_parent_ids(...)` 和 `_ndcg_at_k(...)`。
+  - `export_rag_acceptance_report(...)` 复用 retrieval report，因此 acceptance JSON 自动包含新增指标。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_rag.py::test_evaluate_retrieval_report_includes_precision_recall_and_ndcg_for_multi_relevant_docs -q`：先因 `RagRetrievalCase` 不支持 `relevant_parent_ids` 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_rag.py::test_evaluate_retrieval_report_includes_precision_recall_and_ndcg_for_multi_relevant_docs -q`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_rag.py -q`：52 passed。
+  - `PYTHONPATH=. pytest tests -q`：385 passed。
+  - `git diff --check`：passed。
+
+当前限制：
+
+- 当前相关性等级先按二元相关处理；后续可扩展 graded relevance，用于更严格的 NDCG 分级相关性。
+- 答案准确率、可信度、响应速度、可扩展性和用户体验评估将在后续版本继续补齐。
+
 ## v0.7.13 - Milvus Reindex and Acceptance Path
 
 日期：2026-07-07

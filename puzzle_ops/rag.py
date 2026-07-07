@@ -59,6 +59,7 @@ class RagRetrievalCase:
     query: str
     country: str
     expected_parent_id: str
+    relevant_parent_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1140,17 +1141,28 @@ def evaluate_retrieval_report(
     total = len(cases)
     hits = 0
     reciprocal_rank_sum = 0.0
+    precision_sum = 0.0
+    recall_sum = 0.0
+    ndcg_sum = 0.0
     case_results = []
     for case in cases:
         rewritten_query = rewrite_rag_query(case.query, country=case.country)
         trace = retriever.search_with_trace(rewritten_query, country=case.country, top_k=k)
         result_hits = trace.final_hits
         retrieved_parent_ids = tuple(hit.chunk.parent_id for hit in result_hits)
+        relevant_parent_ids = _relevant_parent_ids(case)
         rank = 0
         for index, parent_id in enumerate(retrieved_parent_ids, 1):
-            if parent_id == case.expected_parent_id:
+            if parent_id in relevant_parent_ids:
                 rank = index
                 break
+        relevant_hit_count = len({parent_id for parent_id in retrieved_parent_ids[:k] if parent_id in relevant_parent_ids})
+        precision = relevant_hit_count / k if k else 0.0
+        recall = relevant_hit_count / len(relevant_parent_ids) if relevant_parent_ids else 0.0
+        ndcg = _ndcg_at_k(retrieved_parent_ids, relevant_parent_ids, k)
+        precision_sum += precision
+        recall_sum += recall
+        ndcg_sum += ndcg
         if rank:
             hits += 1
             reciprocal_rank_sum += 1 / rank
@@ -1160,9 +1172,14 @@ def evaluate_retrieval_report(
                 "query": case.query,
                 "country": case.country,
                 "expected_parent_id": case.expected_parent_id,
+                "relevant_parent_ids": relevant_parent_ids,
                 "retrieved_parent_ids": retrieved_parent_ids,
                 "hit": bool(rank),
                 "rank": rank,
+                "relevant_hit_count": relevant_hit_count,
+                f"precision@{k}": precision,
+                f"recall@{k}": recall,
+                f"ndcg@{k}": ndcg,
                 "diagnosis": diagnosis["diagnosis"],
                 "suggested_action": diagnosis["suggested_action"],
                 "failure_reason": diagnosis["failure_reason"],
@@ -1171,11 +1188,17 @@ def evaluate_retrieval_report(
         )
     hit_rate = hits / total if total else 0.0
     mrr = reciprocal_rank_sum / total if total else 0.0
+    precision_at_k = precision_sum / total if total else 0.0
+    recall_at_k = recall_sum / total if total else 0.0
+    ndcg_at_k = ndcg_sum / total if total else 0.0
     return {
         "dataset_name": dataset_name,
         "knowledge_version": knowledge_version,
         f"hit@{k}": hit_rate,
         f"mrr@{k}": mrr,
+        f"precision@{k}": precision_at_k,
+        f"recall@{k}": recall_at_k,
+        f"ndcg@{k}": ndcg_at_k,
         "passed_threshold": hit_rate >= threshold,
         "threshold": threshold,
         "hits": hits,
@@ -1232,6 +1255,30 @@ def _diagnose_retrieval_case(case: RagRetrievalCase, trace: RagRetrievalTrace, r
         "failure_reason": f"expected parent 未进入 top{k}：{expected}",
         "route_evidence": route_evidence,
     }
+
+
+def _relevant_parent_ids(case: RagRetrievalCase) -> tuple[str, ...]:
+    seen: set[str] = set()
+    result = []
+    for value in (*case.relevant_parent_ids, case.expected_parent_id):
+        parent_id = str(value).strip()
+        if parent_id and parent_id not in seen:
+            result.append(parent_id)
+            seen.add(parent_id)
+    return tuple(result)
+
+
+def _ndcg_at_k(retrieved_parent_ids: tuple[str, ...], relevant_parent_ids: tuple[str, ...], k: int) -> float:
+    if k <= 0 or not relevant_parent_ids:
+        return 0.0
+    relevant = set(relevant_parent_ids)
+    dcg = 0.0
+    for rank, parent_id in enumerate(retrieved_parent_ids[:k], 1):
+        if parent_id in relevant:
+            dcg += 1.0 / math.log2(rank + 1)
+    ideal_hits = min(len(relevant), k)
+    ideal_dcg = sum(1.0 / math.log2(rank + 1) for rank in range(1, ideal_hits + 1))
+    return dcg / ideal_dcg if ideal_dcg else 0.0
 
 
 def _parent_ids_from_chunk_ids(chunk_ids: tuple[str, ...]) -> tuple[str, ...]:
