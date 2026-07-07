@@ -1438,6 +1438,79 @@ def test_agent_exports_rag_ops_report_json_and_markdown(monkeypatch, tmp_path):
     assert "hit@5" in markdown
 
 
+def test_agent_summarizes_rag_quality_eval_from_recent_traces(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "rag_trace_quality.db"))
+    agent._runtime_dir = tmp_path
+    trace_dir = tmp_path / "rag_traces" / "日本"
+    trace_dir.mkdir(parents=True)
+    first = {
+        "created_at": "20260707_100000_000000",
+        "country": "日本",
+        "answer": "寿司属于日本本土饮食文化，适合清爽餐桌近景。",
+        "reference_answer": "寿司属于日本本土饮食文化，适合清爽餐桌近景。",
+        "support_documents": ("寿司属于日本本土饮食文化，适合清爽餐桌近景。",),
+        "required_facts": ("日本本土饮食文化", "清爽餐桌近景"),
+        "latency_ms": 100.0,
+        "satisfaction_score": 5,
+        "citations": ("JP_SUSHI#chunk-1",),
+    }
+    second = {
+        "created_at": "20260707_100001_000000",
+        "country": "日本",
+        "answer": "温泉旅馆庭院符合治愈感和本土旅行体验。",
+        "reference_answer": "温泉旅馆庭院符合治愈感和本土旅行体验。",
+        "support_documents": ("温泉旅馆庭院符合治愈感和本土旅行体验。",),
+        "required_facts": ("治愈感", "本土旅行体验"),
+        "latency_ms": 400.0,
+        "satisfaction_score": 3,
+        "citations": ("JP_ONSEN#chunk-1",),
+    }
+    (trace_dir / "rag_trace_20260707_100000_000000_a.json").write_text(json.dumps(first, ensure_ascii=False), encoding="utf-8")
+    (trace_dir / "rag_trace_20260707_100001_000000_b.json").write_text(json.dumps(second, ensure_ascii=False), encoding="utf-8")
+
+    summary = agent.rag_trace_quality_eval_summary("日本", limit=10)
+
+    assert summary["source"] == "rag_traces"
+    assert summary["trace_count"] == 2
+    assert summary["answer_accuracy"]["bleu1"] == 1.0
+    assert summary["trustworthiness"]["document_coverage"] == 1.0
+    assert summary["latency"]["average_ms"] == 250.0
+    assert summary["latency"]["p95_ms"] == 400.0
+    assert summary["scalability"]["total_queries"] == 2
+    assert summary["scalability"]["qps"] == 4.0
+    assert summary["user_experience"]["average_satisfaction"] == 4.0
+    assert summary["user_experience"]["satisfaction_rate"] == 0.5
+
+
+def test_export_rag_ops_report_falls_back_to_trace_quality_eval(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "rag_ops_trace_quality.db"))
+    agent._runtime_dir = tmp_path
+    trace_dir = tmp_path / "rag_traces" / "日本"
+    trace_dir.mkdir(parents=True)
+    trace = {
+        "created_at": "20260707_100000_000000",
+        "country": "日本",
+        "answer": "法国薰衣草风车图符合田园自然和地域地标价值观。",
+        "reference_answer": "法国薰衣草风车图符合田园自然和地域地标价值观。",
+        "support_documents": ("法国薰衣草风车图符合田园自然和地域地标价值观。",),
+        "required_facts": ("田园自然", "地域地标"),
+        "latency_ms": 240.0,
+        "satisfaction_score": 4,
+        "citations": ("FR_LAVENDER#chunk-1",),
+    }
+    (trace_dir / "rag_trace_20260707_100000_000000_a.json").write_text(json.dumps(trace, ensure_ascii=False), encoding="utf-8")
+
+    result = agent.export_rag_ops_report("日本", tmp_path / "rag_ops")
+
+    payload = json.loads(Path(str(result["json_path"])).read_text(encoding="utf-8"))
+    markdown = Path(str(result["markdown_path"])).read_text(encoding="utf-8")
+    assert payload["quality_eval"]["source"] == "rag_traces"
+    assert payload["quality_eval"]["trace_count"] == 1
+    assert payload["quality_eval"]["latency"]["average_ms"] == 240.0
+    assert "source=rag_traces" in markdown
+    assert "trace_count=1" in markdown
+
+
 def test_agent_rag_answer_can_cite_human_gold_harness_sample(monkeypatch, tmp_path):
     image_path = tmp_path / "france-picnic.png"
     image_path.write_bytes(b"fake-png")

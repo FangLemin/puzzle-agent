@@ -2,6 +2,42 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.17 - RAG Trace Quality Eval Aggregation
+
+日期：2026-07-07
+
+阶段目标：
+
+- 将 RAG 质量评估从“验收报告里手动传入”推进到“可以基于真实运行 trace 自动汇总”。
+- 让 Ops 报告在没有 acceptance `quality_eval` 时，也能从最近 RAG trace 生成准确性、可信度、延迟、扩展性和用户体验摘要。
+
+已完成：
+
+- Agent：
+  - 新增 `rag_trace_quality_eval_summary(country, limit=50)`。
+  - 从最近 RAG trace 自动聚合：
+    - `answer`
+    - `reference_answer`
+    - `support_documents`
+    - `required_facts`
+    - `latency_ms`
+    - `satisfaction_score`
+    - `citations`
+  - 复用 `evaluate_rag_quality_report(...)` 生成统一质量指标。
+  - `export_rag_ops_report(...)` 在 acceptance 缺少 `quality_eval` 时，自动 fallback 到 trace 汇总结果。
+  - Ops Markdown 的 `RAG Quality Eval` 增加 `source` 和 `trace_count`，区分质量数据来源。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py -q -k "rag_quality_eval_from_recent_traces or trace_quality_eval"`：先因缺少 `rag_trace_quality_eval_summary` 和 trace fallback 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py -q -k "rag_quality_eval_from_recent_traces or trace_quality_eval"`：2 passed。
+
+当前限制：
+
+- 真实业务 trace 目前还需要更多字段沉淀，例如最终 LLM 答案、人工满意度、人工是否修改，后续才能把质量报告从“可计算”进一步升级为“可诊断、可回放、可改进”。
+
 ## v0.7.16 - RAG Ops Quality Eval Report
 
 日期：2026-07-07

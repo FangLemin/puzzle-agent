@@ -16,7 +16,7 @@ from puzzle_ops.excel_importer import import_history_workbook
 from puzzle_ops.feishu import FeishuClientFactory, MockFeishuClient
 from puzzle_ops.models import AgentTrace, AnalysisReport, AnalysisRow, DemandRow, HolidayRecommendation, ImageProfile, ScheduleItem, TagMeta, ValuePredictionCard, ValueRuleCandidate
 from puzzle_ops.multimodal import ImageFeatureExtractor, SimilarImageRetriever, ValueInsightMiner
-from puzzle_ops.rag import FeedbackAwareRerankProvider, FileDocumentLoaderAdapter, HybridRagRetriever, LocalEmbeddingProvider, MilvusVectorStore, MilvusVectorStoreRetriever, QdrantVectorStore, QdrantVectorStoreRetriever, RagChunk, RagChunkingConfig, RagDocument, RagPrompt, RagProviderConfig, RagRetrievalCase, RagRuntimeStats, RagVectorStoreConfig, RetrievalCaseLoaderAdapter, StaticDocumentLoaderAdapter, build_processed_documents_from_raw, build_rag_prompt, chunk_document, evaluate_retrieval_report, export_offline_rag_index, export_rag_acceptance_report, prepare_qdrant_points, providers_from_config, rewrite_rag_query
+from puzzle_ops.rag import FeedbackAwareRerankProvider, FileDocumentLoaderAdapter, HybridRagRetriever, LocalEmbeddingProvider, MilvusVectorStore, MilvusVectorStoreRetriever, QdrantVectorStore, QdrantVectorStoreRetriever, RagChunk, RagChunkingConfig, RagDocument, RagPrompt, RagProviderConfig, RagRetrievalCase, RagRuntimeStats, RagVectorStoreConfig, RetrievalCaseLoaderAdapter, StaticDocumentLoaderAdapter, build_processed_documents_from_raw, build_rag_prompt, chunk_document, evaluate_rag_quality_report, evaluate_retrieval_report, export_offline_rag_index, export_rag_acceptance_report, prepare_qdrant_points, providers_from_config, rewrite_rag_query
 from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.trulens_eval import TruLensRAGEvaluator
 from puzzle_ops.trial_upload import TrialImageUploadService, _compact_tag_subject
@@ -615,6 +615,8 @@ class PuzzleOpsAgent:
         quality_eval = latest_acceptance.get("quality_eval", {})
         if not isinstance(quality_eval, dict):
             quality_eval = {}
+        if not quality_eval:
+            quality_eval = self.rag_trace_quality_eval_summary(country, limit=50)
         payload: dict[str, object] = {
             "country": country,
             "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -678,6 +680,7 @@ class PuzzleOpsAgent:
             f"- rerank: provider={evidence_rerank.get('provider', '')} model={evidence_rerank.get('model', '')} family={evidence_rerank.get('provider_family', '')} remote_calls={evidence_rerank.get('observed_remote_calls', 0)} fallback_free={evidence_rerank.get('fallback_free', False)}",
             "",
             "## RAG Quality Eval",
+            f"- source={quality.get('source', 'acceptance_report')} trace_count={quality.get('trace_count', 0)}",
             f"- answer_accuracy: bleu1={answer_accuracy.get('bleu1', 0)} rouge_l={answer_accuracy.get('rouge_l', 0)}",
             f"- trustworthiness: support_overlap={trustworthiness.get('support_overlap', 0)} document_coverage={trustworthiness.get('document_coverage', 0)}",
             f"- latency: average_ms={latency.get('average_ms', 0)} p95_ms={latency.get('p95_ms', 0)} p99_ms={latency.get('p99_ms', 0)}",
@@ -1189,6 +1192,54 @@ class PuzzleOpsAgent:
             "live_model_evidence": live_model_evidence,
             "quality_eval": quality_eval,
         }
+
+    def rag_trace_quality_eval_summary(self, country: str, *, limit: int = 50) -> dict[str, object]:
+        traces = self.recent_rag_traces(country, limit=limit)
+        answers: list[str] = []
+        references: list[str] = []
+        support_documents: list[str] = []
+        required_facts: list[str] = []
+        latency_ms: list[float] = []
+        satisfaction_scores: list[int] = []
+        citation_ids: set[str] = set()
+        for trace in traces:
+            answer = str(trace.get("answer", "") or "")
+            reference = str(trace.get("reference_answer", "") or "")
+            context = str(trace.get("context", "") or "")
+            if answer:
+                answers.append(answer)
+            if reference:
+                references.append(reference)
+            for document in _as_text_tuple(trace.get("support_documents", ())):
+                if document:
+                    support_documents.append(document)
+            if context:
+                support_documents.append(context)
+            for fact in _as_text_tuple(trace.get("required_facts", ())):
+                if fact:
+                    required_facts.append(fact)
+            latency = _trace_latency_ms(trace)
+            if latency is not None:
+                latency_ms.append(latency)
+            score = _trace_satisfaction_score(trace)
+            if score is not None:
+                satisfaction_scores.append(score)
+            for citation in _as_text_tuple(trace.get("citations", ())):
+                if citation:
+                    citation_ids.add(citation)
+        total_seconds = round(sum(latency_ms) / 1000, 4) if latency_ms else 0.0
+        quality = evaluate_rag_quality_report(
+            answer="\n".join(answers),
+            reference_answer="\n".join(references),
+            support_documents=tuple(support_documents),
+            required_facts=tuple(required_facts),
+            latency_ms=tuple(latency_ms),
+            satisfaction_scores=tuple(satisfaction_scores),
+            total_queries=len(traces),
+            total_seconds=total_seconds,
+            corpus_document_count=len(citation_ids),
+        )
+        return {"source": "rag_traces", "trace_count": len(traces), **quality}
 
     def recent_rag_traces(self, country: str, *, limit: int = 5) -> tuple[dict[str, object], ...]:
         trace_dir = self._rag_trace_dir(country)
@@ -4001,6 +4052,47 @@ def _rag_patch_priority_impact(priority_summary: object, comparison: object) -> 
         "effect": effect,
         "recommended_action": action,
     }
+
+
+def _as_text_tuple(value: object) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        return (value,)
+    if isinstance(value, (list, tuple, set)):
+        return tuple(str(item) for item in value if str(item))
+    return (str(value),)
+
+
+def _trace_latency_ms(trace: dict[str, object]) -> float | None:
+    for key in ("latency_ms", "duration_ms", "response_time_ms"):
+        value = trace.get(key)
+        if value is not None:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+    runtime_stats = trace.get("runtime_stats", {})
+    if isinstance(runtime_stats, dict):
+        for key in ("latency_ms", "duration_ms", "response_time_ms"):
+            value = runtime_stats.get(key)
+            if value is not None:
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    return None
+    return None
+
+
+def _trace_satisfaction_score(trace: dict[str, object]) -> int | None:
+    for key in ("satisfaction_score", "human_satisfaction", "user_rating"):
+        value = trace.get(key)
+        if value is not None:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+    return None
 
 
 def _looks_like_audit_query(query: str) -> bool:
