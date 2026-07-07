@@ -237,6 +237,48 @@ def test_value_master_passes_rag_citations_to_llm_prompt():
     assert "引用依据" in prompt or "JP_VALUE" in prompt
 
 
+def test_value_master_passes_generated_rag_answer_to_llm_prompt():
+    captured = {}
+
+    def fake_transport(payload, api_key):
+        captured["payload"] = payload
+        return {
+            "output_text": '{"value_match":"LLM判断：寿司图符合日本本土饮食文化，引用RAG生成答案判断。","confidence":0.92,"evidence":["寿司图"],"risk_tags":[]}'
+        }
+
+    agent = PuzzleOpsAgent()
+    agent.trial_uploads = TrialImageUploadService(
+        agent._runtime_dir / "value_master_generated_rag",
+        vision_client=OpenAIVisionLLMClient(api_key="sk-test", transport=fake_transport),
+    )
+
+    def fake_generated_answer(country, query, top_k=6, **kwargs):
+        return RagGeneratedAnswer(
+            answer="结论：符合；依据：寿司属于日本本土饮食文化；风险：避免品牌露出；建议：保留日式餐桌语境。",
+            status="generated",
+            provider="qwen",
+            model="qwen3.7-plus",
+            citations=("JP_SUSHI#chunk-1",),
+            prompt="generated prompt",
+        )
+
+    agent.value_audit_rag_generated_answer = fake_generated_answer
+    row = agent.create_trial_demand("日本", "人物", mode="parse").edited(
+        subject="寿司",
+        operation_tag="试新_日本_寿司0616",
+        subject_description="主体内容：寿司；色彩氛围：米白与鲑鱼橙；构图环境：日式料理店铺餐桌近景。",
+    )
+
+    judged = agent.apply_value_master(row)
+
+    prompt = captured["payload"]["input"][0]["content"][0]["text"]
+    assert "生成式RAG答案" in prompt
+    assert "寿司属于日本本土饮食文化" in prompt
+    assert "JP_SUSHI#chunk-1" in prompt
+    assert "生成式RAG依据：" in judged.value_match
+    assert "寿司属于日本本土饮食文化" in judged.value_match
+
+
 def test_value_master_appends_system_rag_citations_when_llm_omits_them():
     agent = PuzzleOpsAgent()
     agent.trial_uploads = TrialImageUploadService(

@@ -360,9 +360,11 @@ class PuzzleOpsAgent:
             value_match = _missing_value_llm_message(self.trial_uploads.vision_config_error)
         else:
             try:
-                rag_rules = self._rag_rules_for_value_master(row)
+                rag_evidence = self._rag_evidence_for_value_master(row)
+                rag_rules = rag_evidence["rules"]
                 value_match = client.judge_value_match(_value_row_payload(row), rag_rules)
                 value_match = _append_system_rag_trace(value_match, rag_rules)
+                value_match = _append_generated_rag_evidence(value_match, rag_evidence.get("generated_answer", ""))
             except Exception as exc:
                 value_match = f"价值观大师：真实视觉 LLM 调用失败，暂不生成匹配结论；请检查模型配置后重试。错误：{exc}"
         return row.edited(value_match=value_match)
@@ -501,6 +503,9 @@ class PuzzleOpsAgent:
         return result
 
     def _rag_rules_for_value_master(self, row: DemandRow) -> tuple[tuple[str, str], ...]:
+        return self._rag_evidence_for_value_master(row)["rules"]
+
+    def _rag_evidence_for_value_master(self, row: DemandRow) -> dict[str, object]:
         query = " ".join(
             (
                 row.country,
@@ -512,16 +517,28 @@ class PuzzleOpsAgent:
                 "价值观 审核 风险 文化混淆 版权 IP 文字水印 AI质量",
             )
         )
+        generated = self.value_audit_rag_generated_answer(row.country, query, top_k=6)
+        if generated.status == "generated" and generated.answer:
+            citation_rules = tuple((citation, "生成式RAG答案引用依据") for citation in generated.citations)
+            return {
+                "rules": (("生成式RAG答案", generated.answer), *citation_rules),
+                "generated_answer": generated.answer,
+                "generation_status": generated.status,
+            }
         answer = self.value_audit_rag_answer(row.country, query, top_k=6)
         if not answer.citations:
-            return self.value_rules(row.country)
+            return {"rules": self.value_rules(row.country), "generated_answer": "", "generation_status": generated.status}
         rules = []
         for line in answer.context.splitlines():
             if not line.startswith("[") or "]" not in line:
                 continue
             citation, text = line.split("]", 1)
             rules.append((citation.strip("["), text.strip()))
-        return tuple(rules) or self.value_rules(row.country)
+        return {
+            "rules": tuple(rules) or self.value_rules(row.country),
+            "generated_answer": "",
+            "generation_status": generated.status,
+        }
 
     def value_audit_rag_summary(self, country: str) -> dict[str, object]:
         query = f"{country}市场试新提需是否符合价值观，并检查版权/IP、文字水印、文化混淆和AI质量风险"
@@ -3979,6 +3996,16 @@ def _append_system_rag_trace(value_match: str, rag_rules: tuple[tuple[str, str],
     if not citation_ids or "系统RAG召回：" in value_match:
         return value_match
     return f"{value_match}；系统RAG召回：{'、'.join(citation_ids)}"
+
+
+def _append_generated_rag_evidence(value_match: str, generated_answer: object) -> str:
+    answer = str(generated_answer or "").strip()
+    if not answer or "生成式RAG依据：" in value_match:
+        return value_match
+    compact = answer.replace("\n", " ")
+    if len(compact) > 90:
+        compact = compact[:87] + "..."
+    return f"{value_match}；生成式RAG依据：{compact}"
 
 
 def _extract_rag_citation_ids(text: str) -> tuple[str, ...]:

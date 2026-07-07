@@ -2,6 +2,39 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.20 - Value Master Uses Generated RAG Evidence
+
+日期：2026-07-07
+
+阶段目标：
+
+- 将 v0.7.19 的生成式 RAG 能力接入价值观大师，让价值观判断不只依赖片段召回，还能使用一段可溯源的 RAG 生成答案作为判断依据。
+- 保持现有 VLM 主判断链路不被破坏，并继续保留未配置生成模型时的本地检索 fallback。
+
+已完成：
+
+- Agent：
+  - 新增 `_rag_evidence_for_value_master(row)`，统一生成价值观大师需要的 RAG 证据。
+  - `apply_value_master(row)` 优先尝试 `value_audit_rag_generated_answer(...)`。
+  - 当生成式 RAG 成功时，VLM prompt 会收到：
+    - `生成式RAG答案`
+    - 真实 citation id
+  - 当生成式 RAG 未配置或 skipped 时，仍回退到原有 RAG chunk 规则列表，不伪造生成答案。
+  - 最终 `value_match` 追加 `生成式RAG依据：...` 摘要，方便运营在提需表里快速看到 AI 判断依据。
+  - 摘要做了长度压缩，避免提需表字段过度拥挤。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_value_master_passes_generated_rag_answer_to_llm_prompt -q`：先因 VLM prompt 缺少 `生成式RAG答案` 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_value_master_passes_generated_rag_answer_to_llm_prompt -q`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py -q -k "value_master"`：6 passed。
+
+当前限制：
+
+- 生成式 RAG 目前进入了价值观判断链路，但运营人工修改后的反馈还没有自动回写为 RAG eval case 或 memory fact；下一步应做 HITL 反馈沉淀。
+
 ## v0.7.19 - RAG Grounded Answer Generation
 
 日期：2026-07-07
