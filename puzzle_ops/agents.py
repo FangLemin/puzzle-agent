@@ -2405,6 +2405,61 @@ class PuzzleOpsAgent:
             },
         )
 
+    def record_value_match_human_correction(
+        self,
+        row: DemandRow,
+        *,
+        human_correction: str,
+        satisfaction_score: int | None = None,
+    ) -> dict[str, int]:
+        correction = human_correction.strip()
+        if not correction:
+            raise ValueError("价值观人工修正不能为空")
+        citations = _extract_rag_citation_ids(row.value_match)
+        expected_parent_id = _expected_parent_from_citations(citations, row.country, row.subject)
+        payload = {
+            "task_type": "value_match_eval",
+            "operation_tag": row.operation_tag,
+            "subject": row.subject,
+            "subject_description": row.subject_description,
+            "ai_value_match": row.value_match,
+            "human_correction": correction,
+            "citation_ids": list(citations),
+            "satisfaction_score": satisfaction_score,
+        }
+        working_id = self.record_working_memory(row.country, "value_match_human_correction", payload)
+        fact_id = self.record_extracted_fact(
+            row.country,
+            "verified_value_match_fact",
+            {
+                "subject": row.subject,
+                "operation_tag": row.operation_tag,
+                "subject_description": row.subject_description,
+                "human_correction": correction,
+                "value_labels": _value_labels_from_correction(correction),
+                "risk_labels": _risk_labels_from_correction(correction),
+                "citation_ids": list(citations),
+                "source_working_memory_id": working_id,
+                "label_source": "human_value_match_correction",
+            },
+        )
+        rag_feedback_id = self.record_rag_eval_failure_feedback(
+            row.country,
+            query=" ".join((row.country, row.subject, row.subject_description, correction, "价值观 审核 风险")),
+            expected_parent_id=expected_parent_id,
+            retrieved_parent_ids=tuple(_parent_id_from_chunk_id(citation) for citation in citations),
+            note=f"价值观人工修正：{correction}",
+            diagnosis="human_value_match_correction",
+            suggested_action="将人工修正沉淀为价值观/审核知识补丁候选",
+            gold_grade="",
+            label_source="human_value_match_correction",
+        )
+        return {
+            "working_memory_id": working_id,
+            "fact_memory_id": fact_id,
+            "rag_feedback_memory_id": rag_feedback_id,
+        }
+
     def record_long_term_memory(self, country: str, memory_type: str, payload: dict[str, object]) -> int:
         return self.repository.add_layered_memory(country, "long_term", memory_type, payload)
 
@@ -4016,6 +4071,48 @@ def _extract_rag_citation_ids(text: str) -> tuple[str, ...]:
             seen.add(citation)
             citations.append(citation)
     return tuple(citations)
+
+
+def _parent_id_from_chunk_id(chunk_id: str) -> str:
+    return str(chunk_id).split("#", 1)[0]
+
+
+def _expected_parent_from_citations(citations: tuple[str, ...], country: str, subject: str) -> str:
+    if citations:
+        return _parent_id_from_chunk_id(citations[0])
+    prefix = _country_code(country) if country in COUNTRIES else "HUMAN"
+    subject_slug = re.sub(r"\W+", "_", subject or "VALUE_MATCH", flags=re.UNICODE).strip("_").upper()
+    return f"{prefix}_HUMAN_VALUE_{subject_slug or 'VALUE_MATCH'}"
+
+
+def _value_labels_from_correction(text: str) -> list[str]:
+    labels = []
+    for keyword, label in (
+        ("本土", "本土文化"),
+        ("饮食", "本土饮食文化"),
+        ("治愈", "治愈感"),
+        ("季节", "季节感"),
+        ("浪漫", "浪漫生活艺术"),
+        ("田园", "田园自然"),
+    ):
+        if keyword in text and label not in labels:
+            labels.append(label)
+    return labels
+
+
+def _risk_labels_from_correction(text: str) -> list[str]:
+    labels = []
+    for keyword, label in (
+        ("品牌", "品牌露出"),
+        ("版权", "版权/IP风险"),
+        ("IP", "版权/IP风险"),
+        ("水印", "文字水印"),
+        ("混淆", "文化混淆"),
+        ("AI", "AI质量风险"),
+    ):
+        if keyword in text and label not in labels:
+            labels.append(label)
+    return labels
 
 
 def _first_non_empty(items) -> str:

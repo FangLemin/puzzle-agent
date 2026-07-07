@@ -814,6 +814,41 @@ def test_agent_records_rag_eval_failure_feedback_as_working_memory(tmp_path):
     assert feedback["payload"]["note"] == "需要补充寿司价值观 hard negative"
 
 
+def test_agent_records_value_match_human_correction_into_memory_and_rag_feedback(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    row = agent.create_trial_demand("日本", "人物", mode="parse").edited(
+        operation_tag="试新_日本_寿司0616",
+        subject="寿司",
+        subject_description="主体内容：寿司；色彩氛围：米白与鲑鱼橙；构图环境：日式料理店铺餐桌近景。",
+        value_match="LLM判断：部分符合；系统RAG召回：JP_SUSHI#chunk-1；生成式RAG依据：寿司属于日本本土饮食文化。",
+    )
+
+    result = agent.record_value_match_human_correction(
+        row,
+        human_correction="人工修正：符合日本本土饮食文化，但需规避品牌露出。",
+        satisfaction_score=5,
+    )
+
+    assert result["working_memory_id"] > 0
+    assert result["fact_memory_id"] > 0
+    assert result["rag_feedback_memory_id"] > 0
+    rows = agent.memory_debug("日本", query="品牌露出 本土饮食文化", limit=50)
+    working = next(item for item in rows if item["memory_id"] == result["working_memory_id"])
+    fact = next(item for item in rows if item["memory_id"] == result["fact_memory_id"])
+    rag_feedback = next(item for item in rows if item["memory_id"] == result["rag_feedback_memory_id"])
+    assert working["layer"] == "working"
+    assert working["memory_type"] == "value_match_human_correction"
+    assert working["payload"]["satisfaction_score"] == 5
+    assert working["payload"]["citation_ids"] == ["JP_SUSHI#chunk-1"]
+    assert fact["layer"] == "facts"
+    assert fact["memory_type"] == "verified_value_match_fact"
+    assert fact["payload"]["subject"] == "寿司"
+    assert fact["payload"]["human_correction"] == "人工修正：符合日本本土饮食文化，但需规避品牌露出。"
+    assert rag_feedback["memory_type"] == "rag_eval_failure_feedback"
+    assert rag_feedback["payload"]["expected_parent_id"] == "JP_SUSHI"
+    assert rag_feedback["payload"]["label_source"] == "human_value_match_correction"
+
+
 def test_agent_summarizes_and_exports_rag_eval_failure_feedback(tmp_path):
     agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
     agent.record_rag_eval_failure_feedback(

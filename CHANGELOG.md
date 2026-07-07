@@ -2,6 +2,45 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.21 - Value Match HITL Feedback Memory Loop
+
+日期：2026-07-07
+
+阶段目标：
+
+- 将价值观大师的人工修正沉淀到 Memory 与 RAG eval 反馈中，形成“AI 判断 - 运营修正 - 下轮评测/知识补丁”的闭环。
+- 让生成式 RAG 与 VLM 判断后的人工修正不只停留在页面文本里，而是进入可检索、可复盘、可生成补丁的数据层。
+
+已完成：
+
+- Agent：
+  - 新增 `record_value_match_human_correction(row, human_correction, satisfaction_score=None)`。
+  - 写入 working memory：
+    - `memory_type=value_match_human_correction`
+    - 保存原 AI 价值观判断、人工修正、citation ids、满意度。
+  - 写入 facts memory：
+    - `memory_type=verified_value_match_fact`
+    - 保存主体、三段式描述、人工修正、价值观标签、风险标签、citation ids。
+  - 写入 RAG eval failure feedback：
+    - `label_source=human_value_match_correction`
+    - 将人工修正转成后续 RAG 评测/知识补丁候选。
+  - 新增轻量抽取 helper：
+    - citation id -> parent id
+    - 人工修正 -> value labels
+    - 人工修正 -> risk labels
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_records_value_match_human_correction_into_memory_and_rag_feedback -q`：先因缺少 `record_value_match_human_correction` 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_records_value_match_human_correction_into_memory_and_rag_feedback -q`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py -q -k "memory or rag_eval_failure_feedback or harness_override or value_match_human_correction"`：13 passed。
+
+当前限制：
+
+- 当前方法已经完成数据沉淀，但页面上还没有单独的“保存价值观人工修正并反哺 RAG”按钮；后续需要接入 UI 和 server action，让运营能直接在工作台触发。
+
 ## v0.7.20 - Value Master Uses Generated RAG Evidence
 
 日期：2026-07-07
