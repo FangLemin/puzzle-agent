@@ -2,6 +2,39 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.18 - RAG Trace Answer And Latency Fields
+
+日期：2026-07-07
+
+阶段目标：
+
+- 继续补强工业级 RAG 可观测链路，让真实 `value_audit_rag_answer(...)` 调用写入可用于质量评估的 trace 字段。
+- 为 v0.7.17 的 trace quality aggregation 提供真实运行数据来源，而不是只依赖手工构造的 trace。
+
+已完成：
+
+- Agent：
+  - `value_audit_rag_answer(...)` 记录整段 RAG 检索与 prompt 构建耗时，并写入 `latency_ms`。
+  - `_write_rag_trace(...)` 写入：
+    - `answer`
+    - `answer_source`
+    - `support_documents`
+    - `latency_ms`
+  - `answer_source` 明确标记为 `retrieved_context`，表示当前是基于检索上下文的可评估答案，不伪装成真实 LLM 生成答案。
+  - `recent_rag_traces(...)` 规范化 `support_documents` 和 `required_facts`，方便页面、报告和测试稳定读取。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_persists_value_audit_rag_trace_for_replay -q`：先因 trace 缺少 `answer` 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_persists_value_audit_rag_trace_for_replay -q`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py -q -k "rag_trace or trace_quality_eval or rag_quality_eval_from_recent_traces"`：4 passed。
+
+当前限制：
+
+- 当前 RAG trace 的 `answer` 仍是检索上下文型答案；后续如果接入真正的 RAG 生成链路，需要把 LLM 最终回复、模型名、prompt 版本、人工修改结果一并写入 trace。
+
 ## v0.7.17 - RAG Trace Quality Eval Aggregation
 
 日期：2026-07-07

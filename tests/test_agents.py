@@ -2322,6 +2322,10 @@ def test_agent_persists_value_audit_rag_trace_for_replay(tmp_path):
     assert latest["rewritten_query"]
     assert latest["citations"] == answer.citations
     assert latest["prompt"] == answer.prompt
+    assert latest["answer"] == answer.context
+    assert latest["answer_source"] == "retrieved_context"
+    assert latest["support_documents"] == (answer.context,)
+    assert latest["latency_ms"] >= 0
     assert latest["retrieval_trace"]["final_hits"]
     assert Path(str(latest["trace_path"])).exists()
 

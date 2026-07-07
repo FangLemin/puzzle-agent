@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import time
 from tempfile import gettempdir
 import uuid
 
@@ -428,6 +429,7 @@ class PuzzleOpsAgent:
         *,
         provider_config: RagProviderConfig | None = None,
     ) -> RagPrompt:
+        started_at = time.perf_counter()
         self.build_value_audit_rag_index(country)
         chunks = tuple(_rag_chunk_from_row(row) for row in self.repository.rag_chunks(country))
         stats = RagRuntimeStats()
@@ -477,7 +479,8 @@ class PuzzleOpsAgent:
         self._last_rag_stats = stats
         self._last_rag_rewritten_query = rewritten_query
         self._last_rag_trace = trace_payload
-        self._write_rag_trace(country, query, rewritten_query, prompt, trace_payload, stats.as_dict())
+        latency_ms = round((time.perf_counter() - started_at) * 1000, 4)
+        self._write_rag_trace(country, query, rewritten_query, prompt, trace_payload, stats.as_dict(), latency_ms=latency_ms)
         return prompt
 
     def _rag_rules_for_value_master(self, row: DemandRow) -> tuple[tuple[str, str], ...]:
@@ -1253,6 +1256,12 @@ class PuzzleOpsAgent:
             citations = payload.get("citations", ())
             if isinstance(citations, list):
                 payload["citations"] = tuple(str(item) for item in citations)
+            support_documents = payload.get("support_documents", ())
+            if isinstance(support_documents, list):
+                payload["support_documents"] = tuple(str(item) for item in support_documents)
+            required_facts = payload.get("required_facts", ())
+            if isinstance(required_facts, list):
+                payload["required_facts"] = tuple(str(item) for item in required_facts)
             payload["trace_path"] = str(path)
             rows.append(payload)
             if len(rows) >= limit:
@@ -1267,6 +1276,8 @@ class PuzzleOpsAgent:
         prompt: RagPrompt,
         retrieval_trace: dict[str, object],
         runtime_stats: dict[str, object],
+        *,
+        latency_ms: float | None = None,
     ) -> str:
         trace_dir = self._rag_trace_dir(country)
         trace_dir.mkdir(parents=True, exist_ok=True)
@@ -1278,6 +1289,10 @@ class PuzzleOpsAgent:
             "country": country,
             "original_query": original_query,
             "rewritten_query": rewritten_query,
+            "answer": prompt.context,
+            "answer_source": "retrieved_context",
+            "support_documents": (prompt.context,),
+            "latency_ms": latency_ms,
             "context": prompt.context,
             "citations": prompt.citations,
             "prompt": prompt.prompt,
