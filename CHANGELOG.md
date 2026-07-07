@@ -2,6 +2,42 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.13 - Milvus Reindex and Acceptance Path
+
+日期：2026-07-07
+
+阶段目标：
+
+- 把 Milvus 从在线检索 adapter 继续推进到 RAG 重建索引和 full industrial acceptance 主链路。
+- 减少 Qdrant 专属方法对新 Milvus 目标的阻碍，同时保留旧接口兼容。
+
+已完成：
+
+- Agent：
+  - 新增 `reindex_rag_vector_store_from_raw(...)`，作为通用向量库 reindex 入口。
+  - 旧 `reindex_rag_qdrant_from_raw(...)` 委托通用入口，保留历史兼容。
+  - 通用 reindex 结果新增 `vector_store_provider`、`vector_store_collection`、`vector_store_response`。
+  - Milvus reindex manifest 写入 `indices/runs/milvus_reindex_<country>_<run_id>.json` 和 `indices/milvus_reindex_<country>.json`。
+  - `_rag_knowledge_summary(...)` 新增 `vector_store_manifest_*` 通用字段，当前 provider 为 Milvus 时能展示 Milvus manifest。
+  - full industrial acceptance 根据实际 store/provider 选择 `MilvusVectorStoreRetriever` 或 `QdrantVectorStoreRetriever`。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_reindexes_raw_rag_knowledge_into_milvus -q`：先因 `reindex_rag_vector_store_from_raw` 不存在失败。
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_runs_full_rag_industrial_acceptance_with_milvus -q`：先因 full acceptance 仍标记 `vector_store_provider=qdrant` 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_reindexes_raw_rag_knowledge_into_milvus -q`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_runs_full_rag_industrial_acceptance_with_milvus -q`：1 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py -q`：103 passed。
+  - `PYTHONPATH=. pytest tests -q`：384 passed。
+  - `git diff --check`：passed。
+
+当前限制：
+
+- 页面和 server action 仍有历史 `qdrant` 命名，后续应统一成 `vector_store` 或 `milvus` 文案。
+- Milvus collection 建表/schema 自动创建还未做；当前假设 Milvus collection 已存在或由运维提前创建。
+
 ## v0.7.12 - Milvus Vector Store Adapter
 
 日期：2026-07-07

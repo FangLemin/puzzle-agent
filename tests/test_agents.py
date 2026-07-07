@@ -2542,6 +2542,85 @@ knowledge_version: unit-test
     assert any(point.payload["parent_id"] == "JP_KB_SUSHI_FOOD" for point in store.points)
 
 
+def test_agent_reindexes_raw_rag_knowledge_into_milvus(monkeypatch, tmp_path):
+    knowledge_dir = tmp_path / "knowledge"
+    raw = knowledge_dir / "raw"
+    eval_dir = knowledge_dir / "eval"
+    raw.mkdir(parents=True)
+    eval_dir.mkdir(parents=True)
+    (raw / "japan.md").write_text(
+        """---
+country: 日本
+source_type: value_rule
+knowledge_version: unit-test
+---
+# 日本价值观
+
+## 寿司文化 {#JP_KB_SUSHI_FOOD}
+寿司属于日本本土饮食文化，适合清爽餐桌近景。
+""",
+        encoding="utf-8",
+    )
+    (eval_dir / "value_audit_cases.jsonl").write_text(
+        json.dumps(
+            {
+                "query": "日本寿司图是否符合本土饮食价值观",
+                "country": "日本",
+                "expected_parent_id": "JP_KB_SUSHI_FOOD",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "milvus_reindex.db"))
+    agent.rag_vector_store_config = agent.rag_vector_store_config.__class__(
+        provider="milvus",
+        endpoint="http://127.0.0.1:19530",
+        collection="puzzle_ops_rag",
+        configured=True,
+        ready=True,
+    )
+
+    class FakeEmbedding:
+        provider_name = "dashscope:text-embedding-v4"
+
+        def query_vector(self, text: str):
+            assert text
+            return (0.1, 0.2, 0.3)
+
+    class FakeMilvusStore:
+        provider_name = "milvus"
+
+        def __init__(self):
+            self.points = ()
+
+        def upsert(self, points):
+            self.points = points
+            return {"status": "ok", "insert_count": len(points)}
+
+    store = FakeMilvusStore()
+
+    result = agent.reindex_rag_vector_store_from_raw("日本", embedding_provider=FakeEmbedding(), vector_store=store)
+
+    assert result["status"] == "indexed"
+    assert result["vector_store_provider"] == "milvus"
+    assert result["vector_store_collection"] == "puzzle_ops_rag"
+    assert result["upserted_points"] == len(store.points)
+    assert result["vector_size"] == 3
+    assert result["manifest_path"].endswith(f"indices/runs/milvus_reindex_日本_{result['run_id']}.json")
+    assert result["latest_manifest_path"].endswith("indices/milvus_reindex_日本.json")
+    manifest = json.loads(Path(result["manifest_path"]).read_text(encoding="utf-8"))
+    assert manifest["vector_store"]["provider"] == "milvus"
+    assert manifest["vector_store"]["collection"] == "puzzle_ops_rag"
+    assert any(record["payload"]["parent_id"] == "JP_KB_SUSHI_FOOD" for record in manifest["point_records"])
+    summary = agent.value_audit_rag_summary("日本")["knowledge_base"]
+    assert summary["vector_store_manifest_exists"] is True
+    assert summary["vector_store_manifest_provider"] == "milvus"
+    assert summary["vector_store_manifest_upserted_points"] == len(store.points)
+
+
 def test_agent_runs_full_rag_industrial_acceptance_with_qdrant_and_bge(monkeypatch, tmp_path):
     knowledge_dir = tmp_path / "knowledge"
     raw = knowledge_dir / "raw"
@@ -2657,6 +2736,110 @@ knowledge_version: unit-test
     assert Path(result["report_path"]).exists()
     summary = json.loads(Path(result["summary_path"]).read_text(encoding="utf-8"))
     assert summary["preflight"]["embedding"]["probe_vector_dim"] == 3
+
+
+def test_agent_runs_full_rag_industrial_acceptance_with_milvus(monkeypatch, tmp_path):
+    knowledge_dir = tmp_path / "knowledge"
+    raw = knowledge_dir / "raw"
+    eval_dir = knowledge_dir / "eval"
+    raw.mkdir(parents=True)
+    eval_dir.mkdir(parents=True)
+    (raw / "japan.md").write_text(
+        """---
+country: 日本
+source_type: value_rule
+knowledge_version: unit-test
+---
+# 日本价值观
+
+## 寿司文化 {#JP_KB_SUSHI_FOOD}
+寿司属于日本本土饮食文化，适合清爽餐桌近景。
+""",
+        encoding="utf-8",
+    )
+    (eval_dir / "value_audit_cases.jsonl").write_text(
+        json.dumps({"query": "日本寿司图是否符合本土饮食价值观", "country": "日本", "expected_parent_id": "JP_KB_SUSHI_FOOD"}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "rag_full_acceptance_milvus.db"))
+    agent.rag_vector_store_config = agent.rag_vector_store_config.__class__(
+        provider="milvus",
+        endpoint="http://127.0.0.1:19530",
+        collection="puzzle_ops_rag",
+        configured=True,
+        ready=True,
+    )
+    agent.rag_provider_config = RagProviderConfig(
+        embedding_provider="dashscope",
+        embedding_model="text-embedding-v4",
+        rerank_provider="bge",
+        rerank_model="BAAI/bge-reranker-v2-m3",
+        configured=True,
+        remote_ready=True,
+        remote_calls_enabled=True,
+    )
+
+    class FakeQwenEmbedding:
+        provider_name = "dashscope:text-embedding-v4"
+
+        def __init__(self):
+            self.stats = RagRuntimeStats()
+
+        def query_vector(self, text: str):
+            self.stats.embedding_remote_calls += 1
+            return (0.1, 0.2, 0.3)
+
+        def similarities(self, query: str, texts: tuple[str, ...]):
+            self.stats.embedding_remote_calls += 1
+            return tuple(0.9 if "寿司" in text else 0.1 for text in texts)
+
+        def healthcheck(self):
+            return {"provider": "dashscope", "ready": True, "model": "text-embedding-v4", "probe_vector_dim": 3}
+
+    class FakeMilvusStore:
+        provider_name = "milvus"
+
+        def __init__(self):
+            self.points = ()
+
+        def upsert(self, points):
+            self.points = points
+            return {"status": "ok", "insert_count": len(points)}
+
+        def search(self, query_vector, *, country, top_k):
+            assert self.points
+            return {str(self.points[0].payload["chunk_id"]): 0.99}
+
+        def healthcheck(self):
+            return {"provider": "milvus", "ready": True, "exists": True, "vector_size": 3}
+
+    def fake_rerank_transport(query, documents, api_key, endpoint, model):
+        return {"results": [{"index": index, "relevance_score": 0.96 - index * 0.01} for index, _ in enumerate(documents)]}
+
+    embedding = FakeQwenEmbedding()
+    store = FakeMilvusStore()
+    rerank = BGERerankProvider(
+        api_key="",
+        model="BAAI/bge-reranker-v2-m3",
+        endpoint="http://127.0.0.1:9997/v1/rerank",
+        transport=fake_rerank_transport,
+        stats=RagRuntimeStats(),
+    )
+
+    result = agent.run_full_rag_industrial_acceptance(
+        "日本",
+        tmp_path / "rag_full_acceptance_milvus",
+        embedding_provider=embedding,
+        rerank_provider=rerank,
+        vector_store=store,
+        preflight_mode="live",
+    )
+
+    assert result["status"] == "passed"
+    assert result["reindex"]["vector_store_provider"] == "milvus"
+    assert result["report"]["observed_retrieval"]["vector_store_provider"] == "milvus"
+    assert result["preflight"]["qdrant"]["provider"] == "milvus"
 
 
 def test_agent_full_rag_acceptance_defaults_to_fast_preflight_without_live_healthchecks(monkeypatch, tmp_path):

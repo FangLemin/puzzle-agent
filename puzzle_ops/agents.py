@@ -1251,6 +1251,11 @@ class PuzzleOpsAgent:
             return MilvusVectorStoreRetriever(MilvusVectorStore(self.rag_vector_store_config))
         return QdrantVectorStoreRetriever(QdrantVectorStore(self.rag_vector_store_config))
 
+    def _vector_store_retriever_for(self, store):
+        if getattr(store, "provider_name", "") == "milvus" or self.rag_vector_store_config.provider == "milvus":
+            return MilvusVectorStoreRetriever(store)
+        return QdrantVectorStoreRetriever(store)
+
     def export_value_audit_rag_artifacts(self, country: str, output_dir: Path | str) -> dict[str, object]:
         documents = StaticDocumentLoaderAdapter(self._rag_documents(country)).load()
         artifacts = export_offline_rag_index(
@@ -1298,6 +1303,17 @@ class PuzzleOpsAgent:
         embedding_provider: LocalEmbeddingProvider | None = None,
         vector_store: QdrantVectorStore | None = None,
     ) -> dict[str, object]:
+        return self.reindex_rag_vector_store_from_raw(country, embedding_provider=embedding_provider, vector_store=vector_store, vector_store_provider="qdrant")
+
+    def reindex_rag_vector_store_from_raw(
+        self,
+        country: str,
+        *,
+        embedding_provider: LocalEmbeddingProvider | None = None,
+        vector_store=None,
+        vector_store_provider: str | None = None,
+    ) -> dict[str, object]:
+        provider_name = vector_store_provider or getattr(vector_store, "provider_name", "") or self.rag_vector_store_config.provider
         rebuild = self.rebuild_rag_knowledge_from_raw(country)
         chunks = tuple(_rag_chunk_from_row(row) for row in self.repository.rag_chunks(country))
         provider = embedding_provider
@@ -1323,14 +1339,16 @@ class PuzzleOpsAgent:
                 "vector_count": 0,
                 "upserted_points": 0,
                 "vector_size": 0,
+                "vector_store_provider": provider_name,
+                "vector_store_collection": self.rag_vector_store_config.collection,
                 "qdrant_collection": self.rag_vector_store_config.collection,
                 **stats.as_dict(),
             }
-            result["manifest_path"] = self._write_qdrant_reindex_manifest(country, result)
+            result["manifest_path"] = self._write_vector_store_reindex_manifest(country, result)
             return result
-        store = vector_store or QdrantVectorStore(self.rag_vector_store_config)
+        store = vector_store or self._rag_vector_store()
         vector_size = len(points[0].vector)
-        collection_status = store.ensure_collection(vector_size)
+        collection_status = store.ensure_collection(vector_size) if hasattr(store, "ensure_collection") else {"status": "managed_by_provider", "vector_size": vector_size}
         response = store.upsert(points)
         result = {
             **rebuild,
@@ -1339,29 +1357,45 @@ class PuzzleOpsAgent:
             "vector_count": len(vectors_by_chunk_id),
             "upserted_points": len(points),
             "vector_size": vector_size,
+            "vector_store_provider": provider_name,
+            "vector_store_collection": self.rag_vector_store_config.collection,
             "qdrant_collection": self.rag_vector_store_config.collection,
             "collection_status": collection_status,
             "qdrant_response": response,
+            "vector_store_response": response,
             "point_ids": tuple(point.id for point in points),
             "point_records": tuple(_qdrant_point_record(point) for point in points),
             **stats.as_dict(),
         }
-        result["manifest_path"] = self._write_qdrant_reindex_manifest(country, result)
+        result["manifest_path"] = self._write_vector_store_reindex_manifest(country, result)
         return result
 
+    def _rag_vector_store(self):
+        if self.rag_vector_store_config.provider == "milvus":
+            return MilvusVectorStore(self.rag_vector_store_config)
+        return QdrantVectorStore(self.rag_vector_store_config)
+
     def _write_qdrant_reindex_manifest(self, country: str, result: dict[str, object]) -> str:
+        return self._write_vector_store_reindex_manifest(country, result, provider="qdrant")
+
+    def _write_vector_store_reindex_manifest(self, country: str, result: dict[str, object], *, provider: str | None = None) -> str:
+        provider = provider or str(result.get("vector_store_provider", "") or self.rag_vector_store_config.provider or "qdrant")
         indices_dir = _rag_knowledge_dir() / "indices"
         runs_dir = indices_dir / "runs"
         indices_dir.mkdir(parents=True, exist_ok=True)
         runs_dir.mkdir(parents=True, exist_ok=True)
         run_id = _manifest_run_id()
-        manifest_path = runs_dir / f"qdrant_reindex_{country}_{run_id}.json"
-        latest_path = indices_dir / f"qdrant_reindex_{country}.json"
+        manifest_path = runs_dir / f"{provider}_reindex_{country}_{run_id}.json"
+        latest_path = indices_dir / f"{provider}_reindex_{country}.json"
         manifest = {
             "run_id": run_id,
             "created_at": date.today().isoformat(),
             "country": country,
             "status": result.get("status", ""),
+            "vector_store": {
+                "provider": provider,
+                "collection": result.get("vector_store_collection", result.get("qdrant_collection", "")),
+            },
             "processed_path": result.get("processed_path", ""),
             "document_count": result.get("document_count", 0),
             "chunk_count": result.get("chunk_count", 0),
@@ -1589,7 +1623,7 @@ class PuzzleOpsAgent:
         summary_path = output / f"rag_acceptance_full_summary_{country}.json"
         preflight = self._rag_acceptance_preflight(embedding, rerank, store, mode=preflight_mode)
         try:
-            reindex = self.reindex_rag_qdrant_from_raw(
+            reindex = self.reindex_rag_vector_store_from_raw(
                 country,
                 embedding_provider=embedding,
                 vector_store=store,
@@ -1613,7 +1647,7 @@ class PuzzleOpsAgent:
             chunks,
             embedding_provider=embedding,
             rerank_provider=rerank,
-            vector_store_retriever=QdrantVectorStoreRetriever(store),
+            vector_store_retriever=self._vector_store_retriever_for(store),
         )
         try:
             report = export_rag_acceptance_report(
@@ -2041,6 +2075,9 @@ class PuzzleOpsAgent:
         raw_dir = root / "raw"
         documents_path = root / "processed" / "value_audit_documents.jsonl"
         eval_cases_path = root / "eval" / "value_audit_cases.jsonl"
+        vector_provider = self.rag_vector_store_config.provider
+        vector_manifest_path = root / "indices" / f"{vector_provider}_reindex_{country}.json"
+        vector_manifest = _read_json_object(vector_manifest_path)
         qdrant_manifest_path = root / "indices" / f"qdrant_reindex_{country}.json"
         qdrant_manifest = _read_json_object(qdrant_manifest_path)
         qdrant_history = _qdrant_reindex_history(root, country)
@@ -2049,6 +2086,15 @@ class PuzzleOpsAgent:
             "raw_dir": str(raw_dir),
             "documents_path": str(documents_path),
             "eval_cases_path": str(eval_cases_path),
+            "vector_store_manifest_path": str(vector_manifest_path),
+            "vector_store_manifest_exists": vector_manifest_path.exists(),
+            "vector_store_manifest_provider": str(
+                (vector_manifest.get("vector_store") if isinstance(vector_manifest.get("vector_store"), dict) else {}).get("provider", "")
+            ),
+            "vector_store_manifest_run_id": str(vector_manifest.get("run_id", "")),
+            "vector_store_manifest_status": vector_manifest.get("status", ""),
+            "vector_store_manifest_vector_size": int(vector_manifest.get("vector_size", 0) or 0),
+            "vector_store_manifest_upserted_points": int(vector_manifest.get("upserted_points", 0) or 0),
             "qdrant_manifest_path": str(qdrant_manifest_path),
             "qdrant_manifest_exists": qdrant_manifest_path.exists(),
             "qdrant_manifest_run_id": str(qdrant_manifest.get("run_id", "")),
