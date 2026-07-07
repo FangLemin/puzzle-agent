@@ -17,7 +17,7 @@ from puzzle_ops.excel_importer import import_history_workbook
 from puzzle_ops.feishu import FeishuClientFactory, MockFeishuClient
 from puzzle_ops.models import AgentTrace, AnalysisReport, AnalysisRow, DemandRow, HolidayRecommendation, ImageProfile, ScheduleItem, TagMeta, ValuePredictionCard, ValueRuleCandidate
 from puzzle_ops.multimodal import ImageFeatureExtractor, SimilarImageRetriever, ValueInsightMiner
-from puzzle_ops.rag import FeedbackAwareRerankProvider, FileDocumentLoaderAdapter, HybridRagRetriever, LocalEmbeddingProvider, MilvusVectorStore, MilvusVectorStoreRetriever, QdrantVectorStore, QdrantVectorStoreRetriever, RagChunk, RagChunkingConfig, RagDocument, RagPrompt, RagProviderConfig, RagRetrievalCase, RagRuntimeStats, RagVectorStoreConfig, RetrievalCaseLoaderAdapter, StaticDocumentLoaderAdapter, build_processed_documents_from_raw, build_rag_prompt, chunk_document, evaluate_rag_quality_report, evaluate_retrieval_report, export_offline_rag_index, export_rag_acceptance_report, prepare_qdrant_points, providers_from_config, rewrite_rag_query
+from puzzle_ops.rag import FeedbackAwareRerankProvider, FileDocumentLoaderAdapter, HybridRagRetriever, LocalEmbeddingProvider, MilvusVectorStore, MilvusVectorStoreRetriever, MissingRagAnswerGenerator, QdrantVectorStore, QdrantVectorStoreRetriever, QwenRagAnswerGenerator, RagChunk, RagChunkingConfig, RagDocument, RagGeneratedAnswer, RagPrompt, RagProviderConfig, RagRetrievalCase, RagRuntimeStats, RagVectorStoreConfig, RetrievalCaseLoaderAdapter, StaticDocumentLoaderAdapter, build_processed_documents_from_raw, build_rag_prompt, chunk_document, evaluate_rag_quality_report, evaluate_retrieval_report, export_offline_rag_index, export_rag_acceptance_report, prepare_qdrant_points, providers_from_config, rewrite_rag_query
 from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.trulens_eval import TruLensRAGEvaluator
 from puzzle_ops.trial_upload import TrialImageUploadService, _compact_tag_subject
@@ -482,6 +482,23 @@ class PuzzleOpsAgent:
         latency_ms = round((time.perf_counter() - started_at) * 1000, 4)
         self._write_rag_trace(country, query, rewritten_query, prompt, trace_payload, stats.as_dict(), latency_ms=latency_ms)
         return prompt
+
+    def value_audit_rag_generated_answer(
+        self,
+        country: str,
+        query: str,
+        top_k: int = 6,
+        *,
+        generator: object | None = None,
+        provider_config: RagProviderConfig | None = None,
+    ) -> RagGeneratedAnswer:
+        prompt = self.value_audit_rag_answer(country, query, top_k=top_k, provider_config=provider_config)
+        answer_generator = generator or self._default_rag_answer_generator()
+        started_at = time.perf_counter()
+        result = answer_generator.generate(prompt)
+        generation_latency_ms = round((time.perf_counter() - started_at) * 1000, 4)
+        self._augment_latest_rag_trace_with_generation(country, result, generation_latency_ms)
+        return result
 
     def _rag_rules_for_value_master(self, row: DemandRow) -> tuple[tuple[str, str], ...]:
         query = " ".join(
@@ -1244,6 +1261,49 @@ class PuzzleOpsAgent:
         )
         return {"source": "rag_traces", "trace_count": len(traces), **quality}
 
+    def _default_rag_answer_generator(self):
+        provider = os.getenv("RAG_GENERATION_PROVIDER", "").strip().lower()
+        remote_enabled = os.getenv("RAG_ENABLE_REMOTE_CALLS", "").strip().lower() in {"1", "true", "yes", "on"}
+        if provider in {"qwen", "dashscope"} and remote_enabled:
+            api_key = _first_nonempty_env("RAG_GENERATION_API_KEY", "DASHSCOPE_API_KEY", "QWEN_API_KEY")
+            model = os.getenv("RAG_GENERATION_MODEL", "qwen3.7-plus").strip() or "qwen3.7-plus"
+            endpoint = os.getenv(
+                "RAG_GENERATION_ENDPOINT",
+                "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+            ).strip()
+            return QwenRagAnswerGenerator(api_key=api_key, model=model, endpoint=endpoint)
+        reason = "RAG 生成模型未配置；需要 RAG_GENERATION_PROVIDER=qwen 且 RAG_ENABLE_REMOTE_CALLS=1"
+        return MissingRagAnswerGenerator(reason)
+
+    def _augment_latest_rag_trace_with_generation(
+        self,
+        country: str,
+        result: RagGeneratedAnswer,
+        generation_latency_ms: float,
+    ) -> None:
+        traces = self.recent_rag_traces(country, limit=1)
+        if not traces:
+            return
+        path = Path(str(traces[0].get("trace_path", "")))
+        payload = _read_json_object(path)
+        if not payload:
+            return
+        payload.update(
+            {
+                "llm_answer": result.answer,
+                "answer": result.answer or payload.get("answer", ""),
+                "answer_source": "llm_generated" if result.status == "generated" else payload.get("answer_source", "retrieved_context"),
+                "generation_status": result.status,
+                "generation_provider": result.provider,
+                "generation_model": result.model,
+                "generation_prompt": result.prompt,
+                "generation_citations": result.citations,
+                "generation_latency_ms": generation_latency_ms,
+                "generation_error": result.error,
+            }
+        )
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
     def recent_rag_traces(self, country: str, *, limit: int = 5) -> tuple[dict[str, object], ...]:
         trace_dir = self._rag_trace_dir(country)
         if not trace_dir.exists():
@@ -1262,6 +1322,9 @@ class PuzzleOpsAgent:
             required_facts = payload.get("required_facts", ())
             if isinstance(required_facts, list):
                 payload["required_facts"] = tuple(str(item) for item in required_facts)
+            generation_citations = payload.get("generation_citations", ())
+            if isinstance(generation_citations, list):
+                payload["generation_citations"] = tuple(str(item) for item in generation_citations)
             payload["trace_path"] = str(path)
             rows.append(payload)
             if len(rows) >= limit:
@@ -4077,6 +4140,14 @@ def _as_text_tuple(value: object) -> tuple[str, ...]:
     if isinstance(value, (list, tuple, set)):
         return tuple(str(item) for item in value if str(item))
     return (str(value),)
+
+
+def _first_nonempty_env(*keys: str) -> str:
+    for key in keys:
+        value = os.getenv(key, "").strip()
+        if value:
+            return value
+    return ""
 
 
 def _trace_latency_ms(trace: dict[str, object]) -> float | None:

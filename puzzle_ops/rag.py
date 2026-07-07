@@ -55,6 +55,18 @@ class RagPrompt:
 
 
 @dataclass(frozen=True)
+class RagGeneratedAnswer:
+    answer: str
+    status: str
+    provider: str
+    model: str
+    citations: tuple[str, ...]
+    prompt: str
+    raw_text: str = ""
+    error: str = ""
+
+
+@dataclass(frozen=True)
 class RagRetrievalCase:
     query: str
     country: str
@@ -996,6 +1008,90 @@ class BGERerankProvider(DashScopeRerankProvider):
         status = super().healthcheck()
         status["provider"] = "bge"
         return status
+
+
+class MissingRagAnswerGenerator:
+    provider_name = "missing"
+    model = ""
+
+    def __init__(self, reason: str = "RAG 生成模型未配置"):
+        self.reason = reason
+
+    def generate(self, prompt: RagPrompt) -> RagGeneratedAnswer:
+        return RagGeneratedAnswer(
+            answer="",
+            status="skipped",
+            provider=self.provider_name,
+            model=self.model,
+            citations=prompt.citations,
+            prompt=prompt.prompt,
+            error=self.reason,
+        )
+
+
+class QwenRagAnswerGenerator:
+    provider_name = "qwen"
+
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "qwen3.7-plus",
+        endpoint: str = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+        transport: Callable[[dict[str, object], str, str], dict[str, object]] | None = None,
+    ):
+        self.api_key = api_key
+        self.model = model
+        self.endpoint = endpoint
+        self.transport = transport or _qwen_chat_transport
+
+    def generate(self, prompt: RagPrompt) -> RagGeneratedAnswer:
+        if not self.api_key:
+            return RagGeneratedAnswer(
+                answer="",
+                status="skipped",
+                provider=self.provider_name,
+                model=self.model,
+                citations=prompt.citations,
+                prompt=prompt.prompt,
+                error="缺少 RAG 生成模型 API Key",
+            )
+        payload = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "你是 PuzzleOps 拼图内容运营 RAG 助手，回答必须可溯源、简洁、面向运营决策。",
+                },
+                {
+                    "role": "user",
+                    "content": _rag_generation_user_prompt(prompt),
+                },
+            ],
+            "temperature": 0.2,
+        }
+        try:
+            response = self.transport(payload, self.api_key, self.endpoint)
+            answer = _extract_chat_completion_text(response).strip()
+        except Exception as exc:
+            return RagGeneratedAnswer(
+                answer="",
+                status="failed",
+                provider=self.provider_name,
+                model=self.model,
+                citations=prompt.citations,
+                prompt=_rag_generation_user_prompt(prompt),
+                error=str(exc),
+            )
+        return RagGeneratedAnswer(
+            answer=answer,
+            status="generated" if answer else "failed",
+            provider=self.provider_name,
+            model=self.model,
+            citations=prompt.citations,
+            prompt=_rag_generation_user_prompt(prompt),
+            raw_text=answer,
+            error="" if answer else "模型未返回文本",
+        )
 
 
 def providers_from_config(
@@ -2204,6 +2300,10 @@ def _open_rerank_transport(query: str, documents: list[str], api_key: str, endpo
     return _post_json(endpoint, payload, api_key)
 
 
+def _qwen_chat_transport(payload: dict[str, object], api_key: str, endpoint: str) -> dict[str, object]:
+    return _post_json(endpoint, payload, api_key)
+
+
 def _post_json(endpoint: str, payload: dict[str, object], api_key: str) -> dict[str, object]:
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     req = request.Request(
@@ -2217,6 +2317,39 @@ def _post_json(endpoint: str, payload: dict[str, object], api_key: str) -> dict[
     )
     with request.urlopen(req, timeout=20) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
+
+def _rag_generation_user_prompt(prompt: RagPrompt) -> str:
+    citations = "、".join(prompt.citations) if prompt.citations else "无"
+    return (
+        "请只根据提供的资料回答，资料里没有依据就说不知道；不要编造来源、数据或规则。\n"
+        "回答结构：结论；依据；风险；建议。\n"
+        f"问题：{prompt.query}\n"
+        f"引用ID：{citations}\n"
+        "资料：\n"
+        f"{prompt.context}\n"
+    )
+
+
+def _extract_chat_completion_text(response: dict[str, object]) -> str:
+    choices = response.get("choices")
+    if isinstance(choices, list) and choices:
+        first = choices[0]
+        if isinstance(first, dict):
+            message = first.get("message")
+            if isinstance(message, dict):
+                content = message.get("content", "")
+                if isinstance(content, str):
+                    return content
+            text = first.get("text", "")
+            if isinstance(text, str):
+                return text
+    output = response.get("output")
+    if isinstance(output, dict):
+        text = output.get("text", "")
+        if isinstance(text, str):
+            return text
+    return ""
 
 
 def _qdrant_json_request(method: str, endpoint: str, payload: dict[str, object] | None, api_key: str) -> dict[str, object]:

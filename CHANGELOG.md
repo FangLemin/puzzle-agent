@@ -2,6 +2,53 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.19 - RAG Grounded Answer Generation
+
+日期：2026-07-07
+
+阶段目标：
+
+- 将 RAG 在线阶段从“检索 + prompt 拼接”推进到“检索 + prompt + 生成答案 + trace 记录”。
+- 为后续价值观判断、审核判断和内容发散提供可溯源的最终答案字段。
+
+已完成：
+
+- RAG：
+  - 新增 `RagGeneratedAnswer`，统一承载 RAG 生成结果。
+  - 新增 `QwenRagAnswerGenerator`，支持 DashScope/Qwen compatible chat-completions 风格调用。
+  - 生成 prompt 明确要求：
+    - 只根据提供资料回答。
+    - 资料里没有依据就说不知道。
+    - 不编造来源、数据或规则。
+    - 输出围绕结论、依据、风险、建议。
+  - 新增 `MissingRagAnswerGenerator`，未配置生成模型时返回 `skipped`，不伪造生成结果。
+
+- Agent：
+  - 新增 `value_audit_rag_generated_answer(...)`。
+  - 生成结果写回最近 RAG trace：
+    - `llm_answer`
+    - `answer_source`
+    - `generation_status`
+    - `generation_provider`
+    - `generation_model`
+    - `generation_prompt`
+    - `generation_citations`
+    - `generation_latency_ms`
+    - `generation_error`
+  - 默认只有配置 `RAG_GENERATION_PROVIDER=qwen` 且 `RAG_ENABLE_REMOTE_CALLS=1` 时才会调用远程生成模型，避免无意产生费用。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_rag.py::test_qwen_rag_answer_generator_builds_grounded_prompt_and_extracts_answer tests/test_agents.py::test_agent_generated_rag_answer_records_llm_output_in_trace -q`：先因缺少 `QwenRagAnswerGenerator` / `RagGeneratedAnswer` 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_rag.py::test_qwen_rag_answer_generator_builds_grounded_prompt_and_extracts_answer tests/test_agents.py::test_agent_generated_rag_answer_records_llm_output_in_trace -q`：2 passed。
+  - `PYTHONPATH=. pytest tests/test_agents.py -q -k "generated_rag_answer"`：2 passed。
+
+当前限制：
+
+- 当前生成链路已经可调用和可记录，但尚未默认替换价值观大师主流程；后续需要将生成式 RAG 答案接入价值观判断、审核判断和内容发散，并加入人工确认入口。
+
 ## v0.7.18 - RAG Trace Answer And Latency Fields
 
 日期：2026-07-07

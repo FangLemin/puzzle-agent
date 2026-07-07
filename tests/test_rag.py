@@ -12,9 +12,11 @@ from puzzle_ops.rag import (
     LocalRerankProvider,
     MilvusVectorStore,
     MilvusVectorStoreRetriever,
+    QwenRagAnswerGenerator,
     RagChunkingConfig,
     RagDocument,
     RagIndexArtifacts,
+    RagPrompt,
     RagProviderConfig,
     QdrantVectorStore,
     QdrantVectorStoreRetriever,
@@ -647,6 +649,43 @@ def test_evaluate_rag_quality_report_covers_answer_trust_latency_scalability_and
     assert report["user_experience"]["average_satisfaction"] == 4.0
     assert report["user_experience"]["satisfaction_rate"] == 2 / 3
     assert 0 < report["user_experience"]["readability_score"] <= 1
+
+
+def test_qwen_rag_answer_generator_builds_grounded_prompt_and_extracts_answer():
+    captured = {}
+
+    def fake_transport(payload, api_key, endpoint):
+        captured["payload"] = payload
+        captured["api_key"] = api_key
+        captured["endpoint"] = endpoint
+        return {"choices": [{"message": {"content": "寿司图符合日本本土饮食文化，需避免品牌露出。"}}]}
+
+    generator = QwenRagAnswerGenerator(
+        api_key="qwen-test",
+        model="qwen3.7-plus",
+        endpoint="https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+        transport=fake_transport,
+    )
+    prompt = RagPrompt(
+        query="寿司图是否符合日本价值观？",
+        context="[JP_SUSHI#chunk-1] 寿司属于日本本土饮食文化。",
+        citations=("JP_SUSHI#chunk-1",),
+        prompt="请只根据资料回答。\n[JP_SUSHI#chunk-1] 寿司属于日本本土饮食文化。",
+    )
+
+    result = generator.generate(prompt)
+
+    assert result.status == "generated"
+    assert result.answer == "寿司图符合日本本土饮食文化，需避免品牌露出。"
+    assert result.provider == "qwen"
+    assert result.model == "qwen3.7-plus"
+    assert result.citations == ("JP_SUSHI#chunk-1",)
+    assert captured["api_key"] == "qwen-test"
+    assert captured["payload"]["model"] == "qwen3.7-plus"
+    user_text = captured["payload"]["messages"][1]["content"]
+    assert "只根据提供的资料回答" in user_text
+    assert "资料里没有依据" in user_text
+    assert "JP_SUSHI#chunk-1" in user_text
 
 
 def test_evaluate_retrieval_report_diagnoses_failed_business_sample_routes():

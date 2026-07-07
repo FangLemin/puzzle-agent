@@ -3,7 +3,7 @@ from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.vision_llm import MissingVisionLLMConfig, OpenAIVisionLLMClient
 from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.audit import AuditPolicyRetriever
-from puzzle_ops.rag import BGERerankProvider, RagProviderConfig, RagRuntimeStats
+from puzzle_ops.rag import BGERerankProvider, RagGeneratedAnswer, RagProviderConfig, RagRuntimeStats
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.vision_llm import VisionLLMResult
 from datetime import date
@@ -2328,6 +2328,61 @@ def test_agent_persists_value_audit_rag_trace_for_replay(tmp_path):
     assert latest["latency_ms"] >= 0
     assert latest["retrieval_trace"]["final_hits"]
     assert Path(str(latest["trace_path"])).exists()
+
+
+def test_agent_generated_rag_answer_records_llm_output_in_trace(tmp_path):
+    class FakeGenerator:
+        provider_name = "fake-qwen"
+        model = "qwen3.7-plus"
+
+        def generate(self, prompt):
+            return RagGeneratedAnswer(
+                answer="寿司图符合日本本土饮食文化，引用 JP_SUSHI 依据；需要避免品牌露出。",
+                status="generated",
+                provider="qwen",
+                model="qwen3.7-plus",
+                citations=prompt.citations,
+                prompt=prompt.prompt,
+            )
+
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "rag_generated_trace.db"))
+    agent._runtime_dir = tmp_path
+
+    result = agent.value_audit_rag_generated_answer(
+        "日本",
+        "寿司图是否符合日本本土饮食价值观？",
+        top_k=2,
+        generator=FakeGenerator(),
+    )
+
+    traces = agent.recent_rag_traces("日本")
+    latest = traces[0]
+    assert result.status == "generated"
+    assert "寿司图符合日本本土饮食文化" in result.answer
+    assert latest["llm_answer"] == result.answer
+    assert latest["answer_source"] == "llm_generated"
+    assert latest["generation_status"] == "generated"
+    assert latest["generation_provider"] == "qwen"
+    assert latest["generation_model"] == "qwen3.7-plus"
+    assert latest["generation_citations"] == result.citations
+    assert latest["generation_latency_ms"] >= 0
+
+
+def test_agent_generated_rag_answer_skips_when_generation_provider_missing(monkeypatch, tmp_path):
+    monkeypatch.delenv("RAG_GENERATION_PROVIDER", raising=False)
+    monkeypatch.delenv("RAG_ENABLE_REMOTE_CALLS", raising=False)
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "rag_generation_missing.db"))
+    agent._runtime_dir = tmp_path
+
+    result = agent.value_audit_rag_generated_answer("日本", "寿司图是否符合日本价值观？", top_k=2)
+
+    latest = agent.recent_rag_traces("日本")[0]
+    assert result.status == "skipped"
+    assert "RAG 生成模型未配置" in result.error
+    assert latest["answer_source"] == "retrieved_context"
+    assert latest["generation_status"] == "skipped"
+    assert latest["generation_provider"] == "missing"
+    assert latest["llm_answer"] == ""
 
 
 def test_harness_run_links_rag_trace_artifacts_for_replay(tmp_path):
