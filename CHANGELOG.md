@@ -2,6 +2,57 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.15 - RAG Quality Evaluation
+
+日期：2026-07-07
+
+阶段目标：
+
+- 在检索指标之外，补齐 RAG 效果评估的第一版综合质量框架。
+- 覆盖答案准确率、可信度、响应速度、可扩展性和用户体验评估。
+
+已完成：
+
+- RAG：
+  - 新增 `evaluate_rag_quality_report(...)`。
+  - 答案准确率：
+    - `bleu1`：基于 token overlap 的 BLEU-1 风格精度。
+    - `rouge_l`：基于最长公共子序列的 ROUGE-L 风格召回。
+  - 可信度：
+    - `support_overlap`：答案 token 在支持文档中的覆盖比例。
+    - `document_coverage`：必需事实是否能在支持文档中找到。
+  - 响应速度：
+    - `average_ms`
+    - `p95_ms`
+    - `p99_ms`
+    - `sample_count`
+  - 可扩展性：
+    - `qps`
+    - `total_queries`
+    - `total_seconds`
+    - `corpus_document_count`
+  - 用户体验：
+    - `average_satisfaction`
+    - `satisfaction_rate`
+    - `readability_score`
+  - `export_rag_acceptance_report(...)` 新增可选 `quality_eval` 参数，可把综合质量评估写入 acceptance JSON。
+
+验证：
+
+- TDD RED：
+  - `PYTHONPATH=. pytest tests/test_rag.py::test_evaluate_rag_quality_report_covers_answer_trust_latency_scalability_and_ux -q`：先因 `evaluate_rag_quality_report` 不存在失败。
+  - `PYTHONPATH=. pytest tests/test_rag.py::test_export_rag_acceptance_report_can_include_quality_eval_block -q`：先因 acceptance report 不支持 `quality_eval` 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_rag.py::test_evaluate_rag_quality_report_covers_answer_trust_latency_scalability_and_ux tests/test_rag.py::test_export_rag_acceptance_report_can_include_quality_eval_block -q`：2 passed。
+  - `PYTHONPATH=. pytest tests/test_rag.py -q`：54 passed。
+  - `PYTHONPATH=. pytest tests -q`：387 passed。
+  - `git diff --check`：passed。
+
+当前限制：
+
+- BLEU/ROUGE 为轻量本地实现，适合工程展示和趋势跟踪；后续可接专业评测库或 LLM-as-judge。
+- 响应速度、吞吐量和满意度当前依赖调用方传入观测数据，后续可以从真实 trace 自动聚合。
+
 ## v0.7.14 - Retrieval Metrics Precision Recall NDCG
 
 日期：2026-07-07

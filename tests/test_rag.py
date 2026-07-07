@@ -28,6 +28,7 @@ from puzzle_ops.rag import (
     export_offline_rag_index,
     export_rag_acceptance_report,
     chunk_document,
+    evaluate_rag_quality_report,
     evaluate_retrieval_report,
     evaluate_retrieval_hit_rate,
     load_rag_documents_jsonl,
@@ -618,6 +619,36 @@ def test_evaluate_retrieval_report_includes_precision_recall_and_ndcg_for_multi_
     assert report["cases"][0]["recall@3"] == 1.0
 
 
+def test_evaluate_rag_quality_report_covers_answer_trust_latency_scalability_and_ux():
+    report = evaluate_rag_quality_report(
+        answer="寿司和抹茶属于日本本土饮食文化，适合清爽餐桌近景；需要避免文字水印和IP角色。",
+        reference_answer="寿司和抹茶属于日本本土饮食文化，适合清爽餐桌近景，并应避免文字水印。",
+        support_documents=(
+            "寿司、抹茶、和果子属于日本本土饮食文化，适合清爽餐桌近景。",
+            "审核规则：避免文字水印、热门IP角色和商标。",
+        ),
+        required_facts=("日本本土饮食文化", "清爽餐桌近景", "避免文字水印"),
+        latency_ms=(120.0, 180.0, 240.0, 800.0),
+        satisfaction_scores=(5, 4, 3),
+        total_queries=20,
+        total_seconds=5.0,
+        corpus_document_count=120,
+    )
+
+    assert report["answer_accuracy"]["bleu1"] > 0
+    assert report["answer_accuracy"]["rouge_l"] > 0
+    assert report["trustworthiness"]["support_overlap"] > 0
+    assert report["trustworthiness"]["document_coverage"] == 1.0
+    assert report["latency"]["average_ms"] == 335.0
+    assert report["latency"]["p95_ms"] == 800.0
+    assert report["latency"]["p99_ms"] == 800.0
+    assert report["scalability"]["qps"] == 4.0
+    assert report["scalability"]["corpus_document_count"] == 120
+    assert report["user_experience"]["average_satisfaction"] == 4.0
+    assert report["user_experience"]["satisfaction_rate"] == 2 / 3
+    assert 0 < report["user_experience"]["readability_score"] <= 1
+
+
 def test_evaluate_retrieval_report_diagnoses_failed_business_sample_routes():
     documents = (
         RagDocument("FR_BREAD", "法国", "value_rule", "法国饮食", "法棍和奶酪体现法国生活艺术。", {}),
@@ -694,6 +725,36 @@ def test_export_rag_acceptance_report_writes_hit_at_five_models_routes_and_trace
     assert saved["retrieval_routes"]["vector"] is True
     assert saved["retrieval_routes"]["rerank"] is True
     assert saved["trace_samples"][0]["final_hits"]
+
+
+def test_export_rag_acceptance_report_can_include_quality_eval_block(tmp_path):
+    documents = (
+        RagDocument("JP_SUSHI", "日本", "value_rule", "日本饮食", "寿司、抹茶、和果子属于日本本土饮食文化。", {}),
+    )
+    chunks = tuple(chunk for document in documents for chunk in chunk_document(document, max_chars=80))
+    retriever = HybridRagRetriever(chunks)
+    quality_eval = evaluate_rag_quality_report(
+        answer="寿司属于日本本土饮食文化。",
+        reference_answer="寿司属于日本本土饮食文化。",
+        support_documents=("寿司属于日本本土饮食文化。",),
+        required_facts=("日本本土饮食文化",),
+        latency_ms=(100.0, 200.0),
+        satisfaction_scores=(5,),
+        total_queries=2,
+        total_seconds=1.0,
+        corpus_document_count=1,
+    )
+
+    saved = export_rag_acceptance_report(
+        retriever,
+        (RagRetrievalCase("日本寿司价值观", "日本", "JP_SUSHI"),),
+        tmp_path / "rag_acceptance_quality.json",
+        quality_eval=quality_eval,
+    )
+
+    assert saved["quality_eval"]["answer_accuracy"]["bleu1"] > 0
+    assert saved["quality_eval"]["trustworthiness"]["document_coverage"] == 1.0
+    assert saved["quality_eval"]["latency"]["p95_ms"] == 200.0
 
 
 def test_export_rag_acceptance_report_records_observed_runtime_routes_and_stats(tmp_path):

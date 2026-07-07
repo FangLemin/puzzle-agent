@@ -1290,6 +1290,114 @@ def _parent_ids_from_chunk_ids(chunk_ids: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(parent_ids)
 
 
+def evaluate_rag_quality_report(
+    *,
+    answer: str,
+    reference_answer: str = "",
+    support_documents: tuple[str, ...] = (),
+    required_facts: tuple[str, ...] = (),
+    latency_ms: tuple[float, ...] = (),
+    satisfaction_scores: tuple[int, ...] = (),
+    total_queries: int = 0,
+    total_seconds: float = 0.0,
+    corpus_document_count: int = 0,
+) -> dict[str, object]:
+    answer_tokens = _tokens(answer)
+    reference_tokens = _tokens(reference_answer)
+    support_text = "\n".join(support_documents)
+    support_tokens = _tokens(support_text)
+    answer_accuracy = {
+        "bleu1": _token_precision(answer_tokens, reference_tokens),
+        "rouge_l": _rouge_l(answer_tokens, reference_tokens),
+        "method": "token_overlap_bleu1_and_rouge_l",
+    }
+    trustworthiness = {
+        "support_overlap": _token_recall(answer_tokens, support_tokens),
+        "document_coverage": _fact_coverage(required_facts, support_text),
+        "required_fact_count": len(required_facts),
+        "covered_fact_count": sum(1 for fact in required_facts if fact and fact in support_text),
+    }
+    latency = {
+        "average_ms": round(sum(latency_ms) / len(latency_ms), 4) if latency_ms else 0.0,
+        "p95_ms": _percentile(latency_ms, 0.95),
+        "p99_ms": _percentile(latency_ms, 0.99),
+        "sample_count": len(latency_ms),
+    }
+    scalability = {
+        "qps": round(total_queries / total_seconds, 4) if total_seconds > 0 else 0.0,
+        "total_queries": total_queries,
+        "total_seconds": total_seconds,
+        "corpus_document_count": corpus_document_count,
+    }
+    user_experience = {
+        "average_satisfaction": round(sum(satisfaction_scores) / len(satisfaction_scores), 4) if satisfaction_scores else 0.0,
+        "satisfaction_rate": sum(1 for score in satisfaction_scores if score >= 4) / len(satisfaction_scores) if satisfaction_scores else 0.0,
+        "readability_score": _readability_score(answer),
+    }
+    return {
+        "answer_accuracy": answer_accuracy,
+        "trustworthiness": trustworthiness,
+        "latency": latency,
+        "scalability": scalability,
+        "user_experience": user_experience,
+    }
+
+
+def _token_precision(candidate: tuple[str, ...], reference: tuple[str, ...]) -> float:
+    if not candidate or not reference:
+        return 0.0
+    candidate_counts = Counter(candidate)
+    reference_counts = Counter(reference)
+    overlap = sum(min(candidate_counts[token], reference_counts[token]) for token in candidate_counts)
+    return overlap / len(candidate)
+
+
+def _token_recall(candidate: tuple[str, ...], reference: tuple[str, ...]) -> float:
+    if not candidate or not reference:
+        return 0.0
+    candidate_set = set(candidate)
+    reference_set = set(reference)
+    return len(candidate_set & reference_set) / len(candidate_set)
+
+
+def _rouge_l(candidate: tuple[str, ...], reference: tuple[str, ...]) -> float:
+    if not candidate or not reference:
+        return 0.0
+    previous = [0] * (len(reference) + 1)
+    for token in candidate:
+        current = [0]
+        for index, ref_token in enumerate(reference, 1):
+            if token == ref_token:
+                current.append(previous[index - 1] + 1)
+            else:
+                current.append(max(previous[index], current[-1]))
+        previous = current
+    return previous[-1] / len(reference)
+
+
+def _fact_coverage(required_facts: tuple[str, ...], support_text: str) -> float:
+    facts = tuple(fact for fact in required_facts if fact)
+    if not facts:
+        return 0.0
+    return sum(1 for fact in facts if fact in support_text) / len(facts)
+
+
+def _percentile(values: tuple[float, ...], percentile: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(float(value) for value in values)
+    index = min(len(ordered) - 1, math.ceil(percentile * len(ordered)) - 1)
+    return ordered[index]
+
+
+def _readability_score(answer: str) -> float:
+    sentences = _sentences(answer)
+    if not sentences:
+        return 0.0
+    avg_tokens = sum(_estimated_sentence_tokens(sentence) for sentence in sentences) / len(sentences)
+    return max(0.0, min(1.0, 1.0 - max(avg_tokens - 18.0, 0.0) / 40.0))
+
+
 def export_rag_acceptance_report(
     retriever: "HybridRagRetriever",
     cases: tuple[RagRetrievalCase, ...],
@@ -1301,6 +1409,7 @@ def export_rag_acceptance_report(
     knowledge_version: str = "",
     provider_config: RagProviderConfig | None = None,
     vector_store: RagVectorStoreConfig | None = None,
+    quality_eval: dict[str, object] | None = None,
 ) -> dict[str, object]:
     provider_config = provider_config or RagProviderConfig.from_env()
     vector_store = vector_store or RagVectorStoreConfig.from_env()
@@ -1353,6 +1462,7 @@ def export_rag_acceptance_report(
         "observed_retrieval": observed,
         "runtime_stats": runtime_stats,
         "live_model_evidence": _live_model_evidence(provider_config, runtime_stats),
+        "quality_eval": quality_eval or {},
         "trace_samples": traces,
         "industrial_gate": {
             "metric": f"hit@{k}",
