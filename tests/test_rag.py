@@ -39,6 +39,7 @@ from puzzle_ops.rag import (
     providers_from_config,
     rewrite_rag_query,
 )
+from puzzle_ops import rag
 
 
 def test_chunk_document_keeps_parent_child_and_semantic_overlap():
@@ -1059,6 +1060,33 @@ def test_milvus_vector_store_healthcheck_describes_collection():
     assert calls[0] == ("POST", "http://127.0.0.1:19530/v2/vectordb/collections/describe", {"collectionName": "puzzle_ops_rag"}, "milvus-token")
 
 
+def test_milvus_json_request_uses_https_context(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return b'{"code":0,"data":{}}'
+
+    def fake_urlopen(req, timeout, context=None):
+        captured["timeout"] = timeout
+        captured["context"] = context
+        return FakeResponse()
+
+    monkeypatch.setattr(rag.request, "urlopen", fake_urlopen)
+
+    response = rag._milvus_json_request("POST", "https://zilliz.example/v2/vectordb/collections/describe", {"collectionName": "x"}, "token")
+
+    assert response["code"] == 0
+    assert captured["timeout"] == 20
+    assert captured["context"] is not None
+
+
 def test_milvus_vector_store_upserts_entities_with_metadata_payload():
     calls = []
 
@@ -1108,9 +1136,9 @@ def test_milvus_vector_store_creates_collection_schema_index_and_load_when_missi
     create_call = next(call for call in calls if call[1].endswith("/collections/create"))
     assert create_call[2]["collectionName"] == "puzzle_ops_rag"
     fields = create_call[2]["schema"]["fields"]
-    assert any(field["name"] == "id" and field.get("isPrimary") for field in fields)
-    assert any(field["name"] == "vector" and field["params"]["dim"] == 1024 for field in fields)
-    assert any(call[1].endswith("/indexes/create") for call in calls)
+    assert any(field["fieldName"] == "id" and field.get("isPrimary") for field in fields)
+    assert any(field["fieldName"] == "vector" and field["elementTypeParams"]["dim"] == 1024 for field in fields)
+    assert create_call[2]["indexParams"][0]["fieldName"] == "vector"
     assert any(call[1].endswith("/collections/load") for call in calls)
 
 

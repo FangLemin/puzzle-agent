@@ -117,7 +117,7 @@ RAG Provider 说明：默认不需要额外配置，系统可使用本地 `local
 
 DashScope RAG Provider 说明：如需真实调用通义千问/DashScope embedding 与 rerank，可配置 `RAG_EMBEDDING_PROVIDER=dashscope`、`RAG_EMBEDDING_MODEL=text-embedding-v4`、`RAG_RERANK_PROVIDER=dashscope`、`RAG_RERANK_MODEL=qwen3-rerank`，并提供 `RAG_API_KEY` 或 `DASHSCOPE_API_KEY`。为了保护业务数据和成本，系统即使检测到 key，也只有在 `.env` 显式设置 `RAG_ENABLE_REMOTE_CALLS=true` 后才会真正请求远程服务；否则页面会显示 provider/key 就绪但继续使用本地 fallback。可选配置 `RAG_EMBEDDING_ENDPOINT` 与 `RAG_RERANK_ENDPOINT` 覆盖默认 endpoint。
 
-Milvus RAG Provider 说明：如需把 RAG chunk 入库到 Milvus，可配置 `RAG_VECTOR_STORE_PROVIDER=milvus`、`MILVUS_URI`、`MILVUS_COLLECTION`、`MILVUS_TOKEN`；Runtime 页面会按当前 provider 显示“重建并入库Milvus/SQLite/Qdrant”。Milvus 入库会自动检查 collection，不存在时创建 schema、vector index 并 load collection；点击 “Milvus Smoke” 会写入临时向量、搜索命中并删除临时实体。在线检索只有在 `RAG_VECTOR_STORE_SEARCH_ENABLED=true` 或 `RAG_MILVUS_SEARCH_ENABLED=true` 时启用，避免本地演示误连外部向量库。
+Milvus RAG Provider 说明：如需把 RAG chunk 入库到 Milvus，可配置 `RAG_VECTOR_STORE_PROVIDER=milvus`、`MILVUS_URI`、`MILVUS_COLLECTION`、`MILVUS_TOKEN`；Runtime 页面会按当前 provider 显示“重建并入库Milvus/SQLite/Qdrant”。Milvus 入库会自动检查 collection，不存在时创建 schema、vector index 并 load collection；点击 “Milvus Smoke” 会写入临时向量、搜索命中并删除临时实体。在线检索只有在 `RAG_VECTOR_STORE_SEARCH_ENABLED=true` 或 `RAG_MILVUS_SEARCH_ENABLED=true` 时启用，避免本地演示误连外部向量库。当前已用 Zilliz Cloud endpoint 验证：1024 维 collection 自动创建成功，Smoke `search_hit=True` 且临时实体清理成功。
 
 RAG 可观测与缓存说明：远程 embedding 会优先读取 SQLite `rag_embedding_cache`，命中后不会重复请求 provider；未命中才会在远程调用开关开启时请求 DashScope，并写回缓存。多模态底座会展示本次 RAG 的 cache hit、embedding remote、embedding fallback、rerank remote、rerank fallback 指标，便于判断是否真的发生远程调用、是否发生降级，以及后续接入成本/耗时统计。
 

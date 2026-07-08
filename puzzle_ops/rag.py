@@ -7,6 +7,7 @@ import json
 import math
 import os
 import re
+import ssl
 from pathlib import Path
 from typing import Callable
 from urllib import request
@@ -634,19 +635,6 @@ class MilvusVectorStore:
             return {"status": "exists", "collection": self.config.collection, "vector_size": existing_size}
         create_endpoint = f"{self.config.endpoint}/v2/vectordb/collections/create"
         self.transport("POST", create_endpoint, _milvus_create_collection_payload(self.config.collection, vector_size), self.config.api_key)
-        index_endpoint = f"{self.config.endpoint}/v2/vectordb/indexes/create"
-        index_payload = {
-            "collectionName": self.config.collection,
-            "indexParams": [
-                {
-                    "fieldName": "vector",
-                    "indexName": "vector_index",
-                    "metricType": "COSINE",
-                    "indexType": "AUTOINDEX",
-                }
-            ],
-        }
-        self.transport("POST", index_endpoint, index_payload, self.config.api_key)
         load_endpoint = f"{self.config.endpoint}/v2/vectordb/collections/load"
         self.transport("POST", load_endpoint, {"collectionName": self.config.collection}, self.config.api_key)
         return {"status": "created", "collection": self.config.collection, "vector_size": vector_size, "index": "vector_index"}
@@ -1909,18 +1897,26 @@ def _milvus_create_collection_payload(collection: str, vector_size: int) -> dict
             "autoID": False,
             "enableDynamicField": False,
             "fields": [
-                {"name": "id", "dataType": "VarChar", "isPrimary": True, "params": {"max_length": 128}},
-                {"name": "chunk_id", "dataType": "VarChar", "params": {"max_length": 256}},
-                {"name": "parent_id", "dataType": "VarChar", "params": {"max_length": 256}},
-                {"name": "country", "dataType": "VarChar", "params": {"max_length": 64}},
-                {"name": "source_type", "dataType": "VarChar", "params": {"max_length": 128}},
-                {"name": "title", "dataType": "VarChar", "params": {"max_length": 512}},
-                {"name": "text", "dataType": "VarChar", "params": {"max_length": 8192}},
-                {"name": "chunk_index", "dataType": "Int64"},
-                {"name": "metadata", "dataType": "VarChar", "params": {"max_length": 4096}},
-                {"name": "vector", "dataType": "FloatVector", "params": {"dim": int(vector_size)}},
+                {"fieldName": "id", "dataType": "VarChar", "isPrimary": True, "elementTypeParams": {"max_length": 128}},
+                {"fieldName": "chunk_id", "dataType": "VarChar", "elementTypeParams": {"max_length": 256}},
+                {"fieldName": "parent_id", "dataType": "VarChar", "elementTypeParams": {"max_length": 256}},
+                {"fieldName": "country", "dataType": "VarChar", "elementTypeParams": {"max_length": 64}},
+                {"fieldName": "source_type", "dataType": "VarChar", "elementTypeParams": {"max_length": 128}},
+                {"fieldName": "title", "dataType": "VarChar", "elementTypeParams": {"max_length": 512}},
+                {"fieldName": "text", "dataType": "VarChar", "elementTypeParams": {"max_length": 8192}},
+                {"fieldName": "chunk_index", "dataType": "Int64"},
+                {"fieldName": "metadata", "dataType": "VarChar", "elementTypeParams": {"max_length": 4096}},
+                {"fieldName": "vector", "dataType": "FloatVector", "elementTypeParams": {"dim": int(vector_size)}},
             ],
         },
+        "indexParams": [
+            {
+                "fieldName": "vector",
+                "indexName": "vector_index",
+                "metricType": "COSINE",
+                "params": {"index_type": "AUTOINDEX"},
+            }
+        ],
     }
 
 
@@ -1956,17 +1952,17 @@ def _milvus_vector_size(response: dict[str, object]) -> int | None:
     if not isinstance(data, dict):
         return None
     schema = data.get("schema")
-    if not isinstance(schema, dict):
-        return None
-    fields = schema.get("fields")
+    fields = schema.get("fields") if isinstance(schema, dict) else data.get("fields")
     if not isinstance(fields, list):
         return None
     for field in fields:
         if not isinstance(field, dict):
             continue
-        if str(field.get("name", "")) != "vector":
+        if str(field.get("name", field.get("fieldName", ""))) != "vector":
             continue
-        params = field.get("params")
+        params = field.get("params", field.get("elementTypeParams"))
+        if isinstance(params, list):
+            params = {str(item.get("key", "")): item.get("value") for item in params if isinstance(item, dict)}
         if isinstance(params, dict) and params.get("dim") is not None:
             try:
                 return int(params["dim"])
@@ -2442,7 +2438,7 @@ def _post_json(endpoint: str, payload: dict[str, object], api_key: str) -> dict[
         },
         method="POST",
     )
-    with request.urlopen(req, timeout=20) as resp:
+    with request.urlopen(req, timeout=20, context=_https_context()) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -2486,7 +2482,7 @@ def _qdrant_json_request(method: str, endpoint: str, payload: dict[str, object] 
         headers["Authorization"] = f"Bearer {api_key}"
         headers["api-key"] = api_key
     req = request.Request(endpoint, data=data, headers=headers, method=method)
-    with request.urlopen(req, timeout=20) as resp:
+    with request.urlopen(req, timeout=20, context=_https_context()) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -2496,8 +2492,17 @@ def _milvus_json_request(method: str, endpoint: str, payload: dict[str, object] 
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     req = request.Request(endpoint, data=data, headers=headers, method=method)
-    with request.urlopen(req, timeout=20) as resp:
+    with request.urlopen(req, timeout=20, context=_https_context()) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
+
+def _https_context():
+    try:
+        import certifi  # type: ignore
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return ssl.create_default_context()
 
 
 def _qdrant_vector_size(response: dict[str, object]) -> int | None:

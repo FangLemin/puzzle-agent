@@ -2,6 +2,49 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.26 - Zilliz Cloud Milvus Verification
+
+日期：2026-07-08
+
+阶段目标：
+
+- 在真实 Zilliz Cloud endpoint 上验证 v0.7.25 的 Milvus 自动建表与 Smoke 链路。
+- 修复 Python 标准库 urllib 在 macOS 下访问 Zilliz HTTPS endpoint 的证书链问题。
+- 适配 Zilliz/Milvus REST describe 返回结构，正确读取真实 collection vector dim。
+
+已完成：
+
+- RAG HTTP：
+  - `_post_json(...)`、`_qdrant_json_request(...)`、`_milvus_json_request(...)` 增加 HTTPS context。
+  - 优先使用 `certifi` CA bundle，避免 `CERTIFICATE_VERIFY_FAILED`。
+- Milvus REST schema：
+  - 自动建表 payload 改为 Milvus REST v2/Zilliz 可识别格式：
+    - `fieldName`
+    - `elementTypeParams`
+    - top-level `indexParams`
+  - `_milvus_vector_size(...)` 支持解析 Zilliz describe 返回的 `data.fields[].params[]`。
+- 真实 Zilliz 验证：
+  - 已将本地 `.env` 配置到用户提供的 Zilliz Cloud endpoint。
+  - 真实 DashScope embedding 返回维度：1024。
+  - `ensure_collection(1024)` 成功创建 `puzzle_ops_rag` collection。
+  - `healthcheck()` 返回 ready/exists true，vector_size=1024。
+  - `smoke_diagnostic(...)` 返回 `status=passed`、`search_hit=True`、`cleanup_status=deleted`。
+
+验证：
+
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_rag.py::test_milvus_json_request_uses_https_context tests/test_rag.py::test_milvus_vector_store_creates_collection_schema_index_and_load_when_missing tests/test_rag.py::test_milvus_vector_store_smoke_diagnostic_writes_searches_and_deletes_temp_entity -q`：3 passed。
+- 真实调用验证：
+  - Zilliz Cloud healthcheck：ready=True，exists=True，vector_size=1024。
+  - Zilliz Cloud smoke：status=passed，search_hit=True，cleanup=deleted。
+- 回归验证：
+  - `PYTHONPATH=. pytest tests -q`：405 passed。
+
+当前限制：
+
+- `.env` 仍不提交；Zilliz endpoint 和 token 只保存在本机。
+- 真实入库/检索会产生 Zilliz 和 DashScope 侧调用，后续批量跑前应注意费用和额度。
+
 ## v0.7.25 - Milvus Auto Schema and Smoke
 
 日期：2026-07-08
