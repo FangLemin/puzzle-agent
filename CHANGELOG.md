@@ -2,6 +2,36 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.24 - Final Acceptance Closure
+
+日期：2026-07-08
+
+阶段目标：
+
+- 完成三步收口的第三步：不继续加功能，改为最终验收、文档一致性和交付说明。
+- 把当前 Agent 架构、Memory、RAG、Harness、VLM、Milvus、飞书同步能力整理成可面试讲述的版本。
+
+已完成：
+
+- 新增最终验收说明：
+  - `docs/final_acceptance/v0.7.24_final_acceptance.md`
+  - 汇总当前架构、四层 memory、RAG 离线/在线链路、Harness、多模态生成、飞书同步。
+  - 明确已完成、未完成、真实运行所需外部条件和面试叙事。
+- README 口径修正：
+  - Qwen 默认视觉模型统一为 `qwen3-vl-plus`。
+  - RAG embedding / rerank 统一为推荐 `text-embedding-v4` + `qwen3-rerank`。
+  - 移除旧 `text-embedding-v3/gte-rerank-v2` 批处理说法，避免和当前配置冲突。
+
+验证：
+
+- 回归验证：
+  - `PYTHONPATH=. pytest tests -q`：399 passed。
+
+当前限制：
+
+- 本版本只做最终验收和文档收口，不新增 Milvus schema 自动创建、Milvus Smoke、外部 Phoenix/DeepEval API 集成或新的页面功能。
+- `.env` 仍不提交；真实 VLM、RAG 远程调用、Milvus、飞书同步都依赖本地 `.env` 和外部服务可用性。
+
 ## v0.7.23 - Milvus Vector Store Closure and Full Retrieval Metrics
 
 日期：2026-07-08

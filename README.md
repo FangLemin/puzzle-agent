@@ -99,7 +99,7 @@ cp .env.example .env
 
 Excel 图片说明：真实样表中的“图片本身”字段使用 `DISPIMG` 公式，项目会解析 `xl/cellimages.xml` 并把图片抽取到本地路径；生产环境有真实 `image_url` 时，可以优先展示 URL。
 
-LLM 大脑说明：当前版本支持通过 `VISION_LLM_PROVIDER=qwen` 或 `VISION_LLM_PROVIDER=openai` 接入真实视觉语言模型。Qwen 默认模型为 `qwen3.7-plus`，用于试新图片的主体内容、色彩氛围、构图环境解析，以及价值观大师的图片证据判断。Qwen 请求默认超时为 90 秒，可通过 `QWEN_TIMEOUT_SECONDS` 调整；未配置真实 key 时，系统只保留本地像素层解析和明确的未配置提示，不会伪造语义主体识别。
+LLM 大脑说明：当前版本支持通过 `VISION_LLM_PROVIDER=qwen` 或 `VISION_LLM_PROVIDER=openai` 接入真实视觉语言模型。Qwen 默认视觉模型为 `qwen3-vl-plus`，用于试新图片的主体内容、色彩氛围、构图环境解析，以及价值观大师的图片证据判断。Qwen 请求默认超时为 90 秒，可通过 `QWEN_TIMEOUT_SECONDS` 调整；未配置真实 key 时，系统只保留本地像素层解析和明确的未配置提示，不会伪造语义主体识别。
 
 好图衍生生成说明：`IMAGE_GENERATION_PROVIDER` 默认为空时，好图衍生只输出衍生方向；`mock` 只用于本地 Harness/UI 链路验证，生成的占位图不会同步为飞书附件；配置为 `dashscope` 后，系统使用通义万相参考图生成能力生成真实参考图。生成图必须依次通过真实视觉 LLM 二次解析、审核规则复检和运营人工确认，三层均通过后才允许同步到飞书图片附件字段；未配置 VLM、VLM 调用失败、命中风险或未人工确认时，页面保留记录但阻断同步。
 
@@ -127,7 +127,7 @@ Harness RAG 指标说明：Agent 评测页会把最近一次 RAG runtime stats �
 
 Harness Case Trace 与 Memory Debug 说明：每个 Harness case 现在保存结构化 `evidence_trace`，区分视觉输入证据、RAG citation/context 和四层 memory 证据，并用 `failure_categories` 对缺图、缺 gold、风险漏召回、等级误判、生成 provider 未配置、生成失败和字段缺失进行业务分类。为控制真实模型成本，同一 Harness run 每个国家只执行一次真实 RAG 检索，再把 run 级引用证据关联到该国 case。多模态底座新增只读 Memory Debug 表，可按当前主体查看层级、memory type、RAG source、命中分、入库状态和内容。
 
-RAG 批处理与引用溯源说明：DashScope embedding 会按每批 10 条文本调用 `text-embedding-v3`，rerank 会把候选 chunk 合并为一次 `gte-rerank-v2` 请求；批量失败后直接使用本地 fallback，不再逐 chunk 重试远程接口。真实日本知识库验证结果为 embedding 8 个批次、rerank 1 个批次、fallback 0。多模态底座新增引用明细，展示 citation ID、知识来源、父文档、标题和正文。价值观大师要求 LLM 输出结论、当前图像证据、真实 RAG citation、风险提示和人工复核事项，旧版 `value_match/evidence` JSON 仍兼容。
+RAG 批处理与引用溯源说明：DashScope embedding 推荐使用 `text-embedding-v4`，rerank 推荐使用 `qwen3-rerank`；远程调用失败后直接使用本地 fallback，不伪造 provider 成功。多模态底座新增引用明细，展示 citation ID、知识来源、父文档、标题和正文。价值观大师要求 LLM 输出结论、当前图像证据、真实 RAG citation、风险提示和人工复核事项，旧版 `value_match/evidence` JSON 仍兼容。
 
 Memory 治理说明：四层 memory 现在包含 `memory_id`、`status`、`expires_at`、`fingerprint`、`source_memory_id`、`human_verified` 和更新时间。感知记忆默认保留 7 天，短期记忆默认保留 24 小时，长期记忆与结构化事实不自动过期；相同 active payload 自动去重。运营可在 Memory Debug 中把感知/短期记忆晋升为结构化事实，把短期/事实晋升为长期记忆，或停用错误记忆。晋升目标保留来源 ID 和人工确认标记，来源改为 `promoted`；`expired/promoted/retired` 均不再进入 RAG。旧 SQLite 会自动迁移新列并保留已有数据。
 
