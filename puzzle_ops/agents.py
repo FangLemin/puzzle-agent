@@ -1652,6 +1652,41 @@ class PuzzleOpsAgent:
             run_manifest_path.write_text(json.dumps(run_manifest, ensure_ascii=False, indent=2), encoding="utf-8")
         return result
 
+    def run_milvus_smoke_diagnostic(
+        self,
+        country: str,
+        *,
+        vector_store: MilvusVectorStore | None = None,
+    ) -> dict[str, object]:
+        manifest_path = _rag_knowledge_dir() / "indices" / f"milvus_reindex_{country}.json"
+        manifest = _read_json_object(manifest_path)
+        vector_size = int(manifest.get("vector_size", 0) or 0)
+        if vector_size <= 0:
+            result = {
+                "status": "skipped_no_manifest_vector_size",
+                "country": country,
+                "vector_size": 0,
+                "search_hit": False,
+                "cleanup_status": "not_started",
+            }
+        else:
+            store = vector_store or MilvusVectorStore(self.rag_vector_store_config)
+            result = {
+                "country": country,
+                **store.smoke_diagnostic(vector_size=vector_size, country=country),
+            }
+        manifest["smoke_diagnostic"] = result
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        run_id = str(manifest.get("run_id", "")).strip()
+        if run_id:
+            run_manifest_path = manifest_path.parent / "runs" / f"milvus_reindex_{country}_{run_id}.json"
+            run_manifest = _read_json_object(run_manifest_path) or dict(manifest)
+            run_manifest["smoke_diagnostic"] = result
+            run_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            run_manifest_path.write_text(json.dumps(run_manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        return result
+
     def rollback_qdrant_manifest(
         self,
         country: str,
@@ -2300,6 +2335,12 @@ class PuzzleOpsAgent:
             "vector_store_manifest_precision@5": vector_manifest.get("precision@5", 0),
             "vector_store_manifest_recall@5": vector_manifest.get("recall@5", 0),
             "vector_store_manifest_ndcg@5": vector_manifest.get("ndcg@5", 0),
+            "vector_store_manifest_smoke_status": str(
+                (vector_manifest.get("smoke_diagnostic") if isinstance(vector_manifest.get("smoke_diagnostic"), dict) else {}).get("status", "")
+            ),
+            "vector_store_manifest_smoke_cleanup_status": str(
+                (vector_manifest.get("smoke_diagnostic") if isinstance(vector_manifest.get("smoke_diagnostic"), dict) else {}).get("cleanup_status", "")
+            ),
             "qdrant_manifest_path": str(qdrant_manifest_path),
             "qdrant_manifest_exists": qdrant_manifest_path.exists(),
             "qdrant_manifest_run_id": str(qdrant_manifest.get("run_id", "")),

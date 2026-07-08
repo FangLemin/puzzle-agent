@@ -2,6 +2,67 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.25 - Milvus Auto Schema and Smoke
+
+日期：2026-07-08
+
+阶段目标：
+
+- 将 Milvus 从“可配置、可入库”继续补齐到“自动建 collection/schema/index/load + 一键 smoke 诊断 + 默认在线检索配置”。
+- 保留 Qdrant 历史兼容，不破坏已有 RAG 验收链路。
+
+已完成：
+
+- Milvus vector store：
+  - 新增 `MilvusVectorStore.ensure_collection(vector_size)`。
+  - collection 不存在时自动创建 schema：
+    - `id`
+    - `chunk_id`
+    - `parent_id`
+    - `country`
+    - `source_type`
+    - `title`
+    - `text`
+    - `chunk_index`
+    - `metadata`
+    - `vector`
+  - 自动创建 `vector_index`，metric 使用 `COSINE`，index type 使用 `AUTOINDEX`。
+  - 自动 load collection。
+  - 如果已有 collection 的 vector dim 不匹配，会直接报错，避免把不同维度 embedding 写进同一个 collection。
+- Milvus Smoke：
+  - 新增 `MilvusVectorStore.smoke_diagnostic(...)`。
+  - 写入临时向量实体。
+  - 用同一向量搜索确认能命中。
+  - 删除临时实体。
+  - 返回 `status/search_hit/cleanup_status/vector_size`。
+- Agent / Server / Runtime：
+  - 新增 `run_milvus_smoke_diagnostic(...)`。
+  - 新增 `/milvus_smoke_diagnostic` action。
+  - Runtime 页面 Milvus 模式下展示真实 `Milvus Smoke` 表单，不再是 disabled 占位。
+  - Milvus smoke 结果写回 `milvus_reindex_<国家>.json` manifest 和对应 run manifest。
+- 配置：
+  - `.env.example` 将 `RAG_VECTOR_STORE_SEARCH_ENABLED=true`、`RAG_MILVUS_SEARCH_ENABLED=true` 作为 Milvus 示例配置。
+  - 当前本地 `.env` 已按用户授权配置为 Milvus + DashScope embedding + Qwen rerank，但 `.env` 仍被忽略，不提交。
+
+验证：
+
+- TDD RED：
+  - Milvus auto schema/index/load 测试先因缺少 `ensure_collection` 失败。
+  - Milvus smoke 测试先因缺少 `smoke_diagnostic` 失败。
+  - Runtime Milvus Smoke 测试先因页面仍是 disabled 占位失败。
+  - Server/Agent Milvus smoke 测试先因缺少 `run_milvus_smoke_diagnostic` 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_rag.py::test_milvus_vector_store_creates_collection_schema_index_and_load_when_missing tests/test_rag.py::test_milvus_vector_store_rejects_existing_vector_size_mismatch tests/test_rag.py::test_milvus_vector_store_smoke_diagnostic_writes_searches_and_deletes_temp_entity tests/test_renderer.py::test_runtime_page_uses_current_vector_store_actions_for_milvus tests/test_server.py::test_milvus_smoke_action_reports_search_and_cleanup tests/test_agents.py::test_agent_runs_milvus_smoke_diagnostic_from_latest_manifest -q`：6 passed。
+  - `PYTHONPATH=. pytest tests/test_rag.py tests/test_agents.py tests/test_server.py tests/test_renderer.py -q -k "milvus or qdrant or vector_store or rag"`：156 passed, 145 deselected。
+- 回归验证：
+  - `PYTHONPATH=. pytest tests -q`：404 passed。
+
+当前限制：
+
+- 本机检测到 Docker CLI 存在，但 Docker daemon 未运行：`Cannot connect to the Docker daemon`。因此本轮无法替你直接启动本地 Milvus 容器。
+- 真实 Milvus 是否可用仍取决于外部服务是否启动、`MILVUS_URI` 是否正确、collection 创建接口是否和所用 Milvus/Zilliz 版本一致。
+- 本版本实现的是 Milvus REST adapter 的自动建表和 smoke；没有加入 Docker Compose 编排文件。
+
 ## v0.7.24 - Final Acceptance Closure
 
 日期：2026-07-08

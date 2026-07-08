@@ -2295,7 +2295,9 @@ def test_agent_rag_summary_includes_runtime_stats():
 
 
 def test_agent_rag_summary_exposes_engineering_pipeline_settings():
-    summary = PuzzleOpsAgent().value_audit_rag_summary("日本")
+    agent = PuzzleOpsAgent()
+    agent.rag_vector_store_config = agent.rag_vector_store_config.__class__()
+    summary = agent.value_audit_rag_summary("日本")
 
     assert summary["offline_loader"] == "StaticDocumentLoaderAdapter"
     assert summary["splitter"] == "sentence_token"
@@ -2507,6 +2509,7 @@ def test_agent_exports_harness_external_eval_artifacts(tmp_path):
 
 def test_agent_exports_value_audit_rag_offline_artifacts(tmp_path):
     agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "rag_artifacts.db"))
+    agent.rag_vector_store_config = agent.rag_vector_store_config.__class__()
 
     artifacts = agent.export_value_audit_rag_artifacts("日本", tmp_path / "rag_export")
 
@@ -2882,6 +2885,13 @@ knowledge_version: unit-test
     )
     monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
     agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "rag_full_acceptance.db"))
+    agent.rag_vector_store_config = agent.rag_vector_store_config.__class__(
+        provider="qdrant",
+        endpoint="http://127.0.0.1:6333",
+        collection="puzzle_ops_rag",
+        configured=True,
+        ready=True,
+    )
     agent.rag_provider_config = RagProviderConfig(
         embedding_provider="dashscope",
         embedding_model="text-embedding-v4",
@@ -3251,6 +3261,35 @@ def test_agent_runs_qdrant_smoke_diagnostic_from_latest_manifest(monkeypatch, tm
     summary = agent.value_audit_rag_summary("日本")["knowledge_base"]
     assert summary["qdrant_manifest_smoke_status"] == "passed"
     assert summary["qdrant_manifest_smoke_cleanup_status"] == "deleted"
+
+
+def test_agent_runs_milvus_smoke_diagnostic_from_latest_manifest(monkeypatch, tmp_path):
+    knowledge_dir = tmp_path / "knowledge"
+    indices = knowledge_dir / "indices"
+    runs = indices / "runs"
+    runs.mkdir(parents=True)
+    run_id = "20260708-milvus"
+    latest = {"run_id": run_id, "country": "日本", "status": "indexed", "vector_size": 1024, "vector_store": {"provider": "milvus"}}
+    (indices / "milvus_reindex_日本.json").write_text(json.dumps(latest, ensure_ascii=False), encoding="utf-8")
+    run_manifest = runs / f"milvus_reindex_日本_{run_id}.json"
+    run_manifest.write_text(json.dumps(latest, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "milvus_smoke.db"))
+
+    class FakeMilvusStore:
+        def smoke_diagnostic(self, *, vector_size: int, country: str):
+            assert vector_size == 1024
+            assert country == "日本"
+            return {"status": "passed", "search_hit": True, "cleanup_status": "deleted", "vector_size": vector_size}
+
+    result = agent.run_milvus_smoke_diagnostic("日本", vector_store=FakeMilvusStore())
+
+    assert result["status"] == "passed"
+    assert json.loads(run_manifest.read_text(encoding="utf-8"))["smoke_diagnostic"]["status"] == "passed"
+    summary = agent.value_audit_rag_summary("日本")["knowledge_base"]
+    assert summary["vector_store_manifest_status"] == "indexed"
+    assert summary["vector_store_manifest_smoke_status"] == "passed"
+    assert summary["vector_store_manifest_smoke_cleanup_status"] == "deleted"
 
 
 def test_agent_rolls_back_qdrant_latest_manifest_to_history_run(monkeypatch, tmp_path):

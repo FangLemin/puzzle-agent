@@ -599,7 +599,7 @@ def render_rag_runtime_actions(agent: PuzzleOpsAgent, state: AppState) -> str:
             )
         )
     elif provider == "milvus":
-        actions.append(f'<button type="button" disabled>Milvus Smoke</button>')
+        actions.append(f'<form method="post" action="/milvus_smoke_diagnostic">{context}<button>Milvus Smoke</button></form>')
     return "".join(actions)
 
 

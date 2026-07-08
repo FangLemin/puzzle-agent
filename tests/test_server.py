@@ -1516,6 +1516,23 @@ def test_qdrant_smoke_action_reports_search_and_cleanup(monkeypatch):
     assert "cleanup=deleted" in APP.state.sync_message
 
 
+def test_milvus_smoke_action_reports_search_and_cleanup(monkeypatch):
+    APP.state = AppState(country="日本", view="runtime")
+
+    def fake_smoke(country):
+        assert country == "日本"
+        return {"status": "passed", "search_hit": True, "cleanup_status": "deleted", "vector_size": 1024}
+
+    monkeypatch.setattr(APP.agent, "run_milvus_smoke_diagnostic", fake_smoke)
+
+    handle_action("/milvus_smoke_diagnostic", {"country": ["日本"], "view": ["runtime"]})
+
+    assert APP.state.view == "runtime"
+    assert "Milvus smoke 诊断完成" in APP.state.sync_message
+    assert "search_hit=True" in APP.state.sync_message
+    assert "cleanup=deleted" in APP.state.sync_message
+
+
 def test_qdrant_manifest_rollback_action_sets_latest_run(monkeypatch):
     APP.state = AppState(country="日本", view="runtime")
 

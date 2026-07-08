@@ -10,6 +10,7 @@ from puzzle_ops.storage import PuzzleRepository
 
 def agent_without_vlm(tmp_path):
     agent = PuzzleOpsAgent()
+    agent.rag_vector_store_config = agent.rag_vector_store_config.__class__()
     agent.trial_uploads = TrialImageUploadService(
         tmp_path / "uploads",
         vision_config_error=MissingVisionLLMConfig(("QWEN_API_KEY",), provider="qwen"),
@@ -326,6 +327,7 @@ def test_runtime_page_uses_current_vector_store_actions_for_milvus(tmp_path):
     assert 'action="/apply_rag_patch_rebuild_and_reindex_vector_store"' in html
     assert "重建并入库Milvus" in html
     assert "应用补丁并入库Milvus" in html
+    assert 'action="/milvus_smoke_diagnostic"' in html
     assert "Milvus Smoke" in html
     assert "向量库 manifest=none" in html
     assert "qdrant manifest=none" not in html
@@ -486,6 +488,7 @@ def test_runtime_page_shows_rag_failure_feedback_queue(tmp_path):
 
 def test_runtime_page_shows_rag_knowledge_patch_drafts(tmp_path):
     agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent.rag_vector_store_config = agent.rag_vector_store_config.__class__()
     agent.record_rag_eval_failure_feedback(
         "日本",
         query="日本寿司图是否符合本土饮食价值观",
@@ -996,7 +999,9 @@ def test_every_view_header_keeps_module_icon():
 
 
 def test_multimodal_runtime_page_shows_profile_candidates_and_evidence():
-    html = render_page(PuzzleOpsAgent(), AppState(country="日本", view="runtime"))
+    agent = PuzzleOpsAgent()
+    agent.rag_vector_store_config = agent.rag_vector_store_config.__class__()
+    html = render_page(agent, AppState(country="日本", view="runtime"))
 
     assert "多模态底座" in html
     assert "相似历史好图" in html

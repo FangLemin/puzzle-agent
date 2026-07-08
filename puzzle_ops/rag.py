@@ -619,6 +619,38 @@ class MilvusVectorStore:
             "vector_size": vector_size,
         }
 
+    def ensure_collection(self, vector_size: int) -> dict[str, object]:
+        if self.config.provider != "milvus" or not self.config.ready:
+            raise RuntimeError("Milvus vector store 未就绪")
+        if vector_size <= 0:
+            raise ValueError("Milvus collection 向量维度必须大于 0")
+        describe_endpoint = f"{self.config.endpoint}/v2/vectordb/collections/describe"
+        describe_payload = {"collectionName": self.config.collection}
+        response = self.transport("POST", describe_endpoint, describe_payload, self.config.api_key)
+        existing_size = _milvus_vector_size(response) if _milvus_success(response) else None
+        if existing_size is not None:
+            if existing_size != vector_size:
+                raise ValueError(f"Milvus collection 向量维度不匹配：existing={existing_size}，new={vector_size}")
+            return {"status": "exists", "collection": self.config.collection, "vector_size": existing_size}
+        create_endpoint = f"{self.config.endpoint}/v2/vectordb/collections/create"
+        self.transport("POST", create_endpoint, _milvus_create_collection_payload(self.config.collection, vector_size), self.config.api_key)
+        index_endpoint = f"{self.config.endpoint}/v2/vectordb/indexes/create"
+        index_payload = {
+            "collectionName": self.config.collection,
+            "indexParams": [
+                {
+                    "fieldName": "vector",
+                    "indexName": "vector_index",
+                    "metricType": "COSINE",
+                    "indexType": "AUTOINDEX",
+                }
+            ],
+        }
+        self.transport("POST", index_endpoint, index_payload, self.config.api_key)
+        load_endpoint = f"{self.config.endpoint}/v2/vectordb/collections/load"
+        self.transport("POST", load_endpoint, {"collectionName": self.config.collection}, self.config.api_key)
+        return {"status": "created", "collection": self.config.collection, "vector_size": vector_size, "index": "vector_index"}
+
     def upsert(self, points: tuple[QdrantPoint, ...]) -> dict[str, object]:
         if self.config.provider != "milvus" or not self.config.ready:
             raise RuntimeError("Milvus vector store 未就绪")
@@ -649,6 +681,67 @@ class MilvusVectorStore:
         }
         response = self.transport("POST", endpoint, payload, self.config.api_key)
         return _milvus_search_scores(response)
+
+    def delete_entities(self, point_ids: tuple[str, ...]) -> dict[str, object]:
+        if self.config.provider != "milvus" or not self.config.ready:
+            raise RuntimeError("Milvus vector store 未就绪")
+        if not point_ids:
+            return {"status": "skipped_empty", "deleted_count": 0}
+        endpoint = f"{self.config.endpoint}/v2/vectordb/entities/delete"
+        escaped = ", ".join(f'"{_milvus_filter_value(point_id)}"' for point_id in point_ids)
+        response = self.transport(
+            "POST",
+            endpoint,
+            {"collectionName": self.config.collection, "filter": f"id in [{escaped}]"},
+            self.config.api_key,
+        )
+        return {
+            "status": "deleted" if _milvus_success(response) else "failed",
+            "deleted_count": _milvus_delete_count(response, len(point_ids)),
+            "response": response,
+        }
+
+    def smoke_diagnostic(self, *, vector_size: int, country: str = "GLOBAL") -> dict[str, object]:
+        if vector_size <= 0:
+            raise ValueError("Milvus smoke diagnostic 需要有效向量维度")
+        point_id = f"puzzleops-rag-smoke-{uuid.uuid4()}"
+        chunk_id = f"{point_id}#chunk-1"
+        vector = tuple(1.0 if index == 0 else 0.0 for index in range(vector_size))
+        point = QdrantPoint(
+            id=point_id,
+            vector=vector,
+            payload={
+                "chunk_id": chunk_id,
+                "parent_id": "SMOKE",
+                "country": country,
+                "source_type": "milvus_smoke",
+                "title": "Milvus smoke diagnostic",
+                "text": "temporary diagnostic entity",
+                "chunk_index": 1,
+                "metadata": {"temporary": True},
+            },
+        )
+        self.upsert((point,))
+        search_scores: dict[str, float] = {}
+        search_hit = False
+        cleanup_status = "not_started"
+        try:
+            search_scores = self.search(vector, country=country, top_k=1)
+            search_hit = chunk_id in search_scores
+            status = "passed" if search_hit else "failed_no_hit"
+        finally:
+            cleanup = self.delete_entities((point_id,))
+            cleanup_status = str(cleanup.get("status", "unknown"))
+        return {
+            "status": status,
+            "point_id": point_id,
+            "chunk_id": chunk_id,
+            "country": country,
+            "vector_size": vector_size,
+            "search_hit": search_hit,
+            "search_score": search_scores.get(chunk_id, 0.0),
+            "cleanup_status": cleanup_status,
+        }
 
 
 class MilvusVectorStoreRetriever:
@@ -1795,6 +1888,40 @@ def _milvus_insert_count(response: dict[str, object], fallback: int) -> int:
                 except (TypeError, ValueError):
                     continue
     return fallback
+
+
+def _milvus_delete_count(response: dict[str, object], fallback: int) -> int:
+    data = response.get("data")
+    if isinstance(data, dict):
+        for key in ("deleteCount", "delete_count", "row_count", "count"):
+            if data.get(key) is not None:
+                try:
+                    return int(data[key])
+                except (TypeError, ValueError):
+                    continue
+    return fallback
+
+
+def _milvus_create_collection_payload(collection: str, vector_size: int) -> dict[str, object]:
+    return {
+        "collectionName": collection,
+        "schema": {
+            "autoID": False,
+            "enableDynamicField": False,
+            "fields": [
+                {"name": "id", "dataType": "VarChar", "isPrimary": True, "params": {"max_length": 128}},
+                {"name": "chunk_id", "dataType": "VarChar", "params": {"max_length": 256}},
+                {"name": "parent_id", "dataType": "VarChar", "params": {"max_length": 256}},
+                {"name": "country", "dataType": "VarChar", "params": {"max_length": 64}},
+                {"name": "source_type", "dataType": "VarChar", "params": {"max_length": 128}},
+                {"name": "title", "dataType": "VarChar", "params": {"max_length": 512}},
+                {"name": "text", "dataType": "VarChar", "params": {"max_length": 8192}},
+                {"name": "chunk_index", "dataType": "Int64"},
+                {"name": "metadata", "dataType": "VarChar", "params": {"max_length": 4096}},
+                {"name": "vector", "dataType": "FloatVector", "params": {"dim": int(vector_size)}},
+            ],
+        },
+    }
 
 
 def _milvus_search_scores(response: dict[str, object]) -> dict[str, float]:

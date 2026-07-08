@@ -1087,6 +1087,83 @@ def test_milvus_vector_store_upserts_entities_with_metadata_payload():
     assert calls[0][3] == "milvus-token"
 
 
+def test_milvus_vector_store_creates_collection_schema_index_and_load_when_missing():
+    calls = []
+
+    def fake_transport(method, endpoint, payload, api_key):
+        calls.append((method, endpoint, payload, api_key))
+        if endpoint.endswith("/collections/describe"):
+            return {"code": 100, "message": "collection not found"}
+        return {"code": 0, "data": {}}
+
+    store = MilvusVectorStore(
+        RagVectorStoreConfig(provider="milvus", endpoint="http://127.0.0.1:19530", collection="puzzle_ops_rag", api_key="milvus-token", configured=True, ready=True),
+        transport=fake_transport,
+    )
+
+    result = store.ensure_collection(1024)
+
+    assert result["status"] == "created"
+    assert result["vector_size"] == 1024
+    create_call = next(call for call in calls if call[1].endswith("/collections/create"))
+    assert create_call[2]["collectionName"] == "puzzle_ops_rag"
+    fields = create_call[2]["schema"]["fields"]
+    assert any(field["name"] == "id" and field.get("isPrimary") for field in fields)
+    assert any(field["name"] == "vector" and field["params"]["dim"] == 1024 for field in fields)
+    assert any(call[1].endswith("/indexes/create") for call in calls)
+    assert any(call[1].endswith("/collections/load") for call in calls)
+
+
+def test_milvus_vector_store_rejects_existing_vector_size_mismatch():
+    def fake_transport(method, endpoint, payload, api_key):
+        return {"code": 0, "data": {"collectionName": "puzzle_ops_rag", "schema": {"fields": [{"name": "vector", "params": {"dim": 3}}]}}}
+
+    store = MilvusVectorStore(
+        RagVectorStoreConfig(provider="milvus", endpoint="http://127.0.0.1:19530", collection="puzzle_ops_rag", configured=True, ready=True),
+        transport=fake_transport,
+    )
+
+    try:
+        store.ensure_collection(1024)
+    except ValueError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("Milvus 向量维度不匹配时必须失败")
+
+    assert "Milvus collection 向量维度不匹配" in message
+
+
+def test_milvus_vector_store_smoke_diagnostic_writes_searches_and_deletes_temp_entity():
+    calls = []
+    inserted_chunk_ids = set()
+
+    def fake_transport(method, endpoint, payload, api_key):
+        calls.append((method, endpoint, payload, api_key))
+        if endpoint.endswith("/entities/insert"):
+            inserted_chunk_ids.add(payload["data"][0]["chunk_id"])
+            return {"code": 0, "data": {"insertCount": 1}}
+        if endpoint.endswith("/entities/search"):
+            chunk_id = next(iter(inserted_chunk_ids))
+            return {"code": 0, "data": [[{"score": 0.99, "entity": {"chunk_id": chunk_id}}]]}
+        if endpoint.endswith("/entities/delete"):
+            return {"code": 0, "data": {"deleteCount": 1}}
+        return {"code": 0, "data": {}}
+
+    store = MilvusVectorStore(
+        RagVectorStoreConfig(provider="milvus", endpoint="http://127.0.0.1:19530", collection="puzzle_ops_rag", api_key="milvus-token", configured=True, ready=True),
+        transport=fake_transport,
+    )
+
+    result = store.smoke_diagnostic(vector_size=3, country="日本")
+
+    assert result["status"] == "passed"
+    assert result["search_hit"] is True
+    assert result["cleanup_status"] == "deleted"
+    assert any(call[1].endswith("/entities/insert") for call in calls)
+    assert any(call[1].endswith("/entities/search") for call in calls)
+    assert any(call[1].endswith("/entities/delete") for call in calls)
+
+
 def test_milvus_vector_store_search_returns_chunk_scores_with_country_filter():
     calls = []
 
