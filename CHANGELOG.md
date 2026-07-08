@@ -2,6 +2,57 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.27 - Real Sample Harness and Milvus Acceptance
+
+日期：2026-07-08
+
+阶段目标：
+
+- 将用户补充的真实业务 Excel 样本接入 Harness 数据集。
+- 用真实 Qwen3-VL 为真实拼图样本生成 AI silver label。
+- 修复 RAG 全链路验收默认仍固定走 Qdrant 的问题，使 `.env` 配置 Milvus 时默认使用 Zilliz/Milvus。
+
+已完成：
+
+- 真实样本接入：
+  - 从 `/Users/fanglemin/Desktop/数据示例.xlsx` 读取并抽取真实图片。
+  - 登记日本 25 条、法国 20 条真实样本。
+  - 人工等级和业务指标进入 Harness gold CSV；主体、色彩、构图、价值观由 AI 预标注为 `ai_silver`。
+- 真实 Qwen3-VL 预标注：
+  - 日本 25/25 完成 AI silver。
+  - 法国 20/20 完成 AI silver。
+  - 当前仍保留 HITL 边界：AI silver 不自动伪装为 `human_gold`，需要运营抽查后确认。
+- Milvus RAG 验收：
+  - `run_full_rag_industrial_acceptance(...)` 默认 vector store 改为使用 `_rag_vector_store()`。
+  - 当 `.env` 设置 `RAG_VECTOR_STORE_PROVIDER=milvus` 时，默认走 Zilliz/Milvus，而不是误走 Qdrant。
+  - 将 `knowledge/indices/` 与 `.runtime_probe_images/` 加入 `.gitignore`，避免本地入库 manifest 和临时图片误提交。
+
+真实验证：
+
+- Harness 覆盖：
+  - 日本：真实样本 25，完整 gold 字段 25，业务指标完整 25，待审核 AI silver 25。
+  - 法国：真实样本 20，完整 gold 字段 20，业务指标完整 20，待审核 AI silver 20。
+- Offline Harness：
+  - 日本：150 cases，34 failures；三段式描述合规率 1.0，飞书同步成功率 1.0。
+  - 法国：120 cases，31 failures；三段式描述合规率 1.0，飞书同步成功率 1.0。
+- 真实 RAG 全链路：
+  - 日本：Milvus upsert 104 chunks，hit@5=1.0，MRR@5=0.681，NDCG@5=0.760，Precision@5=0.2，Recall@5=1.0。
+  - 法国：Milvus upsert 99 chunks，hit@5=1.0，MRR@5=0.778，NDCG@5=0.833，Precision@5=0.2，Recall@5=1.0。
+  - Embedding 使用真实 DashScope `text-embedding-v4`，rerank 使用真实 DashScope `qwen3-rerank`，vector store 使用真实 Zilliz/Milvus。
+
+验证：
+
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_runs_full_rag_industrial_acceptance_with_qdrant_and_bge tests/test_agents.py::test_agent_runs_full_rag_industrial_acceptance_with_milvus tests/test_rag.py::test_milvus_vector_store_healthcheck_describes_collection -q`：3 passed。
+- 真实调用验证：
+  - Qwen3-VL AI silver：45/45 真实样本完成。
+  - Zilliz/Milvus RAG acceptance：日本/法国均 passed。
+
+当前限制：
+
+- 45 条 AI label 目前是 `ai_silver`，不是人工确认的 `human_gold`；运营抽查确认后才会进入可信 facts memory 与 human_gold RAG 样本库。
+- 真实 VLM、embedding、rerank 和 Milvus 调用会产生外部服务费用，批量运行前仍需注意额度。
+
 ## v0.7.26 - Zilliz Cloud Milvus Verification
 
 日期：2026-07-08

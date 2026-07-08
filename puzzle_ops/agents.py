@@ -1035,7 +1035,7 @@ class PuzzleOpsAgent:
         country: str,
         *,
         embedding_provider: LocalEmbeddingProvider | None = None,
-        vector_store: QdrantVectorStore | None = None,
+        vector_store: QdrantVectorStore | MilvusVectorStore | None = None,
     ) -> dict[str, object]:
         return self.apply_approved_rag_patch_rebuild_and_reindex_vector_store(
             country,
@@ -1853,7 +1853,7 @@ class PuzzleOpsAgent:
         )
         embedding = embedding_provider or default_embedding
         rerank = rerank_provider or default_rerank
-        store = vector_store or QdrantVectorStore(self.rag_vector_store_config)
+        store = vector_store or self._rag_vector_store()
         output = Path(output_dir)
         summary_path = output / f"rag_acceptance_full_summary_{country}.json"
         preflight = self._rag_acceptance_preflight(embedding, rerank, store, mode=preflight_mode)
