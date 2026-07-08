@@ -1037,31 +1037,60 @@ class PuzzleOpsAgent:
         embedding_provider: LocalEmbeddingProvider | None = None,
         vector_store: QdrantVectorStore | None = None,
     ) -> dict[str, object]:
+        return self.apply_approved_rag_patch_rebuild_and_reindex_vector_store(
+            country,
+            embedding_provider=embedding_provider,
+            vector_store=vector_store,
+            vector_store_provider="qdrant",
+        )
+
+    def apply_approved_rag_patch_rebuild_and_reindex_vector_store(
+        self,
+        country: str,
+        *,
+        embedding_provider: LocalEmbeddingProvider | None = None,
+        vector_store=None,
+        vector_store_provider: str | None = None,
+    ) -> dict[str, object]:
         apply_result = self.apply_approved_rag_patch_and_rebuild(country)
-        qdrant = self.reindex_rag_qdrant_from_raw(country, embedding_provider=embedding_provider, vector_store=vector_store)
+        vector_result = self.reindex_rag_vector_store_from_raw(
+            country,
+            embedding_provider=embedding_provider,
+            vector_store=vector_store,
+            vector_store_provider=vector_store_provider,
+        )
         manifest_path = Path(str(apply_result.get("manifest_path", "")))
         latest_manifest_path = Path(str(apply_result.get("latest_manifest_path", "")))
         manifest = _read_json_object(manifest_path)
-        qdrant_summary = {
-            "status": qdrant.get("status", ""),
-            "manifest_path": qdrant.get("manifest_path", ""),
-            "latest_manifest_path": qdrant.get("latest_manifest_path", ""),
-            "upserted_points": qdrant.get("upserted_points", 0),
-            "chunk_count": qdrant.get("chunk_count", 0),
-            "vector_count": qdrant.get("vector_count", 0),
-            "vector_size": qdrant.get("vector_size", 0),
-            "hit@5": qdrant.get("hit@5", 0),
-            "mrr@5": qdrant.get("mrr@5", 0),
-            "qdrant_collection": qdrant.get("qdrant_collection", ""),
+        provider = str(vector_result.get("vector_store_provider", vector_store_provider or self.rag_vector_store_config.provider or "")).strip() or "vector_store"
+        vector_summary = {
+            "provider": provider,
+            "status": vector_result.get("status", ""),
+            "manifest_path": vector_result.get("manifest_path", ""),
+            "latest_manifest_path": vector_result.get("latest_manifest_path", ""),
+            "upserted_points": vector_result.get("upserted_points", 0),
+            "chunk_count": vector_result.get("chunk_count", 0),
+            "vector_count": vector_result.get("vector_count", 0),
+            "vector_size": vector_result.get("vector_size", 0),
+            "hit@5": vector_result.get("hit@5", 0),
+            "mrr@5": vector_result.get("mrr@5", 0),
+            "precision@5": vector_result.get("precision@5", 0),
+            "recall@5": vector_result.get("recall@5", 0),
+            "ndcg@5": vector_result.get("ndcg@5", 0),
+            "qdrant_collection": vector_result.get("qdrant_collection", ""),
+            "vector_store_collection": vector_result.get("vector_store_collection", vector_result.get("qdrant_collection", "")),
         }
-        manifest["status"] = "applied_rebuilt_qdrant_indexed"
-        manifest["qdrant"] = qdrant_summary
+        manifest["status"] = f"applied_rebuilt_{provider}_indexed"
+        manifest["vector_store"] = vector_summary
+        if provider == "qdrant":
+            manifest["qdrant"] = vector_summary
         manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
         latest_manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
         return {
             **apply_result,
-            "status": "applied_rebuilt_qdrant_indexed",
-            "qdrant": qdrant_summary,
+            "status": f"applied_rebuilt_{provider}_indexed",
+            "vector_store": vector_summary,
+            "qdrant": vector_summary if provider == "qdrant" else {},
         }
 
     def approve_rag_knowledge_patch_draft(self, country: str, patch_id: str, *, human_note: str) -> int:
@@ -1455,6 +1484,9 @@ class PuzzleOpsAgent:
             "document_count": len(documents),
             "hit@5": report.get("hit@5", 0),
             "mrr@5": report.get("mrr@5", 0),
+            "precision@5": report.get("precision@5", 0),
+            "recall@5": report.get("recall@5", 0),
+            "ndcg@5": report.get("ndcg@5", 0),
             "passed_threshold": report.get("passed_threshold", False),
             "eval_total": report.get("total", 0),
             "failed_count": sum(1 for case in report.get("cases", ()) if isinstance(case, dict) and not case.get("hit")),
@@ -1573,6 +1605,9 @@ class PuzzleOpsAgent:
             "point_records": tuple(result.get("point_records", ()) if isinstance(result.get("point_records", ()), (list, tuple)) else ()),
             "hit@5": result.get("hit@5", 0),
             "mrr@5": result.get("mrr@5", 0),
+            "precision@5": result.get("precision@5", 0),
+            "recall@5": result.get("recall@5", 0),
+            "ndcg@5": result.get("ndcg@5", 0),
             "passed_threshold": result.get("passed_threshold", False),
             "eval_total": result.get("eval_total", 0),
         }
@@ -2260,6 +2295,11 @@ class PuzzleOpsAgent:
             "vector_store_manifest_status": vector_manifest.get("status", ""),
             "vector_store_manifest_vector_size": int(vector_manifest.get("vector_size", 0) or 0),
             "vector_store_manifest_upserted_points": int(vector_manifest.get("upserted_points", 0) or 0),
+            "vector_store_manifest_hit@5": vector_manifest.get("hit@5", 0),
+            "vector_store_manifest_mrr@5": vector_manifest.get("mrr@5", 0),
+            "vector_store_manifest_precision@5": vector_manifest.get("precision@5", 0),
+            "vector_store_manifest_recall@5": vector_manifest.get("recall@5", 0),
+            "vector_store_manifest_ndcg@5": vector_manifest.get("ndcg@5", 0),
             "qdrant_manifest_path": str(qdrant_manifest_path),
             "qdrant_manifest_exists": qdrant_manifest_path.exists(),
             "qdrant_manifest_run_id": str(qdrant_manifest.get("run_id", "")),

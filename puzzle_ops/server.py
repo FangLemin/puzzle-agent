@@ -391,6 +391,28 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             state.sync_message = f"Qdrant RAG 重建入库失败：{exc}"
         state.sync_url = ""
         state.view = "runtime"
+    elif path == "/reindex_rag_vector_store":
+        provider_label = _vector_store_label(agent.rag_vector_store_config.provider)
+        try:
+            result = agent.reindex_rag_vector_store_from_raw(state.country)
+            state.sync_message = (
+                f"{provider_label} RAG 已重建入库："
+                f"status={result.get('status', '')}，"
+                f"points={result.get('upserted_points', 0)}，"
+                f"chunks={result.get('chunk_count', 0)}，"
+                f"vector_size={result.get('vector_size', 0)}，"
+                f"hit@5={result.get('hit@5', 0)}，"
+                f"mrr@5={result.get('mrr@5', 0)}，"
+                f"precision@5={result.get('precision@5', 0)}，"
+                f"recall@5={result.get('recall@5', 0)}，"
+                f"ndcg@5={result.get('ndcg@5', 0)}，"
+                f"collection={result.get('vector_store_collection', result.get('qdrant_collection', ''))}，"
+                f"manifest={result.get('manifest_path', '')}"
+            )
+        except Exception as exc:
+            state.sync_message = f"{provider_label} RAG 重建入库失败：{exc}"
+        state.sync_url = ""
+        state.view = "runtime"
     elif path == "/export_rag_acceptance_report":
         output_dir = agent._runtime_dir / "rag_acceptance_reports"
         result = agent.export_value_audit_rag_acceptance_report(state.country, output_dir)
@@ -482,6 +504,22 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             f"hit@5={qdrant.get('hit@5', 0)}；"
             f"patch_manifest={result.get('manifest_path', '')}；"
             f"qdrant_manifest={qdrant.get('manifest_path', '')}"
+        )
+        state.sync_url = ""
+        state.view = "runtime"
+    elif path == "/apply_rag_patch_rebuild_and_reindex_vector_store":
+        provider_label = _vector_store_label(agent.rag_vector_store_config.provider)
+        result = agent.apply_approved_rag_patch_rebuild_and_reindex_vector_store(state.country)
+        vector_store = result.get("vector_store", {}) if isinstance(result.get("vector_store"), dict) else {}
+        state.sync_message = (
+            f"已应用补丁、重建 RAG 并入库 {provider_label}："
+            f"status={vector_store.get('status', '')}；"
+            f"points={vector_store.get('upserted_points', 0)}；"
+            f"vector_size={vector_store.get('vector_size', 0)}；"
+            f"hit@5={vector_store.get('hit@5', 0)}；"
+            f"mrr@5={vector_store.get('mrr@5', 0)}；"
+            f"patch_manifest={result.get('manifest_path', '')}；"
+            f"vector_store_manifest={vector_store.get('manifest_path', '')}"
         )
         state.sync_url = ""
         state.view = "runtime"
@@ -872,6 +910,11 @@ def _rag_preflight_summary(preflight: dict[str, object]) -> str:
         status = preflight.get(key, {}) if isinstance(preflight.get(key), dict) else {}
         parts.append(f"{key}:{status.get('ready', False)}")
     return ",".join(parts)
+
+
+def _vector_store_label(provider: str) -> str:
+    labels = {"milvus": "Milvus", "qdrant": "Qdrant", "sqlite": "SQLite"}
+    return labels.get((provider or "").strip().lower(), provider or "VectorStore")
 
 
 def _split_parent_ids(value: str) -> tuple[str, ...]:

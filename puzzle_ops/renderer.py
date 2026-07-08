@@ -528,6 +528,7 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
     memory_items = "".join(f'<li>{escape(str(memory["content"]))}</li>' for memory in memories)
     memory_overview_cards = render_memory_overview(memory_overview)
     rag_cards = render_rag_summary(rag_summary, state)
+    rag_actions = render_rag_runtime_actions(agent, state)
     memory_debug_rows = render_memory_debug_rows(agent.memory_debug(state.country, query=feature.main_subject), state)
     return f"""
 <section class="panel">
@@ -566,8 +567,45 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
 </section>
 <section class="panel"><h2>四层 Memory 概览</h2><div class="memory-grid">{memory_overview_cards}</div></section>
 <section class="panel"><h2>Memory Debug</h2><div class="table-wrap"><table><thead><tr><th>ID</th><th>层级/类型</th><th>状态</th><th>RAG Source</th><th>命中分</th><th>RAG Ready</th><th>来源</th><th>记忆内容</th><th>治理</th></tr></thead><tbody>{memory_debug_rows}</tbody></table></div></section>
-<section class="panel"><div class="section-line"><h2>价值观与审核 RAG</h2><div class="actions"><form method="post" action="/rebuild_rag_knowledge">{hidden_context(state, view="runtime")}<button>重建RAG知识库</button></form><form method="post" action="/export_rag_acceptance_report">{hidden_context(state, view="runtime")}<button>导出RAG验收报告</button></form><form method="post" action="/export_rag_ops_report">{hidden_context(state, view="runtime")}<button>导出RAG Ops报告</button></form><form method="post" action="/export_rag_eval_failure_feedback">{hidden_context(state, view="runtime")}<button>导出RAG失败反馈</button></form><form method="post" action="/export_rag_knowledge_patch_drafts">{hidden_context(state, view="runtime")}<button>导出知识补丁草案</button></form><form method="post" action="/export_approved_rag_patch_markdown">{hidden_context(state, view="runtime")}<button>导出已审Markdown补丁</button></form><form method="post" action="/apply_approved_rag_patch_markdown">{hidden_context(state, view="runtime")}<button>应用已审补丁到raw</button></form><form method="post" action="/apply_approved_rag_patch_and_rebuild">{hidden_context(state, view="runtime")}<button>应用补丁并重建RAG</button></form><form method="post" action="/apply_rag_patch_rebuild_and_reindex_qdrant">{hidden_context(state, view="runtime")}<button>应用补丁并入库Qdrant</button></form><form method="post" action="/rollback_latest_rag_patch_and_rebuild">{hidden_context(state, view="runtime")}<button>回滚最新补丁并重建</button></form><form method="post" action="/run_full_rag_acceptance">{hidden_context(state, view="runtime")}<button>一键RAG全链路验收</button></form><form method="post" action="/reindex_rag_qdrant">{hidden_context(state, view="runtime")}<button>重建并入库Qdrant</button></form><form method="post" action="/qdrant_smoke_diagnostic">{hidden_context(state, view="runtime")}<button>Qdrant Smoke</button></form><form method="post" action="/rollback_qdrant_manifest">{hidden_context(state, view="runtime")}<input name="run_id" placeholder="run_id"><label class="inline-check"><input type="checkbox" name="restore_points" value="1">真实恢复 Qdrant points</label><button>回滚Qdrant Run</button></form></div></div>{rag_cards}</section>
+<section class="panel"><div class="section-line"><h2>价值观与审核 RAG</h2><div class="actions">{rag_actions}</div></div>{rag_cards}</section>
 """
+
+
+def render_rag_runtime_actions(agent: PuzzleOpsAgent, state: AppState) -> str:
+    context = hidden_context(state, view="runtime")
+    provider = (agent.rag_vector_store_config.provider or "sqlite").strip().lower()
+    label = vector_store_label(provider)
+    actions = [
+        f'<form method="post" action="/rebuild_rag_knowledge">{context}<button>重建RAG知识库</button></form>',
+        f'<form method="post" action="/export_rag_acceptance_report">{context}<button>导出RAG验收报告</button></form>',
+        f'<form method="post" action="/export_rag_ops_report">{context}<button>导出RAG Ops报告</button></form>',
+        f'<form method="post" action="/export_rag_eval_failure_feedback">{context}<button>导出RAG失败反馈</button></form>',
+        f'<form method="post" action="/export_rag_knowledge_patch_drafts">{context}<button>导出知识补丁草案</button></form>',
+        f'<form method="post" action="/export_approved_rag_patch_markdown">{context}<button>导出已审Markdown补丁</button></form>',
+        f'<form method="post" action="/apply_approved_rag_patch_markdown">{context}<button>应用已审补丁到raw</button></form>',
+        f'<form method="post" action="/apply_approved_rag_patch_and_rebuild">{context}<button>应用补丁并重建RAG</button></form>',
+        f'<form method="post" action="/apply_rag_patch_rebuild_and_reindex_vector_store">{context}<button>应用补丁并入库{escape(label)}</button></form>',
+        f'<form method="post" action="/rollback_latest_rag_patch_and_rebuild">{context}<button>回滚最新补丁并重建</button></form>',
+        f'<form method="post" action="/run_full_rag_acceptance">{context}<button>一键RAG全链路验收</button></form>',
+        f'<form method="post" action="/reindex_rag_vector_store">{context}<button>重建并入库{escape(label)}</button></form>',
+    ]
+    if provider == "qdrant":
+        actions.extend(
+            (
+                f'<form method="post" action="/apply_rag_patch_rebuild_and_reindex_qdrant">{context}<button>应用补丁并入库Qdrant</button></form>',
+                f'<form method="post" action="/reindex_rag_qdrant">{context}<button>重建并入库Qdrant</button></form>',
+                f'<form method="post" action="/qdrant_smoke_diagnostic">{context}<button>Qdrant Smoke</button></form>',
+                f'<form method="post" action="/rollback_qdrant_manifest">{context}<input name="run_id" placeholder="run_id"><label class="inline-check"><input type="checkbox" name="restore_points" value="1">真实恢复 Qdrant points</label><button>回滚Qdrant Run</button></form>',
+            )
+        )
+    elif provider == "milvus":
+        actions.append(f'<button type="button" disabled>Milvus Smoke</button>')
+    return "".join(actions)
+
+
+def vector_store_label(provider: str) -> str:
+    labels = {"milvus": "Milvus", "qdrant": "Qdrant", "sqlite": "SQLite"}
+    return labels.get((provider or "").strip().lower(), provider or "VectorStore")
 
 
 def render_memory_overview(overview: dict[str, dict[str, object]]) -> str:
@@ -679,17 +717,21 @@ def render_rag_summary(summary: dict[str, object], state: AppState | None = None
     knowledge = summary.get("knowledge_base", {})
     if not isinstance(knowledge, dict):
         knowledge = {}
+    vector_manifest_label = vector_store_label(str(knowledge.get("vector_store_manifest_provider") or summary.get("vector_store", "sqlite")))
     knowledge_text = (
         f"raw={knowledge.get('raw_file_count', 0)}；"
         f"documents={knowledge.get('file_document_count', 0)}；"
         f"eval cases={knowledge.get('file_eval_case_count', 0)}；"
-        f"qdrant manifest={knowledge.get('qdrant_manifest_status') or 'none'}；"
-        f"run_id={knowledge.get('qdrant_manifest_run_id') or 'none'}；"
-        f"runs={knowledge.get('qdrant_manifest_history_count', 0)}；"
-        f"smoke={knowledge.get('qdrant_manifest_smoke_status') or 'none'}；"
-        f"cleanup={knowledge.get('qdrant_manifest_smoke_cleanup_status') or 'none'}；"
-        f"vector_size={knowledge.get('qdrant_manifest_vector_size', 0)}；"
-        f"points={knowledge.get('qdrant_manifest_upserted_points', 0)}；"
+        f"向量库 manifest={knowledge.get('vector_store_manifest_status') or 'none'}；"
+        f"provider={vector_manifest_label}；"
+        f"run_id={knowledge.get('vector_store_manifest_run_id') or 'none'}；"
+        f"hit@5={knowledge.get('vector_store_manifest_hit@5', 0)}；"
+        f"mrr@5={knowledge.get('vector_store_manifest_mrr@5', 0)}；"
+        f"precision@5={knowledge.get('vector_store_manifest_precision@5', 0)}；"
+        f"recall@5={knowledge.get('vector_store_manifest_recall@5', 0)}；"
+        f"ndcg@5={knowledge.get('vector_store_manifest_ndcg@5', 0)}；"
+        f"vector_size={knowledge.get('vector_store_manifest_vector_size', 0)}；"
+        f"points={knowledge.get('vector_store_manifest_upserted_points', 0)}；"
         f"{Path(str(knowledge.get('documents_path', ''))).name}；"
         f"{Path(str(knowledge.get('eval_cases_path', ''))).name}"
     )

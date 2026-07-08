@@ -215,9 +215,8 @@ def test_runtime_page_shows_rag_feedback_summary(tmp_path):
     assert "候选池" in html
     assert "VectorStore search=off" in html
     assert "向量库=local" in html
-    assert "qdrant manifest=none" in html
-    assert "runs=0" in html
-    assert "smoke=none" in html
+    assert "向量库 manifest=none" in html
+    assert "provider=SQLite" in html
     assert "版本化知识库" in html
     assert "value_audit_cases.jsonl" in html
     assert "raw=" in html
@@ -227,14 +226,8 @@ def test_runtime_page_shows_rag_feedback_summary(tmp_path):
     assert "导出RAG验收报告" in html
     assert 'action="/run_full_rag_acceptance"' in html
     assert "一键RAG全链路验收" in html
-    assert 'action="/reindex_rag_qdrant"' in html
-    assert "重建并入库Qdrant" in html
-    assert 'action="/qdrant_smoke_diagnostic"' in html
-    assert "Qdrant Smoke" in html
-    assert 'action="/rollback_qdrant_manifest"' in html
-    assert "回滚Qdrant Run" in html
-    assert 'name="restore_points"' in html
-    assert "真实恢复 Qdrant points" in html
+    assert 'action="/reindex_rag_vector_store"' in html
+    assert "重建并入库SQLite" in html
     assert "RAG 检索 Trace" in html
     assert "BM25 召回候选" in html
     assert "向量召回候选" in html
@@ -314,6 +307,29 @@ def test_runtime_page_shows_latest_rag_preflight_summary(tmp_path):
     assert "qdrant=ready" in html
     assert "remote embedding=3" in html
     assert "remote rerank=1" in html
+
+
+def test_runtime_page_uses_current_vector_store_actions_for_milvus(tmp_path):
+    agent = agent_without_vlm(tmp_path)
+    agent.rag_vector_store_config = agent.rag_vector_store_config.__class__(
+        provider="milvus",
+        endpoint="http://127.0.0.1:19530",
+        collection="puzzle_ops_rag",
+        configured=True,
+        ready=True,
+        status_text="Milvus ready：http://127.0.0.1:19530 / puzzle_ops_rag",
+    )
+
+    html = render_page(agent, AppState(country="日本", view="runtime"))
+
+    assert 'action="/reindex_rag_vector_store"' in html
+    assert 'action="/apply_rag_patch_rebuild_and_reindex_vector_store"' in html
+    assert "重建并入库Milvus" in html
+    assert "应用补丁并入库Milvus" in html
+    assert "Milvus Smoke" in html
+    assert "向量库 manifest=none" in html
+    assert "qdrant manifest=none" not in html
+    assert "应用补丁并入库Qdrant" not in html
 
 
 def test_runtime_page_shows_real_rag_eval_dataset_summary(monkeypatch, tmp_path):
@@ -498,8 +514,8 @@ def test_runtime_page_shows_rag_knowledge_patch_drafts(tmp_path):
     assert "应用补丁并重建RAG" in html
     assert 'action="/rollback_latest_rag_patch_and_rebuild"' in html
     assert "回滚最新补丁并重建" in html
-    assert 'action="/apply_rag_patch_rebuild_and_reindex_qdrant"' in html
-    assert "应用补丁并入库Qdrant" in html
+    assert 'action="/apply_rag_patch_rebuild_and_reindex_vector_store"' in html
+    assert "应用补丁并入库SQLite" in html
 
 
 def test_runtime_page_shows_rag_patch_priority(tmp_path):

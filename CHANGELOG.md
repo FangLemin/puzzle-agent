@@ -2,6 +2,70 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.23 - Milvus Vector Store Closure and Full Retrieval Metrics
+
+日期：2026-07-08
+
+阶段目标：
+
+- 完成第二步收口：把 RAG 向量库从历史 Qdrant 页面债收敛到通用 Vector Store 主链路，并让 Milvus 成为可配置、可入库、可展示、可讲清楚的工程方案。
+- 将 RAG 检索评估从只看 `hit@5/mrr@5` 扩展到页面/manifest 可见的 `precision@5/recall@5/ndcg@5`。
+
+已完成：
+
+- Agent：
+  - `rebuild_rag_knowledge_from_raw(...)` 返回 `precision@5`、`recall@5`、`ndcg@5`。
+  - `reindex_rag_vector_store_from_raw(...)` 的 manifest 写入完整检索指标：
+    - `hit@5`
+    - `mrr@5`
+    - `precision@5`
+    - `recall@5`
+    - `ndcg@5`
+  - `_rag_knowledge_summary(...)` 读取通用 `vector_store_manifest_*` 指标，支持 Milvus/Qdrant/SQLite 统一展示。
+  - 新增 `apply_approved_rag_patch_rebuild_and_reindex_vector_store(...)`，旧 `apply_approved_rag_patch_rebuild_and_reindex_qdrant(...)` 保持兼容。
+- Runtime 页面：
+  - RAG 操作区新增通用 `/reindex_rag_vector_store` 主按钮。
+  - 页面根据当前 `RAG_VECTOR_STORE_PROVIDER` 显示：
+    - `重建并入库Milvus`
+    - `重建并入库Qdrant`
+    - `重建并入库SQLite`
+  - Milvus 模式不再把主按钮错误显示为 Qdrant。
+  - “版本化知识库”卡片展示通用向量库 manifest 状态和完整检索指标。
+- Server：
+  - 新增 `/reindex_rag_vector_store` action。
+  - 新增 `/apply_rag_patch_rebuild_and_reindex_vector_store` action。
+  - 同步消息展示 provider、points、vector_size、hit/mrr/precision/recall/ndcg 和 manifest。
+- 配置/文档：
+  - `.env.example` 新增工业级 RAG 配置块：
+    - `RAG_EMBEDDING_PROVIDER=dashscope`
+    - `RAG_EMBEDDING_MODEL=text-embedding-v4`
+    - `RAG_RERANK_PROVIDER=dashscope`
+    - `RAG_RERANK_MODEL=qwen3-rerank`
+    - `RAG_VECTOR_STORE_PROVIDER=milvus`
+    - `MILVUS_URI`
+    - `MILVUS_COLLECTION`
+  - README 新增 Milvus RAG Provider 说明，明确在线向量检索需要显式开启 `RAG_VECTOR_STORE_SEARCH_ENABLED=true` 或 `RAG_MILVUS_SEARCH_ENABLED=true`。
+
+验证：
+
+- TDD RED：
+  - Milvus Runtime 页面测试先因缺少 `/reindex_rag_vector_store` 和通用按钮失败。
+  - 通用 vector store reindex server action 测试先因 server 不识别新路由失败。
+  - Milvus reindex manifest 测试先因缺少 `precision@5/recall@5/ndcg@5` 失败。
+  - 通用 patch+reindex action 测试先因缺少 `apply_approved_rag_patch_rebuild_and_reindex_vector_store(...)` 失败。
+- 定向验证：
+  - `PYTHONPATH=. pytest tests/test_renderer.py::test_runtime_page_uses_current_vector_store_actions_for_milvus tests/test_server.py::test_reindex_rag_vector_store_action_reports_provider_and_full_metrics tests/test_agents.py::test_agent_reindexes_raw_rag_knowledge_into_milvus -q`：3 passed。
+  - `PYTHONPATH=. pytest tests/test_renderer.py::test_runtime_page_uses_current_vector_store_actions_for_milvus tests/test_server.py::test_apply_rag_patch_rebuild_and_reindex_vector_store_action_reports_provider tests/test_server.py::test_apply_rag_patch_rebuild_and_reindex_qdrant_action_reports_manifest tests/test_agents.py::test_agent_applies_rag_patch_rebuilds_and_reindexes_qdrant_with_manifest -q`：4 passed。
+  - `PYTHONPATH=. pytest tests/test_rag.py tests/test_renderer.py tests/test_server.py tests/test_agents.py -q -k "rag or qdrant or milvus or vector_store"`：151 passed, 145 deselected。
+- 回归验证：
+  - `PYTHONPATH=. pytest tests -q`：399 passed。
+
+当前限制：
+
+- Milvus collection schema 自动创建仍未完成；当前假设 collection/schema 已按 Milvus REST 写入字段准备好。
+- Milvus Smoke 目前在页面展示为未实现状态；Qdrant 的 smoke/rollback 仍保留为历史兼容能力。
+- 本地 `.env` 不会提交；如果要真实走 Milvus，需要自行配置 `RAG_VECTOR_STORE_PROVIDER=milvus`、`MILVUS_URI`、`MILVUS_COLLECTION`，并显式开启在线检索开关。
+
 ## v0.7.22 - Value Match HITL UI and Qwen VL Default
 
 日期：2026-07-08

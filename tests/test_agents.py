@@ -2831,11 +2831,17 @@ knowledge_version: unit-test
     assert result["vector_store_collection"] == "puzzle_ops_rag"
     assert result["upserted_points"] == len(store.points)
     assert result["vector_size"] == 3
+    assert "precision@5" in result
+    assert "recall@5" in result
+    assert "ndcg@5" in result
     assert result["manifest_path"].endswith(f"indices/runs/milvus_reindex_日本_{result['run_id']}.json")
     assert result["latest_manifest_path"].endswith("indices/milvus_reindex_日本.json")
     manifest = json.loads(Path(result["manifest_path"]).read_text(encoding="utf-8"))
     assert manifest["vector_store"]["provider"] == "milvus"
     assert manifest["vector_store"]["collection"] == "puzzle_ops_rag"
+    assert "precision@5" in manifest
+    assert "recall@5" in manifest
+    assert "ndcg@5" in manifest
     assert any(record["payload"]["parent_id"] == "JP_KB_SUSHI_FOOD" for record in manifest["point_records"])
     summary = agent.value_audit_rag_summary("日本")["knowledge_base"]
     assert summary["vector_store_manifest_exists"] is True

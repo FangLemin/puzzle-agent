@@ -1351,6 +1351,52 @@ def test_reindex_rag_qdrant_action_reports_upsert(monkeypatch):
     assert "manifest=/tmp/qdrant_reindex_日本.json" in APP.state.sync_message
 
 
+def test_reindex_rag_vector_store_action_reports_provider_and_full_metrics(monkeypatch):
+    previous_agent = APP.agent
+    try:
+        APP.agent = PuzzleOpsAgent()
+        APP.agent.rag_vector_store_config = RagVectorStoreConfig(
+            provider="milvus",
+            endpoint="http://127.0.0.1:19530",
+            collection="puzzle_ops_rag",
+            configured=True,
+            ready=True,
+            status_text="Milvus ready：http://127.0.0.1:19530 / puzzle_ops_rag",
+        )
+        APP.state = AppState(country="日本", view="runtime")
+
+        def fake_reindex(country):
+            assert country == "日本"
+            return {
+                "status": "indexed",
+                "vector_store_provider": "milvus",
+                "vector_store_collection": "puzzle_ops_rag",
+                "upserted_points": 12,
+                "chunk_count": 12,
+                "vector_size": 3,
+                "hit@5": 1.0,
+                "mrr@5": 0.9,
+                "precision@5": 0.4,
+                "recall@5": 1.0,
+                "ndcg@5": 0.92,
+                "manifest_path": "/tmp/milvus_reindex_日本.json",
+            }
+
+        monkeypatch.setattr(APP.agent, "reindex_rag_vector_store_from_raw", fake_reindex)
+
+        handle_action("/reindex_rag_vector_store", {"country": ["日本"], "view": ["runtime"]})
+
+        assert APP.state.view == "runtime"
+        assert "Milvus RAG 已重建入库" in APP.state.sync_message
+        assert "points=12" in APP.state.sync_message
+        assert "precision@5=0.4" in APP.state.sync_message
+        assert "recall@5=1.0" in APP.state.sync_message
+        assert "ndcg@5=0.92" in APP.state.sync_message
+        assert "manifest=/tmp/milvus_reindex_日本.json" in APP.state.sync_message
+    finally:
+        APP.agent = previous_agent
+
+
 def test_export_rag_acceptance_report_action_writes_report(monkeypatch):
     APP.state = AppState(country="日本", view="runtime")
     monkeypatch.setattr(APP.agent, "rag_provider_config", RagProviderConfig())
@@ -1850,3 +1896,43 @@ def test_apply_rag_patch_rebuild_and_reindex_qdrant_action_reports_manifest(monk
     assert "points=9" in APP.state.sync_message
     assert "vector_size=3" in APP.state.sync_message
     assert "patch_manifest=/tmp/rag_patch_apply_日本.json" in APP.state.sync_message
+
+
+def test_apply_rag_patch_rebuild_and_reindex_vector_store_action_reports_provider(monkeypatch):
+    previous_agent = APP.agent
+    try:
+        APP.agent = PuzzleOpsAgent()
+        APP.agent.rag_vector_store_config = RagVectorStoreConfig(
+            provider="milvus",
+            endpoint="http://127.0.0.1:19530",
+            collection="puzzle_ops_rag",
+            configured=True,
+            ready=True,
+        )
+        APP.state = AppState(country="日本", view="runtime")
+
+        def fake_apply(country):
+            assert country == "日本"
+            return {
+                "manifest_path": "/tmp/rag_patch_apply_日本.json",
+                "vector_store": {
+                    "provider": "milvus",
+                    "status": "indexed",
+                    "upserted_points": 10,
+                    "vector_size": 3,
+                    "hit@5": 1.0,
+                    "mrr@5": 0.9,
+                    "manifest_path": "/tmp/milvus_reindex_日本.json",
+                },
+            }
+
+        monkeypatch.setattr(APP.agent, "apply_approved_rag_patch_rebuild_and_reindex_vector_store", fake_apply)
+
+        handle_action("/apply_rag_patch_rebuild_and_reindex_vector_store", {"country": ["日本"], "view": ["runtime"]})
+
+        assert APP.state.view == "runtime"
+        assert "已应用补丁、重建 RAG 并入库 Milvus" in APP.state.sync_message
+        assert "points=10" in APP.state.sync_message
+        assert "vector_store_manifest=/tmp/milvus_reindex_日本.json" in APP.state.sync_message
+    finally:
+        APP.agent = previous_agent
