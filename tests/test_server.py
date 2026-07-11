@@ -87,6 +87,25 @@ def test_add_regular_action_uses_submitted_context_and_adds_need_row():
     assert APP.state.need_rows[0].operation_tag == f"常规_日本_传统浴袍美女{TODAY_SUFFIX}"
 
 
+def test_readonly_country_blocks_write_action():
+    APP.state = AppState(user_id="jp_owner", country="法国", view="regular", category="花卉", tag="常规_法国_薰衣草0604")
+
+    handle_action(
+        "/add_regular",
+        {
+            "user_id": ["jp_owner"],
+            "country": ["法国"],
+            "category": ["花卉"],
+            "tag": ["常规_法国_薰衣草0604"],
+            "image_index": ["0"],
+        },
+    )
+
+    assert APP.state.view == "regular"
+    assert APP.state.need_rows == []
+    assert "只读权限" in APP.state.sync_message
+
+
 def test_generate_descriptions_action_updates_existing_need_rows():
     APP.state = AppState(country="日本", view="regular", category="人物", tag="常规_日本_传统浴袍美女0604")
     APP.state.need_rows.append(APP.agent.add_regular_demand("日本", "人物", "常规_日本_传统浴袍美女0604", 0))
@@ -116,6 +135,21 @@ def test_save_needs_can_edit_operation_tag():
     )
 
     assert APP.state.need_rows[0].operation_tag == "常规_日本_猫咪鲤鱼0605"
+
+
+def test_confirm_weekly_review_needs_adds_suggested_rows():
+    APP.state = AppState(country="日本", view="weekly_review", user_id="jp_owner")
+    APP.state.need_rows = []
+
+    handle_action(
+        "/confirm_weekly_review_needs",
+        {"country": ["日本"], "view": ["weekly_review"], "user_id": ["jp_owner"]},
+    )
+
+    assert APP.state.view == "regular"
+    assert APP.state.need_rows
+    assert all(row.need_type == "常规" for row in APP.state.need_rows)
+    assert "周三复盘提需建议已生成" in APP.state.sync_message
 
 
 def test_sync_needs_to_feishu_clears_rows_and_sets_success_message():
@@ -1272,6 +1306,21 @@ def test_memory_governance_actions_promote_and_retire_memory():
     )
     assert retired["status"] == "retired"
     assert "不再进入 RAG" in APP.state.sync_message
+
+
+def test_memory_production_validation_seed_route_creates_country_samples():
+    APP.state = AppState(country="日本", view="runtime", user_id="jp_owner")
+
+    handle_action(
+        "/seed_memory_validation",
+        {"country": ["日本"], "view": ["runtime"], "user_id": ["jp_owner"]},
+    )
+
+    rows = APP.agent.memory_debug("日本", query="上线验收", limit=50)
+    assert any(row["created_by"] == "jp_owner" for row in rows)
+    assert any(row["review_status"] == "draft" for row in rows)
+    assert any(row["rag_ready"] for row in rows)
+    assert "Memory 生产验收样例已生成" in APP.state.sync_message
 
 
 def test_rebuild_rag_knowledge_action_reports_file_eval(monkeypatch, tmp_path):

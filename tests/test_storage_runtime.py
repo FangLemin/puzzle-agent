@@ -2,6 +2,7 @@ from pathlib import Path
 import sqlite3
 
 from puzzle_ops.cache import CacheProvider, RedisCache
+from puzzle_ops.agents import PuzzleOpsAgent
 from puzzle_ops.excel_importer import import_history_workbook
 from puzzle_ops.feishu import FeishuClientFactory, MockFeishuClient
 from puzzle_ops.rag import RagDocument, chunk_document
@@ -55,6 +56,8 @@ def test_repository_stores_layered_memory_payloads(tmp_path):
 
     assert perception[0]["memory_layer"] == "perception"
     assert perception[0]["payload"]["subject"] == "寿司"
+    assert perception[0]["review_status"] == "draft"
+    assert perception[0]["approved_for_rag"] is False
     assert facts[0]["payload"]["value_labels"] == ["本土饮食文化"]
 
 
@@ -70,6 +73,78 @@ def test_layered_memory_deduplicates_active_payload_and_tracks_status(tmp_path):
     assert rows[0]["memory_id"] == first_id
     assert rows[0]["status"] == "active"
     assert rows[0]["fingerprint"]
+    assert rows[0]["review_status"] == "draft"
+    assert rows[0]["approved_for_rag"] is False
+
+
+def test_layered_memory_review_and_audit_fields(tmp_path):
+    repo = PuzzleRepository(tmp_path / "puzzle_ops.db")
+
+    memory_id = repo.add_layered_memory(
+        "日本",
+        "facts",
+        "image_fact",
+        {"subject": "寿司"},
+        created_by="jp_ops",
+    )
+    repo.review_layered_memory(memory_id, review_status="approved", approved_for_rag=True, actor="fr_ops")
+
+    row = repo.layered_memories("日本", include_inactive=True)[0]
+    assert row["created_by"] == "jp_ops"
+    assert row["updated_by"] == "fr_ops"
+    assert row["approved_by"] == "fr_ops"
+    assert row["approved_at"]
+    assert row["review_status"] == "approved"
+    assert row["approved_for_rag"] is True
+
+    audit = repo.memory_audit_events("日本")
+    assert [event["action"] for event in audit] == ["create", "review"]
+    assert audit[-1]["actor"] == "fr_ops"
+    assert audit[-1]["memory_id"] == memory_id
+    assert audit[-1]["new_review_status"] == "approved"
+    assert audit[-1]["approved_for_rag"] is True
+
+
+def test_repository_records_real_rag_hit_metrics_for_memory_chunks(tmp_path):
+    repo = PuzzleRepository(tmp_path / "puzzle_ops.db")
+    memory_id = repo.add_layered_memory(
+        "日本",
+        "facts",
+        "image_fact",
+        {"subject": "寿司", "rule": "寿司适合日本本土饮食文化"},
+        review_status="approved",
+        approved_for_rag=True,
+    )
+
+    repo.record_memory_rag_hits(
+        "日本",
+        ({"memory_id": memory_id, "chunk_id": "JP_FACT_001#chunk-1", "trace_id": "trace-1"},),
+    )
+    repo.record_memory_rag_hits(
+        "日本",
+        ({"memory_id": memory_id, "chunk_id": "JP_FACT_001#chunk-1", "trace_id": "trace-2"},),
+    )
+
+    row = repo.layered_memories("日本", include_inactive=True)[0]
+    assert row["rag_hit_count"] == 2
+    assert row["last_rag_hit_at"]
+    audit = repo.memory_audit_events("日本", action="rag_hit")
+    assert len(audit) == 2
+    assert audit[-1]["metadata"]["chunk_id"] == "JP_FACT_001#chunk-1"
+
+
+def test_layered_memory_retire_records_actor_and_blocks_rag(tmp_path):
+    repo = PuzzleRepository(tmp_path / "puzzle_ops.db")
+    memory_id = repo.add_layered_memory("日本", "facts", "image_fact", {"subject": "寿司"}, created_by="jp_ops")
+
+    repo.retire_layered_memory(memory_id, actor="jp_ops")
+
+    row = repo.layered_memories("日本", include_inactive=True)[0]
+    assert row["status"] == "retired"
+    assert row["review_status"] == "retired"
+    assert row["approved_for_rag"] is False
+    assert row["retired_by"] == "jp_ops"
+    assert row["retired_at"]
 
 
 def test_layered_memory_ttl_expires_and_leaves_active_rag_view(tmp_path):
@@ -136,6 +211,8 @@ def test_repository_migrates_legacy_layered_memory_schema_without_data_loss(tmp_
     assert rows[0]["payload"]["subject"] == "寿司"
     assert rows[0]["status"] == "active"
     assert rows[0]["fingerprint"]
+    assert rows[0]["review_status"] == "draft"
+    assert rows[0]["approved_for_rag"] is False
 
 
 def test_repository_stores_parent_child_rag_index(tmp_path):
@@ -167,6 +244,87 @@ def test_repository_persists_rag_embedding_cache(tmp_path):
 
     assert repo.get_rag_embedding_cache("dashscope", "text-embedding-v3", "寿司属于日本饮食文化") == (0.1, 0.2, 0.3)
     assert repo.get_rag_embedding_cache("dashscope", "text-embedding-v3", "不存在") is None
+
+
+def test_agent_detects_conflicting_value_memories_for_same_subject(tmp_path):
+    repo = PuzzleRepository(tmp_path / "puzzle_ops.db")
+    agent = PuzzleOpsAgent(repository=repo)
+    positive_id = agent.record_extracted_fact(
+        "日本",
+        "verified_value_match_fact",
+        {
+            "subject": "寿司",
+            "operation_tag": "试新_日本_寿司拼盘0609",
+            "human_correction": "寿司图符合日本本土饮食文化，适合继续试新。",
+        },
+    )
+    negative_id = agent.record_working_memory(
+        "日本",
+        "value_match_human_correction",
+        {
+            "subject": "寿司",
+            "operation_tag": "试新_日本_寿司拼盘0609",
+            "human_correction": "寿司图不适合日本市场，餐具混乱且存在文化误用风险。",
+        },
+    )
+    agent.record_working_memory(
+        "日本",
+        "neutral_note",
+        {
+            "subject": "樱花",
+            "operation_tag": "试新_日本_樱花0609",
+            "note": "运营记录：等待更多样本。",
+        },
+    )
+
+    conflicts = agent.memory_conflicts("日本")
+
+    assert len(conflicts) == 1
+    conflict = conflicts[0]
+    assert conflict["subject"] == "寿司"
+    assert conflict["operation_tag"] == "试新_日本_寿司拼盘0609"
+    assert set(conflict["memory_ids"]) == {positive_id, negative_id}
+    assert conflict["stances"]["positive"] == [positive_id]
+    assert conflict["stances"]["negative"] == [negative_id]
+
+
+def test_memory_provenance_links_promotion_correction_and_rag_feedback(tmp_path):
+    repo = PuzzleRepository(tmp_path / "puzzle_ops.db")
+    agent = PuzzleOpsAgent(repository=repo)
+    source_id = agent.record_perception_memory(
+        "日本",
+        "trial_image_parse",
+        {
+            "subject": "寿司",
+            "operation_tag": "试新_日本_寿司拼盘0609",
+            "observation": "主体为寿司拼盘，色彩为米白与鲑鱼橙。",
+        },
+    )
+    fact_id = agent.promote_memory(source_id, target_layer="facts", human_note="运营确认主体准确")
+    row = agent.create_trial_demand("日本", "人物", mode="parse").edited(
+        subject="寿司",
+        operation_tag="试新_日本_寿司拼盘0609",
+        subject_description="主体内容：寿司拼盘；色彩氛围：米白与鲑鱼橙；构图环境：日式餐桌。",
+        value_match="LLM判断：部分符合；系统RAG召回：JP_VALUE_001#chunk-1",
+    )
+    correction_ids = agent.record_value_match_human_correction(
+        row,
+        human_correction="运营确认：寿司拼盘符合日本饮食文化，但需避免文字水印风险。",
+        satisfaction_score=4,
+    )
+
+    provenance = agent.memory_provenance("日本", fact_id)
+
+    step_types = [step["step_type"] for step in provenance["steps"]]
+    assert provenance["root_memory_id"] == fact_id
+    assert "source" in step_types
+    assert "current" in step_types
+    assert "related_human_correction" in step_types
+    assert "related_fact" in step_types
+    assert "related_rag_feedback" in step_types
+    assert source_id in [step["memory_id"] for step in provenance["steps"]]
+    assert correction_ids["working_memory_id"] in [step["memory_id"] for step in provenance["steps"]]
+    assert correction_ids["rag_feedback_memory_id"] in [step["memory_id"] for step in provenance["steps"]]
 
 
 def test_cache_provider_uses_in_memory_fallback_when_redis_unavailable():

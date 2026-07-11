@@ -13,6 +13,7 @@ from puzzle_ops.rag import (
     MilvusVectorStore,
     MilvusVectorStoreRetriever,
     QwenRagAnswerGenerator,
+    RagChunk,
     RagChunkingConfig,
     RagDocument,
     RagIndexArtifacts,
@@ -142,6 +143,34 @@ def test_retrieval_case_loader_reads_jsonl_business_cases(tmp_path):
     assert cases == load_retrieval_cases_jsonl(source)
     assert cases[0].query.startswith("日本寿司")
     assert cases[0].expected_parent_id == "JP_KB_SUSHI"
+
+
+def test_hybrid_retriever_prefers_trusted_memory_weight():
+    weak_chunk = RagChunk(
+        chunk_id="JP_MEMORY_PERCEPTION_001#chunk-1",
+        parent_id="JP_MEMORY_PERCEPTION_001",
+        country="日本",
+        source_type="memory_perception",
+        title="trial_image_parse",
+        text="寿司拼盘符合日本饮食文化，适合试新。日本 饮食文化 寿司拼盘 是否符合 价值观 市场。",
+        chunk_index=1,
+        metadata={"memory_weight": 0.25, "trust_level": "low"},
+    )
+    trusted_chunk = RagChunk(
+        chunk_id="JP_FACT_001#chunk-1",
+        parent_id="JP_FACT_001",
+        country="日本",
+        source_type="fact",
+        title="verified_value_match_fact",
+        text="寿司拼盘符合日本饮食文化。",
+        chunk_index=1,
+        metadata={"memory_weight": 3.0, "trust_level": "high", "human_verified": True},
+    )
+
+    hits = HybridRagRetriever((weak_chunk, trusted_chunk)).search("寿司拼盘 是否符合 日本 饮食文化", country="日本", top_k=2)
+
+    assert hits[0].chunk.chunk_id == "JP_FACT_001#chunk-1"
+    assert hits[0].rerank_score > hits[1].rerank_score
 
 
 def test_build_processed_documents_from_raw_markdown_sections(tmp_path):

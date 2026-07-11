@@ -35,7 +35,8 @@ def test_memory_debug_exposes_layer_source_and_query_match(tmp_path):
 
     assert {row["layer"] for row in rows} == {"perception", "working", "long_term", "facts"}
     assert all(row["rag_source_type"] for row in rows)
-    assert all(row["rag_ready"] for row in rows)
+    assert all(row["review_status"] == "draft" for row in rows)
+    assert not any(row["rag_ready"] for row in rows)
     assert rows[0]["match_score"] >= rows[-1]["match_score"]
 
 
@@ -48,13 +49,51 @@ def test_agent_promotes_memory_and_rag_uses_only_active_target(tmp_path):
         target_layer="facts",
         human_note="运营确认视觉事实",
     )
+    agent.review_memory(target_id, action="approve_rag", actor="jp_ops")
     documents = agent._layered_memory_rag_documents("日本")
     debug = agent.memory_debug("日本", query="寿司")
 
     assert target_id != source_id
     assert sum(1 for document in documents if "subject=寿司" in document.text) == 1
     assert {row["status"] for row in debug} == {"active", "promoted"}
-    assert any(row["source_memory_id"] == source_id for row in debug if row["status"] == "active")
+    target = next(row for row in debug if row["memory_id"] == target_id)
+    assert target["source_memory_id"] == source_id
+    assert target["review_status"] == "approved"
+    assert target["approved_for_rag"] is True
+
+
+def test_agent_rag_answer_updates_memory_hit_metrics_from_real_retrieval(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    memory_id = agent.record_extracted_fact(
+        "日本",
+        "image_fact",
+        {"subject": "寿司", "rule": "寿司适合日本本土饮食文化，适合拼图运营。"},
+    )
+    agent.review_memory(memory_id, action="approve_rag", actor="jp_ops")
+
+    prompt = agent.value_audit_rag_answer("日本", "寿司 本土 饮食 文化", top_k=3)
+
+    assert prompt.citations
+    row = next(item for item in agent.memory_debug("日本", query="寿司", limit=20) if item["memory_id"] == memory_id)
+    assert row["rag_hit_count"] >= 1
+    assert row["last_rag_hit_at"]
+    assert any(event["action"] == "rag_hit" for event in agent.repository.memory_audit_events("日本"))
+
+
+def test_agent_memory_workbench_filters_by_layer_status_actor_and_subject(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    sushi_id = agent.record_extracted_fact("日本", "image_fact", {"subject": "寿司", "operation_tag": "JP_SUSHI"}, actor="jp_owner")
+    ramen_id = agent.record_working_memory("日本", "draft_note", {"subject": "拉面", "operation_tag": "JP_RAMEN"}, actor="jp_fr_assist")
+    agent.review_memory(sushi_id, action="approve_rag", actor="jp_owner")
+
+    workbench = agent.memory_workbench(
+        "日本",
+        filters={"layer": "working", "review_status": "draft", "created_by": "jp_fr_assist", "subject": "拉面"},
+    )
+
+    pending_ids = {row["memory_id"] for row in workbench["pending_review"]}
+    assert ramen_id in pending_ids
+    assert sushi_id not in pending_ids
 
 
 def test_agent_retires_memory_and_removes_it_from_rag(tmp_path):
@@ -440,6 +479,25 @@ def test_analysis_report_uses_new_real_business_workbook_metrics():
     assert france.cd_ratio == "25%"
     assert france.ai_ratio == "75%"
     assert any(row.source == "AI" and row.grade == "D" for row in france.rows)
+
+
+def test_weekly_review_workbench_closes_recycle_analysis_to_need_suggestions():
+    agent = PuzzleOpsAgent()
+
+    review = agent.weekly_review_workbench("日本")
+
+    assert review["country"] == "日本"
+    assert review["source"] == "uploaded_excel"
+    assert review["new_sa_images"]
+    assert review["declining_images"]
+    assert review["reusable_tags"]
+    assert review["retire_tags"]
+    assert review["country_differences"]
+    assert review["need_suggestions"]
+    suggestion = review["need_suggestions"][0]
+    assert suggestion["operation_tag"].startswith(("常规_日本_", "试新_日本_"))
+    assert suggestion["reason"]
+    assert suggestion["confirmable"] is True
 
 
 def test_value_prediction_filters_by_grade():
@@ -2233,10 +2291,14 @@ def test_agent_builds_value_audit_rag_context_with_citations(tmp_path):
 def test_agent_rag_documents_include_all_four_memory_layers():
     agent = PuzzleOpsAgent()
     country = "日本"
-    agent.record_perception_memory(country, "trial_image_parse", {"subject": "寿司", "visual": "米白与鲑鱼橙"})
-    agent.record_working_memory(country, "generation_trace", {"status": "failed", "reason": "quota_exceeded"})
-    agent.record_long_term_memory(country, "value_rule_approval", {"rule_text": "寿司提需需保留日式餐桌语境。"})
-    agent.record_extracted_fact(country, "image_semantic_fact", {"subject": "寿司", "value_labels": ["本土饮食文化"]})
+    memory_ids = (
+        agent.record_perception_memory(country, "trial_image_parse", {"subject": "寿司", "visual": "米白与鲑鱼橙"}),
+        agent.record_working_memory(country, "generation_trace", {"status": "failed", "reason": "quota_exceeded"}),
+        agent.record_long_term_memory(country, "value_rule_approval", {"rule_text": "寿司提需需保留日式餐桌语境。"}),
+        agent.record_extracted_fact(country, "image_semantic_fact", {"subject": "寿司", "value_labels": ["本土饮食文化"]}),
+    )
+    for memory_id in memory_ids:
+        agent.review_memory(memory_id, action="approve_rag", actor="jp_ops")
 
     documents = agent.build_value_audit_rag_index(country)
     source_types = {document.source_type for document in documents}

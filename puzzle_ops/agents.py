@@ -1,5 +1,6 @@
 from dataclasses import replace
 from datetime import date, datetime
+from collections import defaultdict
 import csv
 import json
 import os
@@ -404,6 +405,52 @@ class PuzzleOpsAgent:
             rows=rows,
         )
 
+    def weekly_review_workbench(self, country: str) -> dict[str, object]:
+        records = self._history_records(country)
+        other_country = "法国" if country == "日本" else "日本"
+        other_records = self._history_records(other_country) if other_country in self.countries() else ()
+        new_sa = tuple(sorted((record for record in records if record.grade in {"S", "A"}), key=_record_strength, reverse=True)[:8])
+        declining = tuple(sorted((record for record in records if _is_declining_record(record)), key=_record_risk_score, reverse=True)[:8])
+        reusable = _tag_summaries(records, positive=True)[:6]
+        retire = _tag_summaries(records, positive=False)[:6]
+        suggestions = tuple(_weekly_need_suggestion(country, item, self.today) for item in reusable[:5])
+        return {
+            "country": country,
+            "source": "uploaded_excel" if records else "builtin_demo",
+            "period": _review_period(records),
+            "new_sa_images": tuple(_record_review_item(record) for record in new_sa),
+            "declining_images": tuple(_record_review_item(record) for record in declining),
+            "country_differences": _country_differences(country, records, other_country, other_records),
+            "reusable_tags": reusable,
+            "retire_tags": retire,
+            "need_suggestions": suggestions,
+            "summary": _weekly_review_summary(country, records, new_sa, declining, reusable, retire),
+        }
+
+    def weekly_review_need_rows(self, country: str, *, limit: int = 5) -> tuple[DemandRow, ...]:
+        suggestions = self.weekly_review_workbench(country)["need_suggestions"]
+        rows = []
+        for suggestion in tuple(suggestions)[: max(limit, 0)]:
+            if not isinstance(suggestion, dict):
+                continue
+            rows.append(
+                DemandRow(
+                    need_type="常规",
+                    country=country,
+                    js_category=str(suggestion.get("js_category", "")),
+                    image_name=str(suggestion.get("source_image", "周三复盘建议")),
+                    operation_tag=str(suggestion.get("operation_tag", "")),
+                    subject=str(suggestion.get("subject", "")),
+                    count=int(suggestion.get("count", 7) or 7),
+                    priority=str(suggestion.get("priority", "P1")),
+                    method=str(suggestion.get("method", "限素材网")),
+                    delivery_date="",
+                    subject_description=str(suggestion.get("description", "")),
+                    remark=str(suggestion.get("reason", "")),
+                )
+            )
+        return tuple(rows)
+
     def value_rules(self, country: str):
         base_rules = list(self._country(country)["value_rules"])
         approved = [
@@ -482,7 +529,8 @@ class PuzzleOpsAgent:
         self._last_rag_rewritten_query = rewritten_query
         self._last_rag_trace = trace_payload
         latency_ms = round((time.perf_counter() - started_at) * 1000, 4)
-        self._write_rag_trace(country, query, rewritten_query, prompt, trace_payload, stats.as_dict(), latency_ms=latency_ms)
+        trace_path = self._write_rag_trace(country, query, rewritten_query, prompt, trace_payload, stats.as_dict(), latency_ms=latency_ms)
+        self._record_memory_rag_hits(country, hits, trace_id=Path(trace_path).stem)
         return prompt
 
     def value_audit_rag_generated_answer(
@@ -1093,7 +1141,7 @@ class PuzzleOpsAgent:
             "qdrant": vector_summary if provider == "qdrant" else {},
         }
 
-    def approve_rag_knowledge_patch_draft(self, country: str, patch_id: str, *, human_note: str) -> int:
+    def approve_rag_knowledge_patch_draft(self, country: str, patch_id: str, *, human_note: str, actor: str = "") -> int:
         draft = next(
             (item for item in self.rag_knowledge_patch_drafts(country, limit=10_000).get("items", ()) if isinstance(item, dict) and item.get("patch_id") == patch_id),
             None,
@@ -1118,6 +1166,9 @@ class PuzzleOpsAgent:
             payload,
             source_memory_id=source_memory_id,
             human_verified=True,
+            created_by=actor,
+            review_status="approved",
+            approved_for_rag=True,
         )
 
     def rag_eval_failure_feedback_summary(self, country: str, *, limit: int = 8) -> dict[str, object]:
@@ -2392,11 +2443,12 @@ class PuzzleOpsAgent:
             ("facts", "fact", "FACT"),
         )
         documents: list[RagDocument] = []
+        conflict_memory_ids = self._conflict_memory_ids(country)
         for layer, source_type, prefix in specs:
             for index, memory in enumerate(self.repository.layered_memories(country, layer=layer), 1):
                 payload = memory.get("payload", {})
                 text = _payload_text(payload)
-                if not text:
+                if not text or not self._memory_rag_ready(memory, conflict_memory_ids=conflict_memory_ids):
                     continue
                 documents.append(
                     RagDocument(
@@ -2411,6 +2463,10 @@ class PuzzleOpsAgent:
                             "memory_id": memory.get("memory_id"),
                             "source_memory_id": memory.get("source_memory_id"),
                             "human_verified": bool(memory.get("human_verified")),
+                            "review_status": memory.get("review_status", "draft"),
+                            "approved_for_rag": bool(memory.get("approved_for_rag")),
+                            "approved_by": memory.get("approved_by", ""),
+                            **_memory_trust_metadata(memory),
                         },
                     )
                 )
@@ -2425,11 +2481,11 @@ class PuzzleOpsAgent:
     def hitl_memories(self, country: str):
         return self.repository.memories(country)
 
-    def record_perception_memory(self, country: str, memory_type: str, payload: dict[str, object]) -> int:
-        return self.repository.add_layered_memory(country, "perception", memory_type, payload, ttl_seconds=7 * 24 * 3600)
+    def record_perception_memory(self, country: str, memory_type: str, payload: dict[str, object], *, actor: str = "") -> int:
+        return self.repository.add_layered_memory(country, "perception", memory_type, payload, ttl_seconds=7 * 24 * 3600, created_by=actor)
 
-    def record_working_memory(self, country: str, memory_type: str, payload: dict[str, object]) -> int:
-        return self.repository.add_layered_memory(country, "working", memory_type, payload, ttl_seconds=24 * 3600)
+    def record_working_memory(self, country: str, memory_type: str, payload: dict[str, object], *, actor: str = "") -> int:
+        return self.repository.add_layered_memory(country, "working", memory_type, payload, ttl_seconds=24 * 3600, created_by=actor)
 
     def record_rag_citation_feedback(
         self,
@@ -2439,6 +2495,7 @@ class PuzzleOpsAgent:
         usefulness: str,
         note: str = "",
         task_type: str = "trial_value_match",
+        actor: str = "",
     ) -> int:
         if usefulness not in {"useful", "not_useful"}:
             raise ValueError("RAG 依据反馈只能是 useful 或 not_useful")
@@ -2451,6 +2508,7 @@ class PuzzleOpsAgent:
                 "note": note,
                 "task_type": task_type,
             },
+            actor=actor,
         )
 
     def record_rag_eval_failure_feedback(
@@ -2465,6 +2523,7 @@ class PuzzleOpsAgent:
         suggested_action: str = "",
         gold_grade: str = "",
         label_source: str = "",
+        actor: str = "",
     ) -> int:
         expected = expected_parent_id.strip()
         if not query.strip() or not expected:
@@ -2484,6 +2543,7 @@ class PuzzleOpsAgent:
                 "label_source": label_source.strip(),
                 "task_type": "rag_eval_case_review",
             },
+            actor=actor,
         )
 
     def record_value_match_human_correction(
@@ -2492,6 +2552,7 @@ class PuzzleOpsAgent:
         *,
         human_correction: str,
         satisfaction_score: int | None = None,
+        actor: str = "",
     ) -> dict[str, int]:
         correction = human_correction.strip()
         if not correction:
@@ -2508,7 +2569,7 @@ class PuzzleOpsAgent:
             "citation_ids": list(citations),
             "satisfaction_score": satisfaction_score,
         }
-        working_id = self.record_working_memory(row.country, "value_match_human_correction", payload)
+        working_id = self.record_working_memory(row.country, "value_match_human_correction", payload, actor=actor)
         fact_id = self.record_extracted_fact(
             row.country,
             "verified_value_match_fact",
@@ -2523,6 +2584,7 @@ class PuzzleOpsAgent:
                 "source_working_memory_id": working_id,
                 "label_source": "human_value_match_correction",
             },
+            actor=actor,
         )
         rag_feedback_id = self.record_rag_eval_failure_feedback(
             row.country,
@@ -2534,6 +2596,7 @@ class PuzzleOpsAgent:
             suggested_action="将人工修正沉淀为价值观/审核知识补丁候选",
             gold_grade="",
             label_source="human_value_match_correction",
+            actor=actor,
         )
         return {
             "working_memory_id": working_id,
@@ -2541,13 +2604,13 @@ class PuzzleOpsAgent:
             "rag_feedback_memory_id": rag_feedback_id,
         }
 
-    def record_long_term_memory(self, country: str, memory_type: str, payload: dict[str, object]) -> int:
-        return self.repository.add_layered_memory(country, "long_term", memory_type, payload)
+    def record_long_term_memory(self, country: str, memory_type: str, payload: dict[str, object], *, actor: str = "") -> int:
+        return self.repository.add_layered_memory(country, "long_term", memory_type, payload, created_by=actor)
 
-    def record_extracted_fact(self, country: str, memory_type: str, payload: dict[str, object]) -> int:
-        return self.repository.add_layered_memory(country, "facts", memory_type, payload)
+    def record_extracted_fact(self, country: str, memory_type: str, payload: dict[str, object], *, actor: str = "") -> int:
+        return self.repository.add_layered_memory(country, "facts", memory_type, payload, created_by=actor)
 
-    def promote_memory(self, memory_id: int, *, target_layer: str, human_note: str) -> int:
+    def promote_memory(self, memory_id: int, *, target_layer: str, human_note: str, actor: str = "") -> int:
         if target_layer not in {"facts", "long_term"}:
             raise ValueError("memory 只能人工晋升为 facts 或 long_term")
         target_type = "verified_fact" if target_layer == "facts" else "approved_long_term_memory"
@@ -2556,10 +2619,77 @@ class PuzzleOpsAgent:
             target_layer=target_layer,
             target_type=target_type,
             human_note=human_note,
+            actor=actor,
         )
 
-    def retire_memory(self, memory_id: int) -> None:
-        self.repository.retire_layered_memory(memory_id)
+    def review_memory(self, memory_id: int, *, action: str, actor: str = "") -> None:
+        mapping = {
+            "approve_rag": ("approved", True),
+            "approve_no_rag": ("approved", False),
+            "reject": ("rejected", False),
+            "lock_conflict": ("conflict_locked", False),
+        }
+        if action not in mapping:
+            raise ValueError(f"未知 memory 审核动作：{action}")
+        review_status, approved_for_rag = mapping[action]
+        self.repository.review_layered_memory(memory_id, review_status=review_status, approved_for_rag=approved_for_rag, actor=actor)
+
+    def retire_memory(self, memory_id: int, *, actor: str = "") -> None:
+        self.repository.retire_layered_memory(memory_id, actor=actor)
+
+    def resolve_memory_conflict(
+        self,
+        country: str,
+        *,
+        conflict_id: str,
+        action: str,
+        actor: str = "",
+        note: str = "",
+        merge_text: str = "",
+    ) -> dict[str, object]:
+        conflict = next((item for item in self.memory_conflicts(country) if str(item.get("conflict_id", "")) == conflict_id), None)
+        if conflict is None:
+            raise ValueError(f"找不到 memory 冲突：{conflict_id}")
+        memory_ids = tuple(int(item) for item in conflict.get("memory_ids", ()))
+        if not memory_ids:
+            raise ValueError("冲突组没有可处理的 memory")
+        result: dict[str, object] = {"conflict_id": conflict_id, "action": action, "retired": (), "kept": (), "merged_memory_id": 0}
+        if action in {"keep_first", "keep_second"}:
+            kept = memory_ids[0] if action == "keep_first" else memory_ids[min(1, len(memory_ids) - 1)]
+            retired: list[int] = []
+            for memory_id in memory_ids:
+                if memory_id == kept:
+                    self.review_memory(memory_id, action="approve_rag", actor=actor)
+                else:
+                    self.retire_memory(memory_id, actor=actor)
+                    retired.append(memory_id)
+            result.update({"kept": (kept,), "retired": tuple(retired)})
+            return result
+        if action == "retire_all":
+            for memory_id in memory_ids:
+                self.retire_memory(memory_id, actor=actor)
+            result["retired"] = memory_ids
+            return result
+        if action == "defer":
+            for memory_id in memory_ids:
+                self.review_memory(memory_id, action="lock_conflict", actor=actor)
+            result["kept"] = memory_ids
+            return result
+        if action == "merge":
+            payload = {
+                "subject": str(conflict.get("subject", "")),
+                "operation_tag": str(conflict.get("operation_tag", "")),
+                "human_correction": merge_text.strip() or note.strip() or "冲突已合并，待人工再次批准。",
+                "source_conflict_id": conflict_id,
+                "source_memory_ids": list(memory_ids),
+                "resolution_note": note.strip(),
+            }
+            merged_id = self.record_extracted_fact(country, "merged_conflict_resolution", payload, actor=actor)
+            for memory_id in memory_ids:
+                self.review_memory(memory_id, action="lock_conflict", actor=actor)
+            result.update({"kept": memory_ids, "merged_memory_id": merged_id})
+            return result
+        raise ValueError(f"未知冲突处理动作：{action}")
 
     def memory_overview(self, country: str) -> dict[str, dict[str, object]]:
         labels = {
@@ -2572,7 +2702,8 @@ class PuzzleOpsAgent:
         for layer, label in labels.items():
             items = self.repository.layered_memories(country, layer=layer)
             all_items = self.repository.layered_memories(country, layer=layer, include_inactive=True)
-            rag_ready_count = sum(1 for item in items if _payload_text(item.get("payload", {})))
+            conflict_memory_ids = self._conflict_memory_ids(country)
+            rag_ready_count = sum(1 for item in items if self._memory_rag_ready(item, conflict_memory_ids=conflict_memory_ids))
             overview[label] = {
                 "layer": layer,
                 "count": len(items),
@@ -2589,6 +2720,12 @@ class PuzzleOpsAgent:
             "long_term": "approved_value_rule",
             "facts": "fact",
         }
+        conflicts_by_id: dict[int, list[str]] = {}
+        for conflict in self.memory_conflicts(country):
+            conflict_id = str(conflict.get("conflict_id", ""))
+            for memory_id in conflict.get("memory_ids", ()):
+                conflicts_by_id.setdefault(int(memory_id), []).append(conflict_id)
+        conflict_memory_ids = set(conflicts_by_id)
         rows: list[dict[str, object]] = []
         for memory in self.repository.layered_memories(country, include_inactive=True):
             layer = str(memory.get("memory_layer", ""))
@@ -2607,13 +2744,284 @@ class PuzzleOpsAgent:
                     "source_memory_id": memory.get("source_memory_id"),
                     "expires_at": str(memory.get("expires_at", "") or ""),
                     "human_verified": bool(memory.get("human_verified")),
+                    "created_by": str(memory.get("created_by", "")),
+                    "updated_by": str(memory.get("updated_by", "")),
+                    "approved_by": str(memory.get("approved_by", "")),
+                    "approved_at": str(memory.get("approved_at", "") or ""),
+                    "retired_by": str(memory.get("retired_by", "")),
+                    "retired_at": str(memory.get("retired_at", "") or ""),
+                    "approved_for_rag": bool(memory.get("approved_for_rag")),
+                    "review_status": str(memory.get("review_status", "draft")),
                     "created_at": str(memory.get("created_at", "")),
-                    "rag_ready": bool(summary) and status == "active",
+                    "updated_at": str(memory.get("updated_at", "")),
+                    "rag_ready": self._memory_rag_ready(memory, conflict_memory_ids=conflict_memory_ids),
                     "match_score": _memory_match_score(summary, query),
+                    "conflict_ids": tuple(conflicts_by_id.get(int(memory.get("memory_id", 0)), ())),
+                    **self._memory_quality_metrics(memory, conflicts_by_id),
                 }
             )
         rows.sort(key=lambda row: (float(row["match_score"]), str(row["created_at"])), reverse=True)
         return tuple(rows[: max(limit, 0)])
+
+    def memory_conflicts(self, country: str) -> tuple[dict[str, object], ...]:
+        grouped: dict[tuple[str, str], list[dict[str, object]]] = {}
+        for memory in self.repository.layered_memories(country):
+            payload = memory.get("payload", {})
+            if not isinstance(payload, dict):
+                continue
+            subject = _memory_payload_field(payload, "subject")
+            operation_tag = _memory_payload_field(payload, "operation_tag")
+            if not subject and not operation_tag:
+                continue
+            grouped.setdefault((subject, operation_tag), []).append(memory)
+
+        conflicts: list[dict[str, object]] = []
+        for (subject, operation_tag), memories in grouped.items():
+            stances = {"positive": [], "negative": [], "risk": []}
+            evidence: list[dict[str, object]] = []
+            for memory in memories:
+                memory_id = int(memory.get("memory_id", 0))
+                summary = _payload_text(memory.get("payload", {}))
+                stance = _memory_stance(summary)
+                if stance in stances:
+                    stances[stance].append(memory_id)
+                    evidence.append(
+                        {
+                            "memory_id": memory_id,
+                            "memory_layer": memory.get("memory_layer", ""),
+                            "memory_type": memory.get("memory_type", ""),
+                            "stance": stance,
+                            "summary": summary,
+                            "provenance": self.memory_provenance(country, memory_id).get("steps", ()),
+                        }
+                    )
+            if stances["positive"] and (stances["negative"] or stances["risk"]):
+                involved = tuple(sorted(stances["positive"] + stances["negative"] + stances["risk"]))
+                conflicts.append(
+                    {
+                        "conflict_id": f"{country}:{subject or '*'}:{operation_tag or '*'}",
+                        "country": country,
+                        "subject": subject,
+                        "operation_tag": operation_tag,
+                        "memory_ids": involved,
+                        "stances": {key: list(value) for key, value in stances.items()},
+                        "evidence": tuple(evidence),
+                        "message": "同一主体/tag 下同时存在正向与负向或风险记忆，建议人工复核后停用或晋升可信版本。",
+                    }
+                )
+        return tuple(conflicts)
+
+    def memory_workbench(self, country: str, *, filters: dict[str, str] | None = None) -> dict[str, object]:
+        rows = self.memory_debug(country, limit=200)
+        rows = self._filter_memory_rows(rows, filters or {})
+        pending = tuple(row for row in rows if row.get("status") == "active" and row.get("review_status") == "draft")
+        approved_rag = tuple(row for row in rows if row.get("rag_ready"))
+        retired = tuple(row for row in rows if row.get("review_status") == "retired" or row.get("status") in {"retired", "expired"})
+        cleanup = tuple(row for row in rows if row.get("cleanup_suggestions"))
+        recent_hits = tuple(row for row in approved_rag if row.get("last_rag_hit_at"))
+        return {
+            "pending_review": pending[:8],
+            "conflicts": self.memory_conflicts(country),
+            "approved_rag": approved_rag[:8],
+            "recently_retired": retired[:8],
+            "recent_rag_hits": recent_hits[:8],
+            "cleanup": cleanup[:8],
+        }
+
+    def seed_memory_production_validation(self, country: str, *, actor: str = "") -> dict[str, object]:
+        approved_id = self.record_extracted_fact(
+            country,
+            "production_validation_fact",
+            {
+                "subject": "上线验收寿司样例",
+                "operation_tag": "MEMORY_PROD_VALIDATION",
+                "rule": f"{country}市场上线验收：已批准知识可进入 RAG。",
+            },
+            actor=actor,
+        )
+        draft_id = self.record_working_memory(
+            country,
+            "production_validation_draft",
+            {
+                "subject": "上线验收草稿样例",
+                "operation_tag": "MEMORY_PROD_VALIDATION",
+                "note": "草稿默认不进入 RAG，等待运营确认。",
+            },
+            actor=actor,
+        )
+        positive_id = self.record_extracted_fact(
+            country,
+            "production_validation_conflict_positive",
+            {
+                "subject": "上线验收冲突样例",
+                "operation_tag": "MEMORY_PROD_VALIDATION_CONFLICT",
+                "rule": "适合该国家市场，可进入候选。",
+            },
+            actor=actor,
+        )
+        negative_id = self.record_extracted_fact(
+            country,
+            "production_validation_conflict_negative",
+            {
+                "subject": "上线验收冲突样例",
+                "operation_tag": "MEMORY_PROD_VALIDATION_CONFLICT",
+                "rule": "不适合该国家市场，需要人工复核。",
+            },
+            actor=actor,
+        )
+        self.review_memory(approved_id, action="approve_rag", actor=actor)
+        self.review_memory(positive_id, action="approve_no_rag", actor=actor)
+        self.review_memory(negative_id, action="approve_no_rag", actor=actor)
+        return {
+            "approved_memory_id": approved_id,
+            "draft_memory_id": draft_id,
+            "conflict_memory_ids": (positive_id, negative_id),
+        }
+
+    @staticmethod
+    def _filter_memory_rows(rows: tuple[dict[str, object], ...], filters: dict[str, str]) -> tuple[dict[str, object], ...]:
+        def wanted(key: str) -> str:
+            return str(filters.get(key, "") or "").strip()
+
+        layer = wanted("layer")
+        review_status = wanted("review_status")
+        approved_for_rag = wanted("approved_for_rag")
+        conflict = wanted("conflict")
+        created_by = wanted("created_by")
+        subject = wanted("subject")
+        operation_tag = wanted("operation_tag")
+        filtered: list[dict[str, object]] = []
+        for row in rows:
+            payload = row.get("payload", {}) if isinstance(row.get("payload", {}), dict) else {}
+            if layer and row.get("layer") != layer:
+                continue
+            if review_status and row.get("review_status") != review_status:
+                continue
+            if approved_for_rag in {"true", "false"} and bool(row.get("approved_for_rag")) != (approved_for_rag == "true"):
+                continue
+            if conflict in {"true", "false"} and bool(row.get("conflict_ids")) != (conflict == "true"):
+                continue
+            if created_by and row.get("created_by") != created_by:
+                continue
+            if subject and subject not in _payload_text(payload):
+                continue
+            if operation_tag and operation_tag not in _payload_text(payload):
+                continue
+            filtered.append(row)
+        return tuple(filtered)
+
+    def _record_memory_rag_hits(self, country: str, hits: tuple[object, ...], *, trace_id: str) -> None:
+        memory_hits = []
+        seen: set[tuple[int, str]] = set()
+        for hit in hits:
+            chunk = getattr(hit, "chunk", None)
+            metadata = getattr(chunk, "metadata", {}) if chunk is not None else {}
+            if not isinstance(metadata, dict) or metadata.get("source") != "layered_memory":
+                continue
+            try:
+                memory_id = int(metadata.get("memory_id", 0))
+            except (TypeError, ValueError):
+                continue
+            chunk_id = str(getattr(chunk, "chunk_id", ""))
+            key = (memory_id, chunk_id)
+            if memory_id <= 0 or key in seen:
+                continue
+            seen.add(key)
+            memory_hits.append({"memory_id": memory_id, "chunk_id": chunk_id, "trace_id": trace_id})
+        if memory_hits:
+            self.repository.record_memory_rag_hits(country, tuple(memory_hits))
+
+    def _conflict_memory_ids(self, country: str) -> set[int]:
+        memory_ids: set[int] = set()
+        for conflict in self.memory_conflicts(country):
+            memory_ids.update(int(item) for item in conflict.get("memory_ids", ()))
+        return memory_ids
+
+    @staticmethod
+    def _memory_rag_ready(memory: dict[str, object], *, conflict_memory_ids: set[int] | None = None) -> bool:
+        conflict_memory_ids = conflict_memory_ids or set()
+        memory_id = int(memory.get("memory_id", 0))
+        payload = memory.get("payload", {})
+        return (
+            bool(_payload_text(payload))
+            and str(memory.get("status", "active")) == "active"
+            and str(memory.get("review_status", "draft")) == "approved"
+            and bool(memory.get("approved_for_rag"))
+            and memory_id not in conflict_memory_ids
+        )
+
+    @staticmethod
+    def _memory_quality_metrics(memory: dict[str, object], conflicts_by_id: dict[int, list[str]]) -> dict[str, object]:
+        payload = memory.get("payload", {})
+        memory_id = int(memory.get("memory_id", 0))
+        not_useful = 1 if _memory_negative_feedback(payload) else 0
+        conflicts = len(conflicts_by_id.get(memory_id, ()))
+        suggestions: list[str] = []
+        if not_useful:
+            suggestions.append("多次/本次 not useful，建议复核")
+        if conflicts:
+            suggestions.append("参与冲突，需治理")
+        if str(memory.get("status", "")) == "expired":
+            suggestions.append("已过期，检查是否有新规则覆盖")
+        if str(memory.get("review_status", "")) == "rejected":
+            suggestions.append("已驳回，可定期清理")
+        return {
+            "rag_hit_count": int(memory.get("rag_hit_count", 0) or 0),
+            "accepted_count": 1 if str(memory.get("review_status", "")) == "approved" else 0,
+            "not_useful_count": not_useful,
+            "conflict_count": conflicts,
+            "last_rag_hit_at": str(memory.get("last_rag_hit_at", "") or ""),
+            "cleanup_suggestions": tuple(suggestions),
+        }
+
+    def memory_provenance(self, country: str, memory_id: int) -> dict[str, object]:
+        rows = tuple(self.repository.layered_memories(country, include_inactive=True))
+        by_id = {int(row.get("memory_id", 0)): row for row in rows}
+        if memory_id not in by_id:
+            raise ValueError(f"memory_id 不存在：{memory_id}")
+        root = by_id[memory_id]
+        root_payload = root.get("payload", {}) if isinstance(root.get("payload", {}), dict) else {}
+        subject = _memory_payload_field(root_payload, "subject")
+        operation_tag = _memory_payload_field(root_payload, "operation_tag")
+        citations = set(_memory_payload_citations(root_payload))
+        steps: list[dict[str, object]] = []
+        seen: set[int] = set()
+
+        source_id = root.get("source_memory_id")
+        while source_id:
+            source = by_id.get(int(source_id))
+            if not source:
+                break
+            _append_memory_step(steps, seen, source, "source")
+            source_id = source.get("source_memory_id")
+
+        _append_memory_step(steps, seen, root, "current")
+
+        for row in rows:
+            if row.get("source_memory_id") == memory_id:
+                _append_memory_step(steps, seen, row, "descendant")
+
+        for row in rows:
+            payload = row.get("payload", {}) if isinstance(row.get("payload", {}), dict) else {}
+            row_type = str(row.get("memory_type", ""))
+            if int(row.get("memory_id", 0)) in seen:
+                continue
+            if not _memory_payload_related(payload, subject, operation_tag, citations):
+                continue
+            if row_type == "value_match_human_correction":
+                _append_memory_step(steps, seen, row, "related_human_correction")
+            elif row_type == "verified_value_match_fact" or row.get("memory_layer") == "facts":
+                _append_memory_step(steps, seen, row, "related_fact")
+            elif row_type in {"rag_eval_failure_feedback", "rag_citation_feedback"}:
+                _append_memory_step(steps, seen, row, "related_rag_feedback")
+
+        return {
+            "country": country,
+            "root_memory_id": memory_id,
+            "subject": subject,
+            "operation_tag": operation_tag,
+            "steps": tuple(steps),
+        }
 
     def record_generation_event(self, country: str, event: dict[str, str]) -> None:
         payload = {
@@ -3540,6 +3948,144 @@ def _analysis_row_from_record(record) -> AnalysisRow:
     )
 
 
+def _record_strength(record) -> tuple[float, float, float]:
+    return (float(record.open_rate), float(record.completion_rate), float(record.avg_finish_time))
+
+
+def _record_risk_score(record) -> tuple[int, float, float]:
+    grade_risk = {"D": 3, "C": 2, "B": 1}.get(str(record.grade), 0)
+    position_risk = 1 if int(record.position) in {5, 10, 14, 18, 22} else 0
+    return (grade_risk + position_risk, -float(record.open_rate), -float(record.completion_rate))
+
+
+def _is_declining_record(record) -> bool:
+    return str(record.grade) in {"C", "D"} or (int(record.position) in {5, 10} and str(record.grade) not in {"S", "A"})
+
+
+def _record_review_item(record) -> dict[str, object]:
+    return {
+        "image_id": record.image_id,
+        "operation_tag": record.operation_tag,
+        "subject": record.subject_tag,
+        "js_category": record.js_category,
+        "grade": record.grade,
+        "position": record.position,
+        "open_rate": record.open_rate,
+        "completion_rate": record.completion_rate,
+        "avg_finish_time": record.avg_finish_time,
+        "source": record.source,
+        "distribution_date": record.distribution_date,
+        "reason": record.remark or record.dimension_grade,
+    }
+
+
+def _tag_summaries(records, *, positive: bool) -> tuple[dict[str, object], ...]:
+    grouped: dict[str, list[object]] = defaultdict(list)
+    for record in records:
+        if record.operation_tag:
+            grouped[str(record.operation_tag)].append(record)
+    rows = []
+    for tag, items in grouped.items():
+        total = len(items)
+        sa = sum(1 for item in items if item.grade in {"S", "A"})
+        cd = sum(1 for item in items if item.grade in {"C", "D"})
+        best = max(items, key=_record_strength)
+        worst = max(items, key=_record_risk_score)
+        if positive and sa == 0:
+            continue
+        if not positive and cd == 0:
+            continue
+        avg_open = sum(float(item.open_rate) for item in items) / total
+        avg_completion = sum(float(item.completion_rate) for item in items) / total
+        rows.append(
+            {
+                "operation_tag": tag,
+                "subject": best.subject_tag or _subject_from_operation_tag(tag),
+                "js_category": best.js_category,
+                "sample_count": total,
+                "sa_count": sa,
+                "cd_count": cd,
+                "avg_open_rate": round(avg_open, 4),
+                "avg_completion_rate": round(avg_completion, 4),
+                "source_image": best.image_id,
+                "worst_image": worst.image_id,
+                "reason": f"SA {sa}/{total}，平均开图率 {avg_open:.2%}，适合复用。" if positive else f"C/D {cd}/{total}，关键表现偏弱，建议暂停或改造。",
+            }
+        )
+    if positive:
+        rows.sort(key=lambda row: (int(row["sa_count"]), float(row["avg_open_rate"]), -int(row["cd_count"])), reverse=True)
+    else:
+        rows.sort(key=lambda row: (int(row["cd_count"]), -float(row["avg_open_rate"]), int(row["sample_count"])), reverse=True)
+    return tuple(rows)
+
+
+def _country_differences(country: str, records, other_country: str, other_records) -> tuple[dict[str, object], ...]:
+    current = _category_sa_rates(records)
+    other = _category_sa_rates(other_records)
+    diffs = []
+    for category, data in current.items():
+        other_data = other.get(category, {"sa_rate": 0.0, "count": 0})
+        diffs.append(
+            {
+                "js_category": category,
+                "country": country,
+                "sa_rate": data["sa_rate"],
+                "sample_count": data["count"],
+                "compare_country": other_country,
+                "compare_sa_rate": other_data["sa_rate"],
+                "delta": round(float(data["sa_rate"]) - float(other_data["sa_rate"]), 4),
+            }
+        )
+    diffs.sort(key=lambda row: abs(float(row["delta"])), reverse=True)
+    return tuple(diffs[:6])
+
+
+def _category_sa_rates(records) -> dict[str, dict[str, object]]:
+    grouped: dict[str, list[object]] = defaultdict(list)
+    for record in records:
+        grouped[str(record.js_category)].append(record)
+    return {
+        category: {
+            "count": len(items),
+            "sa_rate": round(sum(1 for item in items if item.grade in {"S", "A"}) / len(items), 4) if items else 0.0,
+        }
+        for category, items in grouped.items()
+    }
+
+
+def _weekly_need_suggestion(country: str, tag_summary: dict[str, object], today: date) -> dict[str, object]:
+    subject = str(tag_summary.get("subject", "") or _subject_from_operation_tag(str(tag_summary.get("operation_tag", ""))))
+    return {
+        "operation_tag": f"常规_{country}_{subject}{today.strftime('%m%d')}",
+        "subject": subject,
+        "js_category": str(tag_summary.get("js_category", "")),
+        "count": 7,
+        "priority": "P1",
+        "method": "限素材网",
+        "source_image": str(tag_summary.get("source_image", "")),
+        "description": f"复用周三回收数据中表现稳定的 {subject} 元素，保持当前国家文化语境、主体清晰和可拼构图。",
+        "reason": str(tag_summary.get("reason", "")),
+        "confirmable": True,
+    }
+
+
+def _subject_from_operation_tag(operation_tag: str) -> str:
+    match = re.search(r"_(?:日本|法国|巴西|俄罗斯|美国)_([^_]+?)(?:\d{4})?$", operation_tag)
+    return match.group(1) if match else operation_tag
+
+
+def _review_period(records) -> str:
+    dates = sorted(str(record.distribution_date) for record in records if str(record.distribution_date))
+    return f"{dates[0]} 至 {dates[-1]}" if dates else "当前回收周期"
+
+
+def _weekly_review_summary(country: str, records, new_sa, declining, reusable, retire) -> str:
+    return (
+        f"{country}周三复盘：本周期回收 {len(records)} 张，新增 S/A {len(tuple(new_sa))} 张，"
+        f"下降/风险 {len(tuple(declining))} 张，可复用 tag {len(tuple(reusable))} 个，应停用 tag {len(tuple(retire))} 个。"
+    )
+
+
 def _rate_text(value: float) -> str:
     return f"{value * 100:.2f}%"
 
@@ -4233,6 +4779,140 @@ def _memory_match_score(text: str, query: str) -> float:
     if not terms:
         return 0.0
     return round(sum(1 for term in terms if term in normalized_text) / len(terms), 3)
+
+
+def _memory_payload_field(payload: dict[str, object], key: str) -> str:
+    value = payload.get(key, "")
+    if isinstance(value, (list, tuple)):
+        value = _first_non_empty(str(item).strip() for item in value)
+    text = str(value or "").strip()
+    if text:
+        return text
+    if key == "subject":
+        description = str(payload.get("subject_description", "") or "")
+        match = re.search(r"主体(?:内容)?[:：=]\s*([^；;，,。]+)", description)
+        if match:
+            return match.group(1).strip()
+    return ""
+
+
+def _memory_stance(text: str) -> str:
+    negative_terms = ("不适合", "不符合", "不建议", "退回", "禁止", "不能", "不推荐")
+    risk_terms = ("风险", "混淆", "水印", "版权", "商标", "误用", "避开", "避免")
+    positive_terms = ("适合", "符合", "通过", "推荐", "可继续", "可进入", "确认")
+    if any(term in text for term in negative_terms):
+        return "negative"
+    if any(term in text for term in risk_terms):
+        return "risk"
+    if any(term in text for term in positive_terms):
+        return "positive"
+    return "neutral"
+
+
+def _memory_trust_metadata(memory: dict[str, object]) -> dict[str, object]:
+    layer = str(memory.get("memory_layer", ""))
+    status = str(memory.get("status", "active"))
+    review_status = str(memory.get("review_status", "draft"))
+    approved_for_rag = bool(memory.get("approved_for_rag"))
+    human_verified = bool(memory.get("human_verified"))
+    base_weight = {
+        "perception": 0.75,
+        "working": 0.65,
+        "long_term": 1.35,
+        "facts": 1.45,
+    }.get(layer, 1.0)
+    if human_verified:
+        base_weight += 0.35
+    payload = memory.get("payload", {})
+    text = _payload_text(payload)
+    stance = _memory_stance(text)
+    if status != "active" or review_status != "approved" or not approved_for_rag:
+        base_weight = 0.0
+    if _memory_low_satisfaction(payload) or _memory_negative_feedback(payload):
+        base_weight *= 0.5
+    trust_level = "high" if base_weight >= 1.4 else "medium" if base_weight >= 1.0 else "low"
+    return {
+        "memory_weight": round(base_weight, 3),
+        "trust_level": trust_level,
+        "governance_status": status,
+        "review_status": review_status,
+        "approved_for_rag": approved_for_rag,
+        "memory_stance": stance,
+        "rag_ready": bool(text) and status == "active" and review_status == "approved" and approved_for_rag,
+    }
+
+
+def _memory_low_satisfaction(payload: object) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    score = payload.get("satisfaction_score")
+    try:
+        return score is not None and int(score) <= 2
+    except (TypeError, ValueError):
+        return False
+
+
+def _memory_negative_feedback(payload: object) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    return str(payload.get("usefulness", "")).strip() == "not_useful"
+
+
+def _memory_payload_citations(payload: dict[str, object]) -> tuple[str, ...]:
+    citations: list[str] = []
+    for key in ("citation_ids", "retrieved_parent_ids", "expected_parent_id", "chunk_id"):
+        value = payload.get(key)
+        if isinstance(value, (list, tuple)):
+            citations.extend(str(item) for item in value if str(item).strip())
+        elif value:
+            citations.append(str(value))
+    text = _payload_text(payload)
+    citations.extend(_extract_rag_citation_ids(text))
+    return tuple(dict.fromkeys(citations))
+
+
+def _memory_payload_related(
+    payload: dict[str, object],
+    subject: str,
+    operation_tag: str,
+    citations: set[str],
+) -> bool:
+    text = _payload_text(payload)
+    if subject and subject in text:
+        return True
+    if operation_tag and operation_tag in text:
+        return True
+    payload_citations = set(_memory_payload_citations(payload))
+    if citations and payload_citations.intersection(citations):
+        return True
+    parent_citations = {_parent_id_from_chunk_id(citation) for citation in citations}
+    parent_payload_citations = {_parent_id_from_chunk_id(citation) for citation in payload_citations}
+    return bool(parent_citations and parent_payload_citations.intersection(parent_citations))
+
+
+def _append_memory_step(
+    steps: list[dict[str, object]],
+    seen: set[int],
+    memory: dict[str, object],
+    step_type: str,
+) -> None:
+    memory_id = int(memory.get("memory_id", 0))
+    if memory_id in seen:
+        return
+    seen.add(memory_id)
+    payload = memory.get("payload", {}) if isinstance(memory.get("payload", {}), dict) else {}
+    steps.append(
+        {
+            "step_type": step_type,
+            "memory_id": memory_id,
+            "memory_layer": str(memory.get("memory_layer", "")),
+            "memory_type": str(memory.get("memory_type", "")),
+            "status": str(memory.get("status", "")),
+            "source_memory_id": memory.get("source_memory_id"),
+            "human_verified": bool(memory.get("human_verified")),
+            "summary": _payload_text(payload),
+        }
+    )
 
 
 def _rag_chunk_from_row(row: dict[str, object]) -> RagChunk:

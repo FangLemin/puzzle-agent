@@ -2,6 +2,102 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.31 - Wednesday Review Operations Loop
+
+日期：2026-07-12
+
+阶段目标：
+
+- 增加“周三复盘工作台”，把回收数据分析推进到“分析 -> 提需建议 -> 人工确认 -> 飞书/CMS落地”的业务闭环。
+
+已完成：
+
+- 新增周三复盘 Agent 能力：基于上传/示例 Excel 历史回收数据，自动输出新增 S/A 图、下降图、国家差异、可复用 tag、应停用 tag。
+- 新增复盘提需建议：从可复用 tag 生成可确认的常规提需候选，包含运营 tag、主体、JS 分类、描述和推荐原因。
+- 新增周三复盘页面：侧边导航可进入，页面展示五个复盘队列，并支持“确认生成提需清单”。
+- 新增确认路由：运营确认后自动进入常规提需页，复用现有提需编辑和飞书同步链路。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_agents.py::test_weekly_review_workbench_closes_recycle_analysis_to_need_suggestions tests/test_renderer.py::test_weekly_review_page_shows_recycle_queues_and_confirm_action tests/test_server.py::test_confirm_weekly_review_needs_adds_suggested_rows -q`：3 passed。
+- `PYTHONPATH=. pytest tests/test_agents.py tests/test_renderer.py tests/test_server.py -q`：254 passed。
+- `PYTHONPATH=. pytest tests -q`：422 passed。
+- `http://127.0.0.1:5199/?view=weekly_review&country=日本&user_id=jp_owner`：GET 200，页面展示五个复盘队列和确认按钮。
+
+## v0.7.30 - Memory Production Hardening
+
+日期：2026-07-12
+
+阶段目标：
+
+- 把 Memory/RAG 从“可演示治理”收口到 6 人运营团队上线前可验收的知识系统。
+
+已完成：
+
+- Memory 审计流水：新增独立 `memory_audit_events`，记录 create/review/retire/rag_hit 的操作者、状态变化、RAG 许可和 metadata。
+- 真实 RAG 命中指标：RAG 检索命中 layered memory chunk 后，自动回写 `rag_hit_count`、`last_rag_hit_at`，并进入审计流水。
+- 工作台筛选：Runtime Memory 工作台支持按 layer、review status、是否允许进 RAG、是否冲突、创建人、主体、运营 tag 过滤。
+- 生产验收样例：可在 Runtime 页生成当前国家的 approved、draft、conflict 三类 memory 样例，用于验证审批、RAG 闸门和冲突治理。
+- 页面可观测：Memory Debug 展示 RAG 命中次数和 not useful 计数，便于运营每天清理低质量知识。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_storage_runtime.py::test_layered_memory_review_and_audit_fields tests/test_storage_runtime.py::test_repository_records_real_rag_hit_metrics_for_memory_chunks tests/test_agents.py::test_agent_rag_answer_updates_memory_hit_metrics_from_real_retrieval tests/test_agents.py::test_agent_memory_workbench_filters_by_layer_status_actor_and_subject tests/test_renderer.py::test_runtime_page_exposes_memory_workbench_filters_and_audit_columns tests/test_server.py::test_memory_production_validation_seed_route_creates_country_samples -q`：6 passed。
+- `PYTHONPATH=. pytest tests/test_storage_runtime.py tests/test_agents.py tests/test_renderer.py tests/test_server.py tests/test_rag.py -q`：327 passed。
+
+## v0.7.29 - Mock Login and Country Permission Mode
+
+日期：2026-07-11
+
+阶段目标：
+
+- 增加面向 6 人运营团队的入口页：选择用户与本次工作国家，非负责国家可查看但不可操作。
+
+已完成：
+
+- 新增 mock 登录/入口页，保留原有 `🧩 PuzzleOps Agent` 图标与品牌样式。
+- 登录页展示 5 个运营身份与 5 个国家；所有国家可选，负责国家显示“可编辑”，非负责国家显示“只读”。
+- 进入工作台后顶部展示当前用户、当前国家与权限模式。
+- 只读国家下，后端拦截写操作并提示“只有只读权限，不能执行该操作”。
+- 默认测试/demo 用户设为“日本/法国协助运营”，兼容现有日本/法国业务测试；显式选择日本运营进入法国仍为只读。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_renderer.py tests/test_server.py -q`：137 passed。
+- `PYTHONPATH=. pytest tests -q`：412 passed。
+
+## v0.7.28 - Memory Governance
+
+日期：2026-07-09
+
+阶段目标：
+
+- 给四层 memory 增加冲突治理、RAG 信任加权和 provenance 溯源展示。
+
+已完成：
+
+- Memory Conflict：
+  - 新增 `memory_conflicts(country)`，按国家、主体、运营 tag 聚合同组 memory。
+  - 识别正向价值观记忆与负向/风险记忆冲突，返回冲突 memory ids、立场和处理建议。
+  - 多模态底座展示 Memory Conflict 表；Memory Debug 行展示冲突 badge。
+- Memory RAG 权重：
+  - Memory 转 RAG 文档时写入 `memory_weight`、`trust_level`、`governance_status`、`memory_stance`、`human_verified`。
+  - 本地 `HybridRagRetriever` 在 rerank 分数上应用 `memory_weight`，让人工确认 facts/long_term 优先于 perception/working。
+  - 低满意度或 `not_useful` feedback 会降权；非 active memory 仍不进入 RAG。
+- Memory Provenance：
+  - 新增 `memory_provenance(country, memory_id)`，串联 source memory、晋升结果、人工修正、结构化事实和 RAG feedback/citation。
+  - 多模态底座展示 Memory Provenance 只读链路，便于解释 HITL 闭环。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_storage_runtime.py::test_agent_detects_conflicting_value_memories_for_same_subject tests/test_storage_runtime.py::test_memory_provenance_links_promotion_correction_and_rag_feedback tests/test_rag.py::test_hybrid_retriever_prefers_trusted_memory_weight -q`：3 passed。
+- `PYTHONPATH=. pytest tests/test_renderer.py::test_multimodal_page_shows_memory_governance_sections -q`：1 passed。
+
+当前限制：
+
+- 冲突识别目前使用可解释关键词规则，不做 LLM 自动裁决。
+- provenance 当前展示 top matching memory 的链路；后续可增加按 memory_id 点击展开。
+
 ## v0.7.27 - Real Sample Harness and Milvus Acceptance
 
 日期：2026-07-08

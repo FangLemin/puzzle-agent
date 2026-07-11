@@ -37,6 +37,40 @@ def test_dashboard_page_contains_country_workflow_and_holiday_ai_themes():
     assert "家庭团聚" in holiday_html
 
 
+def test_weekly_review_page_shows_recycle_queues_and_confirm_action():
+    html = render_page(PuzzleOpsAgent(), AppState(country="日本", view="weekly_review"))
+
+    assert "周三复盘工作台" in html
+    assert "新增 S/A 图" in html
+    assert "下降图" in html
+    assert "国家差异" in html
+    assert "可复用 tag" in html
+    assert "应停用 tag" in html
+    assert 'action="/confirm_weekly_review_needs"' in html
+    assert "确认生成提需清单" in html
+
+
+def test_login_page_keeps_original_agent_icon_and_shows_readonly_country():
+    html = render_page(PuzzleOpsAgent(), AppState(user_id="jp_owner", country="法国", view="login"))
+
+    assert '<div class="login-logo">🧩</div>' in html
+    assert "PuzzleOps Agent" in html
+    assert "选择身份与国家" in html
+    assert "日本运营" in html
+    assert "法国" in html
+    assert "只读" in html
+    assert "进入只读工作台" in html
+
+
+def test_runtime_page_shows_session_readonly_badge_for_unowned_country():
+    html = render_page(PuzzleOpsAgent(), AppState(user_id="jp_owner", country="法国", view="runtime"))
+
+    assert "当前用户：日本运营" in html
+    assert "当前国家：法国" in html
+    assert "模式：只读" in html
+    assert "只读模式" in html
+
+
 def test_regular_page_renders_business_table_fields_and_empty_delivery_input():
     agent = PuzzleOpsAgent()
     state = AppState(country="日本", view="regular")
@@ -238,6 +272,36 @@ def test_runtime_page_shows_rag_feedback_summary(tmp_path):
     assert "Prompt 回放详情" in html
     assert "引用上下文" in html
     assert "检索命中详情" in html
+
+
+def test_multimodal_page_shows_memory_governance_sections(tmp_path):
+    agent = agent_without_vlm(tmp_path)
+    agent.record_extracted_fact(
+        "日本",
+        "verified_value_match_fact",
+        {
+            "subject": "寿司",
+            "operation_tag": "试新_日本_寿司拼盘0609",
+            "human_correction": "寿司图符合日本本土饮食文化，适合继续试新。",
+        },
+    )
+    agent.record_working_memory(
+        "日本",
+        "value_match_human_correction",
+        {
+            "subject": "寿司",
+            "operation_tag": "试新_日本_寿司拼盘0609",
+            "human_correction": "寿司图不适合日本市场，存在文化误用风险。",
+        },
+    )
+
+    html = render_page(agent, AppState(country="日本", view="runtime"))
+
+    assert "Memory Conflict" in html
+    assert "Memory Provenance" in html
+    assert "同一主体/tag" in html
+    assert "试新_日本_寿司拼盘0609" in html
+    assert "冲突" in html
     assert "只基于引用依据回答" in html
 
 
@@ -1218,6 +1282,20 @@ def test_runtime_page_shows_memory_debug_table():
     assert 'action="/promote_memory"' in html
     assert 'action="/retire_memory"' in html
     assert "晋升为事实" in html
+
+
+def test_runtime_page_exposes_memory_workbench_filters_and_audit_columns():
+    agent = PuzzleOpsAgent()
+    agent.record_perception_memory("日本", "vision_parse", {"subject": "寿司"}, actor="jp_owner")
+    html = render_page(agent, AppState(country="日本", view="runtime", memory_layer="perception", memory_subject="寿司"))
+
+    assert "Memory 工作台筛选" in html
+    assert 'name="memory_layer"' in html
+    assert 'name="memory_review_status"' in html
+    assert 'name="memory_created_by"' in html
+    assert 'name="memory_subject"' in html
+    assert "RAG命中" in html
+    assert "not useful" in html
 
 
 def test_page_css_prevents_grid_content_from_widening_viewport():

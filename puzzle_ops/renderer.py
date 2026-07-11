@@ -8,8 +8,28 @@ from puzzle_ops.models import DemandRow
 from puzzle_ops.visual_assets import image_data_uri
 
 
+OPERATOR_USERS = (
+    {"user_id": "jp_owner", "name": "日本运营", "writable_countries": ("日本",)},
+    {"user_id": "fr_owner", "name": "法国运营", "writable_countries": ("法国",)},
+    {"user_id": "jp_fr_assist", "name": "日本/法国协助运营", "writable_countries": ("日本", "法国")},
+    {"user_id": "br_ru_owner", "name": "巴西/俄罗斯运营", "writable_countries": ("巴西", "俄罗斯")},
+    {"user_id": "us_owner", "name": "美国运营", "writable_countries": ("美国",)},
+)
+
+DEFAULT_USER_ID = "jp_fr_assist"
+
+LOGIN_COUNTRIES = (
+    ("日本", "🇯🇵"),
+    ("法国", "🇫🇷"),
+    ("巴西", "🇧🇷"),
+    ("俄罗斯", "🇷🇺"),
+    ("美国", "🇺🇸"),
+)
+
+
 @dataclass
 class AppState:
+    user_id: str = DEFAULT_USER_ID
     country: str = "日本"
     view: str = "dashboard"
     category: str = "人物"
@@ -17,6 +37,13 @@ class AppState:
     trial_mode: str = "parse"
     schedule_day: str = "周一"
     value_grade: str = "S"
+    memory_layer: str = ""
+    memory_review_status: str = ""
+    memory_approved_for_rag: str = ""
+    memory_conflict: str = ""
+    memory_created_by: str = ""
+    memory_subject: str = ""
+    memory_operation_tag: str = ""
     show_holiday: bool = False
     need_rows: list[DemandRow] = field(default_factory=list)
     trial_row: DemandRow | None = None
@@ -32,12 +59,16 @@ class AppState:
 
 
 def render_page(agent: PuzzleOpsAgent, state: AppState) -> str:
+    normalize_session(state)
+    if state.view == "login":
+        return render_login(agent, state)
     normalize_state(agent, state)
     body = {
         "dashboard": render_dashboard,
         "regular": render_regular,
         "trial": render_trial,
         "analysis": render_analysis,
+        "weekly_review": render_weekly_review,
         "value": render_value,
         "runtime": render_runtime,
         "eval": render_eval,
@@ -55,13 +86,14 @@ def render_page(agent: PuzzleOpsAgent, state: AppState) -> str:
 <body>
   <aside>
     <div class="brand"><div class="logo">🧩</div><strong>PuzzleOps Agent</strong><span>纯 Python 后台原型</span></div>
+    {render_session_card(state)}
     {render_country_switch(agent, state)}
     {render_nav(state)}
     <p class="note">所有页面由 Python 标准库服务端渲染；业务逻辑在 <code>puzzle_ops/agents.py</code>。</p>
   </aside>
   <main>
     <header>
-      <div><p>{escape(state.country)}市场</p><h1><span class="page-icon">{view_icon(state.view)}</span>{page_title(state.view)}</h1></div>
+      <div><p>{escape(state.country)}市场</p><h1><span class="page-icon">{view_icon(state.view)}</span>{page_title(state.view)}</h1>{render_permission_strip(state)}</div>
       <div class="header-actions"><a class="button" href="{href(state, view='sync')}">同步记录</a></div>
     </header>
     {body}
@@ -70,7 +102,17 @@ def render_page(agent: PuzzleOpsAgent, state: AppState) -> str:
 </html>"""
 
 
+def normalize_session(state: AppState) -> None:
+    user_ids = {str(user["user_id"]) for user in OPERATOR_USERS}
+    if state.user_id not in user_ids:
+        state.user_id = DEFAULT_USER_ID
+    if state.country not in {country for country, _ in LOGIN_COUNTRIES}:
+        state.country = "日本"
+
+
 def normalize_state(agent: PuzzleOpsAgent, state: AppState) -> None:
+    if state.country not in agent.countries():
+        state.country = "日本"
     categories = agent.categories(state.country)
     if state.category not in categories:
         state.category = next(iter(categories))
@@ -85,12 +127,137 @@ def normalize_state(agent: PuzzleOpsAgent, state: AppState) -> None:
         state.task_notes = [task["body"] for task in agent.dashboard(state.country)["tasks"]]
 
 
+def current_user(state: AppState) -> dict[str, object]:
+    for user in OPERATOR_USERS:
+        if user["user_id"] == state.user_id:
+            return user
+    return OPERATOR_USERS[0]
+
+
+def user_label(user_id: str) -> str:
+    for user in OPERATOR_USERS:
+        if user["user_id"] == user_id:
+            return str(user["name"])
+    return str(OPERATOR_USERS[0]["name"])
+
+
+def can_write_country(user_id: str, country: str) -> bool:
+    for user in OPERATOR_USERS:
+        if user["user_id"] == user_id:
+            return country in tuple(user["writable_countries"])
+    return False
+
+
+def permission_label(state: AppState) -> str:
+    return "可编辑" if can_write_country(state.user_id, state.country) else "只读"
+
+
+def render_login(agent: PuzzleOpsAgent, state: AppState) -> str:
+    normalize_session(state)
+    user = current_user(state)
+    user_rows = "".join(render_login_user_row(state, item) for item in OPERATOR_USERS)
+    country_rows = "".join(render_login_country_row(state, country, flag, country in agent.countries()) for country, flag in LOGIN_COUNTRIES)
+    editable_country = next((country for country in user["writable_countries"] if country in agent.countries()), "")
+    switch_link = f'<a class="login-switch" href="{href(state, country=str(editable_country), view="dashboard")}">切换为可编辑国家：{escape(str(editable_country))}</a>' if editable_country and editable_country != state.country else ""
+    mode = permission_label(state)
+    button_class = "primary login-enter" if mode == "可编辑" else "login-enter readonly"
+    return f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>选择身份与国家 - PuzzleOps Agent</title>
+  <style>{CSS}</style>
+</head>
+<body class="login-body">
+  <main class="login-main">
+    <section class="login-brand">
+      <div class="login-logo">🧩</div>
+      <div><h1>PuzzleOps Agent</h1><p>出海拼图内容运营工作台</p></div>
+    </section>
+    <section class="login-grid">
+      <div class="panel login-panel">
+        <h2>选择身份与国家</h2>
+        <div class="login-step"><span>1</span><strong>运营人员</strong></div>
+        <div class="login-list">{user_rows}</div>
+        <div class="login-step"><span>2</span><strong>本次工作国家</strong></div>
+        <div class="login-list">{country_rows}</div>
+        {render_login_warning(state)}
+        <a class="button {button_class}" href="{href(state, view='dashboard')}">进入{escape(mode)}工作台</a>
+        {switch_link}
+      </div>
+      <div class="panel login-panel">
+        <h2>进入后的权限预览</h2>
+        <div class="permission-grid">
+          <article class="permission-card ok"><strong>可查看</strong><ul><li>Dashboard</li><li>数据分析</li><li>Memory Debug</li><li>RAG Citation</li><li>排图预览</li><li>历史同步记录</li></ul></article>
+          <article class="permission-card locked"><strong>不可操作</strong><ul><li>新增/编辑提需</li><li>试新上传解析</li><li>价值观人工修正</li><li>Memory 晋升/停用</li><li>RAG Feedback 写入</li><li>飞书同步</li><li>RAG Patch / Reindex</li></ul></article>
+        </div>
+        <div class="session-preview">当前用户：{escape(str(user["name"]))}　|　当前国家：{escape(state.country)}　|　模式：{escape(mode)}</div>
+        <div class="header-preview"><span class="menu-icon">☰</span><span class="mini-logo">🧩</span><strong>PuzzleOps Agent</strong><span>{escape(str(user["name"]))} · {escape(state.country)} · {escape(mode)}</span></div>
+        <p class="note">实际进入后，会根据当前身份和国家自动隐藏或拦截不可操作入口。</p>
+      </div>
+    </section>
+  </main>
+</body>
+</html>"""
+
+
+def render_login_user_row(state: AppState, user: dict[str, object]) -> str:
+    selected = " selected" if user["user_id"] == state.user_id else ""
+    countries = "、".join(str(country) for country in user["writable_countries"])
+    return (
+        f'<a class="login-row{selected}" href="{href(state, user_id=str(user["user_id"]), view="login")}">'
+        f'<span>👤</span><strong>{escape(str(user["name"]))}</strong><small>负责：{escape(countries)}</small></a>'
+    )
+
+
+def render_login_country_row(state: AppState, country: str, flag: str, supported: bool) -> str:
+    selected = " selected" if state.country == country else ""
+    writable = can_write_country(state.user_id, country)
+    badge = "可编辑" if writable else "只读"
+    badge_class = "edit" if writable else "readonly"
+    copy = "可创建、晋升、停用 Memory，可同步飞书" if writable else "可查看，不可操作"
+    if not supported:
+        copy = "权限已配置，业务数据待接入"
+    return (
+        f'<a class="login-row country-row{selected}" href="{href(state, country=country, view="login")}">'
+        f'<span>{escape(flag)}</span><strong>{escape(country)}</strong><em class="perm {badge_class}">{badge}</em><small>{escape(copy)}</small></a>'
+    )
+
+
+def render_login_warning(state: AppState) -> str:
+    if can_write_country(state.user_id, state.country):
+        return '<p class="login-hint ok">当前为可编辑模式：你可以操作当前国家的 Memory/RAG/同步链路。</p>'
+    return f'<p class="login-hint readonly">当前为只读模式：你可以查看{escape(state.country)} Memory/RAG，但不能写入或同步。</p>'
+
+
+def render_session_card(state: AppState) -> str:
+    mode = permission_label(state)
+    mode_class = "edit" if mode == "可编辑" else "readonly"
+    return (
+        '<section class="session-card">'
+        f'<small>当前用户：{escape(user_label(state.user_id))}</small>'
+        f'<strong>{escape(state.country)} · <span class="perm {mode_class}">{escape(mode)}</span></strong>'
+        f'<a href="{href(state, view="login")}">切换身份/国家</a>'
+        '</section>'
+    )
+
+
+def render_permission_strip(state: AppState) -> str:
+    mode = permission_label(state)
+    mode_class = "edit" if mode == "可编辑" else "readonly"
+    warning = "" if mode == "可编辑" else '<span class="readonly-copy">只读模式：非负责国家，写操作已禁用。</span>'
+    return f'<div class="permission-strip"><span>当前用户：{escape(user_label(state.user_id))}</span><span>当前国家：{escape(state.country)}</span><span class="perm {mode_class}">模式：{escape(mode)}</span>{warning}</div>'
+
+
 def render_country_switch(agent: PuzzleOpsAgent, state: AppState) -> str:
     buttons = []
     for country in agent.countries():
         data = agent.dashboard(country)
         active = " active" if country == state.country else ""
-        buttons.append(f'<a class="pill{active}" href="{href(state, country=country, view="dashboard")}">{escape(data["country_label"])}</a>')
+        mode = "可编辑" if can_write_country(state.user_id, country) else "只读"
+        mode_class = "edit" if mode == "可编辑" else "readonly"
+        buttons.append(f'<a class="pill{active}" href="{href(state, country=country, view="dashboard")}">{escape(data["country_label"])} <span class="perm {mode_class}">{mode}</span></a>')
     return '<section class="switcher"><h2>当前国家</h2><div class="pills">' + "".join(buttons) + "</div></section>"
 
 
@@ -100,6 +267,7 @@ def render_nav(state: AppState) -> str:
         ("regular", "📦", "常规提需"),
         ("trial", "✨", "试新提需"),
         ("analysis", "📈", "数据分析大师"),
+        ("weekly_review", "🔎", "周三复盘"),
         ("value", "🔮", "价值观大师"),
         ("runtime", "🧠", "多模态底座"),
         ("eval", "🧪", "Agent 评测"),
@@ -499,6 +667,114 @@ def render_analysis(agent: PuzzleOpsAgent, state: AppState) -> str:
 """
 
 
+def render_weekly_review(agent: PuzzleOpsAgent, state: AppState) -> str:
+    review = agent.weekly_review_workbench(state.country)
+    context = hidden_context(state, view="weekly_review")
+    action = (
+        f'<form method="post" action="/confirm_weekly_review_needs">{context}<button class="primary">确认生成提需清单</button></form>'
+        if can_write_country(state.user_id, state.country)
+        else ""
+    )
+    readonly_note = "" if can_write_country(state.user_id, state.country) else "<p class='muted'>当前国家只读，仅可查看复盘，不可生成提需。</p>"
+    return f"""
+<section class="panel">
+  <div class="section-line"><h2>周三复盘工作台</h2><div class="inline-actions">{action}</div></div>
+  {render_sync_message(state)}
+  <p class="muted">数据源：{escape(str(review.get('source', '')))}；周期：{escape(str(review.get('period', '')))}</p>
+  <p>{escape(str(review.get('summary', '')))}</p>
+  {readonly_note}
+</section>
+<section class="grid two">
+  <div class="panel"><h2>新增 S/A 图</h2>{render_weekly_review_items(review.get("new_sa_images", ()))}</div>
+  <div class="panel"><h2>下降图</h2>{render_weekly_review_items(review.get("declining_images", ()))}</div>
+</section>
+<section class="grid two">
+  <div class="panel"><h2>可复用 tag</h2>{render_tag_review_rows(review.get("reusable_tags", ()), mode="reuse")}</div>
+  <div class="panel"><h2>应停用 tag</h2>{render_tag_review_rows(review.get("retire_tags", ()), mode="retire")}</div>
+</section>
+<section class="panel"><h2>国家差异</h2>{render_country_diff_rows(review.get("country_differences", ()))}</section>
+<section class="panel"><h2>复盘提需建议</h2>{render_need_suggestion_rows(review.get("need_suggestions", ()))}</section>
+"""
+
+
+def render_weekly_review_items(items: object) -> str:
+    rows = []
+    for item in items if isinstance(items, (tuple, list)) else ():
+        if not isinstance(item, dict):
+            continue
+        rows.append(
+            "<tr>"
+            f"<td>{escape(str(item.get('image_id', '')))}</td>"
+            f"<td>{grade(str(item.get('grade', '')))}</td>"
+            f"<td>{escape(str(item.get('operation_tag', '')))}</td>"
+            f"<td>{escape(str(item.get('subject', '')))}</td>"
+            f"<td>{escape(str(item.get('js_category', '')))}</td>"
+            f"<td>{position(int(item.get('position', 0) or 0))}</td>"
+            f"<td>{escape(str(item.get('reason', '')))}</td>"
+            "</tr>"
+        )
+    if not rows:
+        return '<p class="empty">暂无。</p>'
+    return "<div class='table-wrap'><table><thead><tr><th>图片</th><th>等级</th><th>运营tag</th><th>主体</th><th>JS分类</th><th>位置</th><th>原因</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table></div>"
+
+
+def render_tag_review_rows(items: object, *, mode: str) -> str:
+    rows = []
+    for item in items if isinstance(items, (tuple, list)) else ():
+        if not isinstance(item, dict):
+            continue
+        signal = f"SA {item.get('sa_count', 0)}" if mode == "reuse" else f"C/D {item.get('cd_count', 0)}"
+        rows.append(
+            "<tr>"
+            f"<td>{escape(str(item.get('operation_tag', '')))}</td>"
+            f"<td>{escape(str(item.get('subject', '')))}</td>"
+            f"<td>{escape(str(item.get('js_category', '')))}</td>"
+            f"<td>{escape(signal)}</td>"
+            f"<td>{escape(str(item.get('reason', '')))}</td>"
+            "</tr>"
+        )
+    if not rows:
+        return '<p class="empty">暂无。</p>'
+    return "<div class='table-wrap'><table><thead><tr><th>运营tag</th><th>主体</th><th>JS分类</th><th>信号</th><th>建议</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table></div>"
+
+
+def render_country_diff_rows(items: object) -> str:
+    rows = []
+    for item in items if isinstance(items, (tuple, list)) else ():
+        if not isinstance(item, dict):
+            continue
+        rows.append(
+            "<tr>"
+            f"<td>{escape(str(item.get('js_category', '')))}</td>"
+            f"<td>{escape(str(item.get('country', '')))} SA {float(item.get('sa_rate', 0)):.0%}</td>"
+            f"<td>{escape(str(item.get('compare_country', '')))} SA {float(item.get('compare_sa_rate', 0)):.0%}</td>"
+            f"<td>{float(item.get('delta', 0)):+.0%}</td>"
+            "</tr>"
+        )
+    if not rows:
+        return '<p class="empty">暂无国家差异。</p>'
+    return "<div class='table-wrap'><table><thead><tr><th>JS分类</th><th>当前国家</th><th>对比国家</th><th>差异</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table></div>"
+
+
+def render_need_suggestion_rows(items: object) -> str:
+    rows = []
+    for item in items if isinstance(items, (tuple, list)) else ():
+        if not isinstance(item, dict):
+            continue
+        rows.append(
+            "<tr>"
+            f"<td>{escape(str(item.get('operation_tag', '')))}</td>"
+            f"<td>{escape(str(item.get('subject', '')))}</td>"
+            f"<td>{escape(str(item.get('js_category', '')))}</td>"
+            f"<td>{escape(str(item.get('description', '')))}</td>"
+            f"<td>{escape(str(item.get('reason', '')))}</td>"
+            "</tr>"
+        )
+    if not rows:
+        return '<p class="empty">暂无提需建议。</p>'
+    return "<div class='table-wrap'><table><thead><tr><th>运营tag</th><th>主体</th><th>JS分类</th><th>主体描述</th><th>推荐原因</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table></div>"
+
+
 def render_value(agent: PuzzleOpsAgent, state: AppState) -> str:
     tabs = "".join(f'<a class="pill {"active" if grade == state.value_grade else ""}" href="{href(state, view="value", value_grade=grade)}">{grade}</a>' for grade in ("S", "A", "B", "C", "D"))
     cards = "".join(f"<article class='image-card'>{visual_thumb(card.image.thumb, card.image.title)}<strong>{escape(card.operation_tag)}</strong><p>{grade(card.image.grade)} 预测等级</p><small>开图 {escape(card.image.open_rate)} · 完成 {escape(card.image.finish_rate)} · {escape(card.image.finish_time)}</small><p>{escape(card.prediction_remark)}</p></article>" for card in agent.value_predictions(state.country, state.value_grade))
@@ -527,9 +803,15 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
     )
     memory_items = "".join(f'<li>{escape(str(memory["content"]))}</li>' for memory in memories)
     memory_overview_cards = render_memory_overview(memory_overview)
+    memory_filters = memory_filter_values(state)
+    memory_workbench = render_memory_workbench(agent.memory_workbench(state.country, filters=memory_filters), state, memory_filters)
     rag_cards = render_rag_summary(rag_summary, state)
     rag_actions = render_rag_runtime_actions(agent, state)
-    memory_debug_rows = render_memory_debug_rows(agent.memory_debug(state.country, query=feature.main_subject), state)
+    memory_debug = agent.memory_debug(state.country, query=feature.main_subject)
+    memory_debug_rows = render_memory_debug_rows(memory_debug, state)
+    memory_conflicts = render_memory_conflicts(agent.memory_conflicts(state.country), state)
+    provenance_root = int(memory_debug[0].get("memory_id", 0)) if memory_debug else 0
+    memory_provenance = render_memory_provenance(agent.memory_provenance(state.country, provenance_root) if provenance_root else {})
     return f"""
 <section class="panel">
   <h2>多模态底座</h2>
@@ -566,7 +848,10 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
   <div class="panel"><h2>HITL Memory</h2><ul>{memory_items or '<li>暂无人工反馈记忆。</li>'}</ul></div>
 </section>
 <section class="panel"><h2>四层 Memory 概览</h2><div class="memory-grid">{memory_overview_cards}</div></section>
-<section class="panel"><h2>Memory Debug</h2><div class="table-wrap"><table><thead><tr><th>ID</th><th>层级/类型</th><th>状态</th><th>RAG Source</th><th>命中分</th><th>RAG Ready</th><th>来源</th><th>记忆内容</th><th>治理</th></tr></thead><tbody>{memory_debug_rows}</tbody></table></div></section>
+<section class="panel"><h2>Memory 工作台</h2>{memory_workbench}</section>
+<section class="panel"><h2>Memory Conflict</h2>{memory_conflicts}</section>
+<section class="panel"><h2>Memory Provenance</h2>{memory_provenance}</section>
+<section class="panel"><h2>Memory Debug</h2><div class="table-wrap"><table><thead><tr><th>ID</th><th>层级/类型</th><th>状态</th><th>审核状态</th><th>进入RAG</th><th>创建人</th><th>批准人</th><th>更新时间</th><th>RAG Source</th><th>命中分</th><th>冲突</th><th>来源</th><th>记忆内容</th><th>治理</th></tr></thead><tbody>{memory_debug_rows}</tbody></table></div></section>
 <section class="panel"><div class="section-line"><h2>价值观与审核 RAG</h2><div class="actions">{rag_actions}</div></div>{rag_cards}</section>
 """
 
@@ -625,15 +910,20 @@ def render_memory_overview(overview: dict[str, dict[str, object]]) -> str:
 
 def render_memory_debug_rows(rows: tuple[dict[str, object], ...], state: AppState) -> str:
     if not rows:
-        return '<tr><td colspan="9">暂无四层 memory 记录。</td></tr>'
+        return '<tr><td colspan="14">暂无四层 memory 记录。</td></tr>'
     return "".join(
         "<tr>"
         f"<td>{escape(str(row.get('memory_id', '')))}</td>"
         f"<td>{escape(str(row.get('layer', '')))}<br><small>{escape(str(row.get('memory_type', '')))}</small></td>"
         f"<td>{escape(str(row.get('status', '')))}{' · 人工确认' if row.get('human_verified') else ''}</td>"
+        f"<td>{escape(str(row.get('review_status', 'draft')))}</td>"
+        f"<td>{'是' if row.get('rag_ready') else '否'}<br><small>{'已允许' if row.get('approved_for_rag') else '未允许'}</small></td>"
+        f"<td>{escape(user_label(str(row.get('created_by', ''))) if row.get('created_by') else '-')}</td>"
+        f"<td>{escape(user_label(str(row.get('approved_by', ''))) if row.get('approved_by') else '-')}</td>"
+        f"<td>{escape(str(row.get('updated_at', '')))}</td>"
         f"<td>{escape(str(row.get('rag_source_type', '')))}</td>"
-        f"<td>{escape(str(row.get('match_score', 0)))}</td>"
-        f"<td>{'是' if row.get('rag_ready') else '否'}</td>"
+        f"<td>{escape(str(row.get('match_score', 0)))}<br><small>RAG命中 {escape(str(row.get('rag_hit_count', 0)))}；not useful {escape(str(row.get('not_useful_count', 0)))}</small></td>"
+        f"<td>{render_memory_conflict_badges(row)}</td>"
         f"<td>{escape(str(row.get('source_memory_id') or '原始'))}</td>"
         f"<td>{escape(str(row.get('summary', '')))}</td>"
         f"<td>{render_memory_actions(row, state)}</td>"
@@ -642,12 +932,171 @@ def render_memory_debug_rows(rows: tuple[dict[str, object], ...], state: AppStat
     )
 
 
+def memory_filter_values(state: AppState) -> dict[str, str]:
+    return {
+        "layer": state.memory_layer,
+        "review_status": state.memory_review_status,
+        "approved_for_rag": state.memory_approved_for_rag,
+        "conflict": state.memory_conflict,
+        "created_by": state.memory_created_by,
+        "subject": state.memory_subject,
+        "operation_tag": state.memory_operation_tag,
+    }
+
+
+def render_memory_workbench(workbench: dict[str, object], state: AppState, filters: dict[str, str]) -> str:
+    sections = (
+        ("待我确认", "pending_review"),
+        ("待处理冲突", "conflicts"),
+        ("已进入 RAG", "approved_rag"),
+        ("最近停用", "recently_retired"),
+        ("最近被 RAG 引用", "recent_rag_hits"),
+        ("低质量待清理", "cleanup"),
+    )
+    cards = []
+    for label, key in sections:
+        items = workbench.get(key, ())
+        count = len(items) if isinstance(items, tuple) else 0
+        preview = ""
+        if key == "conflicts" and isinstance(items, tuple) and items:
+            preview = "；".join(str(item.get("subject", "-")) for item in items[:3] if isinstance(item, dict))
+        elif isinstance(items, tuple) and items:
+            preview = "；".join(f"#{item.get('memory_id', '')} {str(item.get('summary', ''))[:28]}" for item in items[:3] if isinstance(item, dict))
+        cards.append(
+            f"<article class='memory-card'><strong>{escape(label)}</strong><span>{count} 条</span><small>{escape(preview or '暂无')}</small></article>"
+        )
+    readonly = "" if can_write_country(state.user_id, state.country) else "<p class='muted'>当前国家为只读，只展示治理队列。</p>"
+    seed = ""
+    if can_write_country(state.user_id, state.country):
+        seed = f'<form method="post" action="/seed_memory_validation">{hidden_context(state, view="runtime")}<button>生成生产验收样例</button></form>'
+    return readonly + render_memory_workbench_filters(state, filters) + "<div class='memory-grid'>" + "".join(cards) + "</div><div class='actions'>" + seed + "</div>"
+
+
+def render_memory_workbench_filters(state: AppState, filters: dict[str, str]) -> str:
+    context = hidden_context(state, view="runtime")
+    layer_options = render_select_options(("", "全部层级"), ("perception", "perception"), ("working", "working"), ("long_term", "long_term"), ("facts", "facts"), selected=filters.get("layer", ""))
+    status_options = render_select_options(("", "全部状态"), ("draft", "draft"), ("approved", "approved"), ("rejected", "rejected"), ("conflict_locked", "conflict_locked"), ("retired", "retired"), selected=filters.get("review_status", ""))
+    rag_options = render_select_options(("", "RAG不限"), ("true", "允许进RAG"), ("false", "不进RAG"), selected=filters.get("approved_for_rag", ""))
+    conflict_options = render_select_options(("", "冲突不限"), ("true", "有冲突"), ("false", "无冲突"), selected=filters.get("conflict", ""))
+    return f"""
+    <form class="filter-bar" method="get" action="/">
+      {context}
+      <strong>Memory 工作台筛选</strong>
+      <select name="memory_layer">{layer_options}</select>
+      <select name="memory_review_status">{status_options}</select>
+      <select name="memory_approved_for_rag">{rag_options}</select>
+      <select name="memory_conflict">{conflict_options}</select>
+      <input name="memory_created_by" value="{escape(filters.get('created_by', ''))}" placeholder="创建人ID">
+      <input name="memory_subject" value="{escape(filters.get('subject', ''))}" placeholder="主体">
+      <input name="memory_operation_tag" value="{escape(filters.get('operation_tag', ''))}" placeholder="运营tag">
+      <button>筛选</button>
+    </form>
+    """
+
+
+def render_select_options(*options: tuple[str, str], selected: str) -> str:
+    return "".join(
+        f'<option value="{escape(value)}"{" selected" if value == selected else ""}>{escape(label)}</option>'
+        for value, label in options
+    )
+
+
+def render_memory_conflict_badges(row: dict[str, object]) -> str:
+    conflict_ids = row.get("conflict_ids", ())
+    if not conflict_ids:
+        return "无"
+    return "".join(f"<span class='badge danger'>冲突 {escape(str(conflict_id))}</span>" for conflict_id in conflict_ids)
+
+
+def render_memory_conflicts(conflicts: tuple[dict[str, object], ...], state: AppState) -> str:
+    if not conflicts:
+        return '<p class="empty">暂无同一主体/tag 的正反向 memory 冲突。</p>'
+    rows = []
+    for conflict in conflicts:
+        stances = conflict.get("stances", {})
+        if not isinstance(stances, dict):
+            stances = {}
+        actions = render_memory_conflict_actions(conflict, state)
+        evidence = "<br>".join(
+            f"#{escape(str(item.get('memory_id', '')))} {escape(str(item.get('stance', '')))}：{escape(str(item.get('summary', ''))[:80])}"
+            for item in conflict.get("evidence", ())
+            if isinstance(item, dict)
+        )
+        rows.append(
+            "<tr>"
+            f"<td>{escape(str(conflict.get('subject', '') or '-'))}</td>"
+            f"<td>{escape(str(conflict.get('operation_tag', '') or '-'))}</td>"
+            f"<td>{escape(', '.join(str(item) for item in conflict.get('memory_ids', ())))}</td>"
+            f"<td>positive={escape(str(stances.get('positive', [])))}；negative={escape(str(stances.get('negative', [])))}；risk={escape(str(stances.get('risk', [])))}<br><small>{evidence}</small></td>"
+            f"<td>{escape(str(conflict.get('message', '同一主体/tag 下需要人工复核。')))}</td>"
+            f"<td>{actions}</td>"
+            "</tr>"
+        )
+    return "<div class='table-wrap'><table><thead><tr><th>主体</th><th>运营tag</th><th>Memory IDs</th><th>立场/证据</th><th>处理建议</th><th>闭环操作</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table></div>"
+
+
+def render_memory_conflict_actions(conflict: dict[str, object], state: AppState) -> str:
+    if not can_write_country(state.user_id, state.country):
+        return "只读"
+    conflict_id = escape(str(conflict.get("conflict_id", "")))
+    context = hidden_context(state, view="runtime")
+    buttons = (
+        ("keep_first", "保留 A，停用 B"),
+        ("keep_second", "保留 B，停用 A"),
+        ("merge", "合并为新 memory"),
+        ("retire_all", "全部停用"),
+        ("defer", "暂不处理"),
+    )
+    forms = []
+    for action, label in buttons:
+        extra = '<input name="merge_text" placeholder="合并后的结论">' if action == "merge" else ""
+        forms.append(
+            f'<form method="post" action="/resolve_memory_conflict">{context}<input type="hidden" name="conflict_id" value="{conflict_id}"><input type="hidden" name="resolution_action" value="{escape(action)}">{extra}<input name="resolution_note" placeholder="处理备注"><button>{escape(label)}</button></form>'
+        )
+    return '<div class="memory-actions">' + "".join(forms) + "</div>"
+
+
+def render_memory_provenance(provenance: dict[str, object]) -> str:
+    steps = provenance.get("steps", ()) if isinstance(provenance, dict) else ()
+    if not steps:
+        return '<p class="empty">暂无可展示的 Memory provenance 链路。</p>'
+    rows = []
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        rows.append(
+            "<tr>"
+            f"<td>{escape(str(step.get('step_type', '')))}</td>"
+            f"<td>{escape(str(step.get('memory_id', '')))}</td>"
+            f"<td>{escape(str(step.get('memory_layer', '')))}<br><small>{escape(str(step.get('memory_type', '')))}</small></td>"
+            f"<td>{escape(str(step.get('status', '')))}{' · 人工确认' if step.get('human_verified') else ''}</td>"
+            f"<td>{escape(str(step.get('source_memory_id') or '原始'))}</td>"
+            f"<td>{escape(str(step.get('summary', '')))}</td>"
+            "</tr>"
+        )
+    subject = escape(str(provenance.get("subject", "") or "-"))
+    operation_tag = escape(str(provenance.get("operation_tag", "") or "-"))
+    header = f"<p class='muted'>当前链路：subject={subject}；operation_tag={operation_tag}</p>"
+    return header + "<div class='table-wrap'><table><thead><tr><th>步骤</th><th>ID</th><th>层级/类型</th><th>状态</th><th>来源</th><th>内容</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table></div>"
+
+
 def render_memory_actions(row: dict[str, object], state: AppState) -> str:
     if row.get("status") != "active":
         return "已归档"
+    if not can_write_country(state.user_id, state.country):
+        return "只读"
     memory_id = escape(str(row.get("memory_id", "")))
     context = hidden_context(state, view="runtime")
     forms = []
+    forms.append(
+        f'<form method="post" action="/review_memory">{context}<input type="hidden" name="memory_id" value="{memory_id}"><input type="hidden" name="review_action" value="approve_rag"><button>批准并进入 RAG</button></form>'
+    )
+    forms.append(
+        f'<form method="post" action="/review_memory">{context}<input type="hidden" name="memory_id" value="{memory_id}"><input type="hidden" name="review_action" value="approve_no_rag"><button>批准但不进 RAG</button></form>'
+    )
+    forms.append(
+        f'<form method="post" action="/review_memory">{context}<input type="hidden" name="memory_id" value="{memory_id}"><input type="hidden" name="review_action" value="reject"><button>驳回</button></form>'
+    )
     if row.get("layer") in {"perception", "working"}:
         forms.append(
             f'<form method="post" action="/promote_memory">{context}<input type="hidden" name="memory_id" value="{memory_id}"><input type="hidden" name="target_layer" value="facts"><input name="human_note" value="运营确认事实"><button>晋升为事实</button></form>'
@@ -1840,6 +2289,7 @@ def page_title(view: str) -> str:
         "regular": "常规提需",
         "trial": "试新提需",
         "analysis": "数据分析大师",
+        "weekly_review": "周三复盘工作台",
         "value": "价值观大师",
         "runtime": "多模态底座",
         "eval": "Agent 评测",
@@ -1854,6 +2304,7 @@ def view_icon(view: str) -> str:
         "regular": "📦",
         "trial": "✨",
         "analysis": "📈",
+        "weekly_review": "🔎",
         "value": "🔮",
         "runtime": "🧠",
         "eval": "🧪",
@@ -1864,6 +2315,7 @@ def view_icon(view: str) -> str:
 
 def hidden_context(state: AppState, **overrides: str) -> str:
     values = {
+        "user_id": state.user_id,
         "country": state.country,
         "view": state.view,
         "category": state.category,
@@ -1871,6 +2323,13 @@ def hidden_context(state: AppState, **overrides: str) -> str:
         "trial_mode": state.trial_mode,
         "schedule_day": state.schedule_day,
         "value_grade": state.value_grade,
+        "memory_layer": state.memory_layer,
+        "memory_review_status": state.memory_review_status,
+        "memory_approved_for_rag": state.memory_approved_for_rag,
+        "memory_conflict": state.memory_conflict,
+        "memory_created_by": state.memory_created_by,
+        "memory_subject": state.memory_subject,
+        "memory_operation_tag": state.memory_operation_tag,
     }
     values.update(overrides)
     return "".join(f'<input type="hidden" name="{key}" value="{escape(value)}">' for key, value in values.items())
@@ -1878,6 +2337,7 @@ def hidden_context(state: AppState, **overrides: str) -> str:
 
 def href(state: AppState, **changes: str) -> str:
     params = {
+        "user_id": state.user_id,
         "country": state.country,
         "view": state.view,
         "category": state.category,
@@ -1885,6 +2345,13 @@ def href(state: AppState, **changes: str) -> str:
         "trial_mode": state.trial_mode,
         "schedule_day": state.schedule_day,
         "value_grade": state.value_grade,
+        "memory_layer": state.memory_layer,
+        "memory_review_status": state.memory_review_status,
+        "memory_approved_for_rag": state.memory_approved_for_rag,
+        "memory_conflict": state.memory_conflict,
+        "memory_created_by": state.memory_created_by,
+        "memory_subject": state.memory_subject,
+        "memory_operation_tag": state.memory_operation_tag,
         "show_holiday": "1" if state.show_holiday else "",
     }
     params.update({key: value for key, value in changes.items() if value is not None})
@@ -1907,6 +2374,7 @@ CSS = """
 :root { --ink:#21313a; --muted:#65747e; --brand:#2f8f74; --soft:#f2f7f5; --line:#dbe5e3; --red:#d84a3a; --orange:#d78b24; }
 * { box-sizing: border-box; }
 body { margin:0; display:grid; grid-template-columns:280px 1fr; min-height:100vh; color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:#f7f2e8; }
+body.login-body { display:block; background:#f6f8fa; }
 aside { padding:22px; background:#fffaf0; border-right:1px solid var(--line); }
 main { padding:22px; min-width:0; overflow-x:hidden; }
 header { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; }
@@ -1916,6 +2384,42 @@ a { color:inherit; text-decoration:none; }
 .brand { display:grid; gap:6px; margin-bottom:18px; }
 .logo { width:52px; height:52px; display:grid; place-items:center; border-radius:14px; background:#e7f4ee; font-size:30px; }
 .note { color:var(--muted); font-size:13px; line-height:1.6; }
+.login-main { max-width:1420px; margin:0 auto; padding:26px; }
+.login-brand { display:flex; align-items:center; gap:14px; margin-bottom:22px; }
+.login-brand h1 { margin:0; font-size:30px; }
+.login-brand p { margin:4px 0 0; color:var(--muted); font-weight:800; }
+.login-logo { width:52px; height:52px; display:grid; place-items:center; border-radius:14px; background:#e7f4ee; font-size:30px; }
+.login-grid { display:grid; grid-template-columns:1fr 1fr; gap:28px; }
+.login-panel { box-shadow:none; }
+.login-step { display:flex; align-items:center; gap:8px; margin:16px 0 10px; }
+.login-step span { display:grid; place-items:center; width:26px; height:26px; border-radius:999px; background:#dff1ea; color:#17644e; font-weight:900; }
+.login-list { display:grid; gap:8px; }
+.login-row { display:grid; grid-template-columns:34px minmax(150px,1fr) auto; gap:10px; align-items:center; padding:11px 12px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+.login-row.selected { border-color:var(--brand); background:#eefaf5; box-shadow:0 0 0 2px rgba(47,143,116,.08); }
+.login-row small { grid-column:2 / 4; }
+.country-row { grid-template-columns:34px minmax(90px,.45fr) 88px minmax(190px,1fr); }
+.country-row small { grid-column:4; }
+.perm { display:inline-flex; align-items:center; width:max-content; border-radius:999px; padding:3px 8px; font-size:12px; font-style:normal; font-weight:900; }
+.perm.edit { background:#e7f4ee; color:#17644e; border:1px solid #b8d9ce; }
+.perm.readonly { background:#eef1f4; color:#5f6c76; border:1px solid #d6dde3; }
+.login-hint { margin:14px 0; padding:12px; border-radius:8px; font-weight:800; }
+.login-hint.ok { background:#eefaf5; border:1px solid #b8d9ce; color:#17644e; }
+.login-hint.readonly { background:#fff7d8; border:1px solid #e8c35b; color:#7a4a00; }
+.login-enter { display:flex; justify-content:center; align-items:center; min-height:48px; margin-top:10px; }
+.login-enter.readonly { background:#f0f3f5; color:#596873; }
+.login-switch { display:block; margin-top:14px; color:#17644e; font-weight:900; text-align:center; }
+.permission-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:12px 0 16px; }
+.permission-card { border:1px solid var(--line); border-radius:8px; padding:12px; }
+.permission-card.ok { background:#f1faf5; border-color:#b8d9ce; }
+.permission-card.locked { background:#fff5f3; border-color:#efc8c2; }
+.permission-card ul { margin:10px 0 0; padding-left:18px; line-height:2; }
+.session-preview { padding:12px; border:1px solid #cbd8ee; border-radius:8px; background:#f4f8ff; font-weight:900; }
+.header-preview { display:flex; align-items:center; gap:10px; margin-top:16px; padding:12px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+.menu-icon, .mini-logo { display:grid; place-items:center; width:32px; height:32px; border-radius:8px; background:#e7f4ee; }
+.session-card { display:grid; gap:6px; padding:12px; margin-bottom:14px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+.session-card a { color:#17644e; font-weight:900; font-size:13px; }
+.permission-strip { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:6px; color:var(--muted); font-weight:800; font-size:13px; }
+.readonly-copy { color:#9b4d00; }
 .pills { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
 .pill, .button, button { border:1px solid var(--line); background:#fff; border-radius:8px; padding:9px 12px; cursor:pointer; font-weight:800; }
 .pill.active, .nav.active, button.primary, .primary-link { background:#dff1ea; border-color:var(--brand); color:#17644e; }

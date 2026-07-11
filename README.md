@@ -53,6 +53,7 @@ PYTHONPATH=. pytest tests -q
 - 常规提需表支持“一键同步到飞书表格”；同步成功后清空当前提需表，并显示本次完成提需条数。
 - 试新提需支持“参考图解析提需”和“好图衍生提需”，可以上传本地图片进行解析；未接 LLM 时使用本地图片解析适配层，也保留模拟解析按钮。
 - 数据分析大师展示 SA/CD/AI 指标、CD历史均值、AI历史均值/OKR、5/10 分发位标红、图片来源和可编辑分析备注。
+- 周三复盘工作台基于上传/示例 Excel 回收数据，自动列出新增 S/A 图、下降图、国家差异、可复用 tag、应停用 tag，并可一键确认生成常规提需清单，继续复用飞书同步链路。
 - 数据分析明细、周期内容分析、下一步 todo 均支持保存，刷新页面后保留当前服务进程内的编辑状态。
 - 价值观大师按 S/A/B/C/D 按钮筛选预测图片，价值观规则库默认折叠。
 - 排图工作台按周一到周日展示一天 10 张推荐排图；工作日遵守 1-9、12-15 位，周末遵守 1-9、12-18 位。
@@ -130,6 +131,8 @@ Harness Case Trace 与 Memory Debug 说明：每个 Harness case 现在保存结
 RAG 批处理与引用溯源说明：DashScope embedding 推荐使用 `text-embedding-v4`，rerank 推荐使用 `qwen3-rerank`；远程调用失败后直接使用本地 fallback，不伪造 provider 成功。多模态底座新增引用明细，展示 citation ID、知识来源、父文档、标题和正文。价值观大师要求 LLM 输出结论、当前图像证据、真实 RAG citation、风险提示和人工复核事项，旧版 `value_match/evidence` JSON 仍兼容。
 
 Memory 治理说明：四层 memory 现在包含 `memory_id`、`status`、`expires_at`、`fingerprint`、`source_memory_id`、`human_verified` 和更新时间。感知记忆默认保留 7 天，短期记忆默认保留 24 小时，长期记忆与结构化事实不自动过期；相同 active payload 自动去重。运营可在 Memory Debug 中把感知/短期记忆晋升为结构化事实，把短期/事实晋升为长期记忆，或停用错误记忆。晋升目标保留来源 ID 和人工确认标记，来源改为 `promoted`；`expired/promoted/retired` 均不再进入 RAG。旧 SQLite 会自动迁移新列并保留已有数据。
+
+Memory 冲突、溯源与生产治理说明：多模态底座新增 Memory 工作台、Memory Conflict、Memory Provenance 和可操作 Memory Debug。Memory 只有在当前国家、`review_status=approved`、`approved_for_rag=true`、`status=active`、未过期且未处于冲突组时才会进入 RAG；草稿、驳回、停用和 conflict locked 记忆不会污染 Agent 判断。运营可在工作台按 layer、审核状态、RAG 许可、冲突、创建人、主体和运营 tag 筛选，并执行批准进 RAG、批准但不进 RAG、驳回、停用、冲突保留/合并/全部停用/暂不处理。系统会记录 `created_by`、`approved_by`、`retired_by`，并用 `memory_audit_events` 保存 create/review/retire/rag_hit 操作流水。RAG 命中 layered memory 后会回写 `rag_hit_count` 和 `last_rag_hit_at`；低满意度、`not_useful`、冲突和过期项会进入清理建议。Runtime 页可生成当前国家的生产验收样例，用来验证审批、RAG 闸门、只读权限和冲突闭环。
 
 Harness HITL 说明：Agent 评测页的失败样本复盘区会展示样本缩略图、gold label、Agent 输出和失败原因，并提供人工修正入口。当前人工修正先写入本地 HITL memory，作为后续回写 gold dataset 或导出到 Label Studio/Argilla 的数据基础。
 

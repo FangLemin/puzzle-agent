@@ -2062,16 +2062,19 @@ class HybridRagRetriever:
             vector_top_k=vector_top_k,
         )
         rerank_scores = self.rerank_provider.rerank_many(query, country, tuple(candidates))
-        hits = [
-            RagHit(
-                chunk,
-                round(bm25, 4),
-                round(vector, 4),
-                round(rerank, 4),
-                _reason(chunk, bm25, vector, self.embedding_provider.provider_name, self.rerank_provider.provider_name),
+        hits = []
+        for (chunk, bm25, vector), rerank in zip(candidates, rerank_scores):
+            memory_weight = _memory_weight(chunk)
+            weighted_rerank = rerank * memory_weight
+            hits.append(
+                RagHit(
+                    chunk,
+                    round(bm25, 4),
+                    round(vector, 4),
+                    round(weighted_rerank, 4),
+                    _reason(chunk, bm25, vector, self.embedding_provider.provider_name, self.rerank_provider.provider_name, memory_weight),
+                )
             )
-            for (chunk, bm25, vector), rerank in zip(candidates, rerank_scores)
-        ]
         ranked = sorted(hits, key=lambda hit: hit.rerank_score, reverse=True)
         return RagRetrievalTrace(
             query=query,
@@ -2346,8 +2349,22 @@ def _has_exact_phrase(query: str, text: str) -> bool:
     return any(term in text for term in cjk_terms)
 
 
-def _reason(chunk: RagChunk, bm25: float, vector: float, embedding_provider: str, rerank_provider: str) -> str:
-    return f"{chunk.source_type}命中；BM25={bm25:.2f}；Embedding={embedding_provider}:{vector:.2f}；Rerank={rerank_provider}"
+def _reason(chunk: RagChunk, bm25: float, vector: float, embedding_provider: str, rerank_provider: str, memory_weight: float = 1.0) -> str:
+    reason = f"{chunk.source_type}命中；BM25={bm25:.2f}；Embedding={embedding_provider}:{vector:.2f}；Rerank={rerank_provider}"
+    if memory_weight != 1.0:
+        reason = f"{reason}；MemoryWeight={memory_weight:.2f}"
+    return reason
+
+
+def _memory_weight(chunk: RagChunk) -> float:
+    value = chunk.metadata.get("memory_weight") if isinstance(chunk.metadata, dict) else None
+    try:
+        weight = float(value)
+    except (TypeError, ValueError):
+        return 1.0
+    if weight <= 0:
+        return 1.0
+    return max(0.05, min(weight, 5.0))
 
 
 def _embedding_model_family(model: str) -> str:

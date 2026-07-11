@@ -7,7 +7,62 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from puzzle_ops.agents import PuzzleOpsAgent
 from puzzle_ops.data import COUNTRIES
 from puzzle_ops.rag import QdrantVectorStore
-from puzzle_ops.renderer import AppState, render_page
+from puzzle_ops.renderer import AppState, DEFAULT_USER_ID, LOGIN_COUNTRIES, can_write_country, render_page, user_label
+
+
+WRITE_PATHS = {
+    "/add_regular",
+    "/save_dashboard",
+    "/generate_descriptions",
+    "/confirm_weekly_review_needs",
+    "/save_needs",
+    "/sync_needs_feishu",
+    "/save_trial",
+    "/sync_trial_feishu",
+    "/apply_value_master",
+    "/save_value_match_correction",
+    "/simulate_trial_upload",
+    "/upload_trial_images",
+    "/generate_trial_derivatives",
+    "/approve_generated_derivatives",
+    "/save_analysis",
+    "/replace_schedule",
+    "/approve_value_candidate",
+    "/review_memory",
+    "/promote_memory",
+    "/retire_memory",
+    "/resolve_memory_conflict",
+    "/seed_memory_validation",
+    "/record_rag_feedback",
+    "/record_rag_eval_failure_feedback",
+    "/rebuild_rag_knowledge",
+    "/reindex_rag_qdrant",
+    "/reindex_rag_vector_store",
+    "/export_rag_acceptance_report",
+    "/export_rag_ops_report",
+    "/export_rag_eval_failure_feedback",
+    "/export_rag_knowledge_patch_drafts",
+    "/export_approved_rag_patch_markdown",
+    "/apply_approved_rag_patch_markdown",
+    "/apply_approved_rag_patch_and_rebuild",
+    "/rollback_latest_rag_patch_and_rebuild",
+    "/apply_rag_patch_rebuild_and_reindex_qdrant",
+    "/apply_approved_rag_patch_rebuild_and_reindex_vector_store",
+    "/run_full_rag_acceptance",
+    "/qdrant_smoke_diagnostic",
+    "/milvus_smoke_diagnostic",
+    "/rollback_qdrant_manifest",
+    "/run_harness",
+    "/run_real_vlm_harness",
+    "/save_harness_gold_label",
+    "/export_harness_gold_skeleton",
+    "/register_harness_real_samples",
+    "/prelabel_harness_silver",
+    "/approve_harness_silver_labels",
+    "/export_harness_overrides",
+    "/export_harness_annotations",
+    "/export_harness_external_eval",
+}
 
 
 class PuzzleOpsServer:
@@ -80,10 +135,24 @@ class Handler(BaseHTTPRequestHandler):
 def update_state_from_query(state: AppState, query: dict[str, list[str]]) -> None:
     old_country = state.country
     old_trial_mode = state.trial_mode
-    if "country" in query and query["country"][0] in COUNTRIES:
+    if "user_id" in query and query["user_id"][0]:
+        state.user_id = query["user_id"][0]
+    known_countries = set(COUNTRIES) | {country for country, _ in LOGIN_COUNTRIES}
+    if "country" in query and query["country"][0] in known_countries:
         state.country = query["country"][0]
     for field in ("view", "category", "tag", "trial_mode", "schedule_day", "value_grade"):
         if field in query and query[field][0]:
+            setattr(state, field, query[field][0])
+    for field in (
+        "memory_layer",
+        "memory_review_status",
+        "memory_approved_for_rag",
+        "memory_conflict",
+        "memory_created_by",
+        "memory_subject",
+        "memory_operation_tag",
+    ):
+        if field in query:
             setattr(state, field, query[field][0])
     state.show_holiday = query.get("show_holiday", [""])[0] == "1"
     if state.country != old_country:
@@ -100,6 +169,12 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
     state = APP.state
     agent = APP.agent
     update_state_from_query(state, form)
+    if path in WRITE_PATHS and not can_write_country(state.user_id, state.country):
+        state.sync_message = f"当前用户 {user_label(state.user_id)} 对 {state.country} 只有只读权限，不能执行该操作。"
+        state.sync_url = ""
+        if state.view == "login":
+            state.view = "dashboard"
+        return None
     if path == "/add_regular":
         image_index = int(value(form, "image_index", "0"))
         state.need_rows.append(agent.add_regular_demand(state.country, state.category, state.tag, image_index))
@@ -110,6 +185,12 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         state.view = "dashboard"
     elif path == "/generate_descriptions":
         state.need_rows = [agent.generate_subject_description(row) for row in state.need_rows]
+        state.view = "regular"
+    elif path == "/confirm_weekly_review_needs":
+        rows = agent.weekly_review_need_rows(state.country)
+        state.need_rows = list(rows)
+        state.sync_message = f"周三复盘提需建议已生成：{len(rows)} 条，确认后可继续一键同步飞书。"
+        state.sync_url = ""
         state.view = "regular"
     elif path == "/save_needs":
         saved = []
@@ -206,6 +287,7 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
                 row,
                 human_correction=value(form, "human_correction", ""),
                 satisfaction_score=_optional_positive_int(value(form, "satisfaction_score", "")),
+                actor=state.user_id,
             )
             state.sync_message = (
                 "价值观人工修正已反哺RAG/Memory："
@@ -318,18 +400,59 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
                 int(value(form, "memory_id", "0")),
                 target_layer=value(form, "target_layer", "facts"),
                 human_note=value(form, "human_note", "运营人工确认"),
+                actor=state.user_id,
             )
             state.sync_message = f"Memory 晋升成功：新 memory_id={target_id}"
         except (TypeError, ValueError) as exc:
             state.sync_message = f"Memory 晋升失败：{exc}"
         state.sync_url = ""
         state.view = "runtime"
+    elif path == "/review_memory":
+        try:
+            agent.review_memory(
+                int(value(form, "memory_id", "0")),
+                action=value(form, "review_action", "approve_no_rag"),
+                actor=state.user_id,
+            )
+            state.sync_message = "Memory 审核状态已更新。"
+        except (TypeError, ValueError) as exc:
+            state.sync_message = f"Memory 审核失败：{exc}"
+        state.sync_url = ""
+        state.view = "runtime"
     elif path == "/retire_memory":
         try:
-            agent.retire_memory(int(value(form, "memory_id", "0")))
+            agent.retire_memory(int(value(form, "memory_id", "0")), actor=state.user_id)
             state.sync_message = "Memory 已停用，不再进入 RAG。"
         except (TypeError, ValueError) as exc:
             state.sync_message = f"Memory 停用失败：{exc}"
+        state.sync_url = ""
+        state.view = "runtime"
+    elif path == "/resolve_memory_conflict":
+        try:
+            result = agent.resolve_memory_conflict(
+                state.country,
+                conflict_id=value(form, "conflict_id", ""),
+                action=value(form, "resolution_action", "defer"),
+                actor=state.user_id,
+                note=value(form, "resolution_note", ""),
+                merge_text=value(form, "merge_text", ""),
+            )
+            merged = int(result.get("merged_memory_id", 0) or 0)
+            suffix = f"；合并新 memory_id={merged}" if merged else ""
+            state.sync_message = f"Memory 冲突已处理：{result.get('action', '')}{suffix}"
+        except (TypeError, ValueError) as exc:
+            state.sync_message = f"Memory 冲突处理失败：{exc}"
+        state.sync_url = ""
+        state.view = "runtime"
+    elif path == "/seed_memory_validation":
+        try:
+            result = agent.seed_memory_production_validation(state.country, actor=state.user_id)
+            state.sync_message = (
+                "Memory 生产验收样例已生成："
+                f"approved={result['approved_memory_id']}；draft={result['draft_memory_id']}"
+            )
+        except ValueError as exc:
+            state.sync_message = f"Memory 生产验收样例生成失败：{exc}"
         state.sync_url = ""
         state.view = "runtime"
     elif path == "/record_rag_feedback":
@@ -340,6 +463,7 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
                 usefulness=value(form, "usefulness", "useful"),
                 note=value(form, "note", ""),
                 task_type=value(form, "task_type", "trial_value_match"),
+                actor=state.user_id,
             )
             state.sync_message = f"RAG 依据反馈已记录：memory_id={memory_id}"
         except ValueError as exc:
@@ -354,6 +478,7 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
                 expected_parent_id=value(form, "expected_parent_id", ""),
                 retrieved_parent_ids=_split_parent_ids(value(form, "retrieved_parent_ids", "")),
                 note=value(form, "note", ""),
+                actor=state.user_id,
             )
             state.sync_message = f"RAG eval 失败case已记录：memory_id={memory_id}"
         except ValueError as exc:
@@ -740,7 +865,10 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
 
 
 def redirect_location(state: AppState) -> str:
-    return "/?" + urlencode({"country": state.country, "view": state.view})
+    params = {"country": state.country, "view": state.view}
+    if state.user_id != DEFAULT_USER_ID:
+        params["user_id"] = state.user_id
+    return "/?" + urlencode(params)
 
 
 def value(form: dict[str, list[str]], key: str, default: str) -> str:

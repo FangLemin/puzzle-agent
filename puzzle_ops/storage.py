@@ -57,7 +57,12 @@ class PuzzleRepository:
         ttl_seconds: int | None = None,
         source_memory_id: int | None = None,
         human_verified: bool = False,
+        created_by: str = "",
+        review_status: str = "draft",
+        approved_for_rag: bool = False,
     ) -> int:
+        if review_status not in {"draft", "approved", "rejected", "conflict_locked", "retired"}:
+            raise ValueError(f"未知 memory review_status：{review_status}")
         encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         fingerprint = _text_hash(encoded)
         expires_at = None
@@ -81,12 +86,39 @@ class PuzzleRepository:
                 """
                 INSERT INTO layered_memory(
                     country, memory_layer, memory_type, payload, status, source_memory_id,
-                    expires_at, fingerprint, human_verified, updated_at
-                ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    expires_at, fingerprint, human_verified, created_by, updated_by,
+                    approved_by, approved_at, approved_for_rag, review_status, updated_at
+                ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 'approved' THEN CURRENT_TIMESTAMP ELSE NULL END, ?, ?, CURRENT_TIMESTAMP)
                 """,
-                (country, memory_layer, memory_type, encoded, source_memory_id, expires_at, fingerprint, int(human_verified)),
+                (
+                    country,
+                    memory_layer,
+                    memory_type,
+                    encoded,
+                    source_memory_id,
+                    expires_at,
+                    fingerprint,
+                    int(human_verified),
+                    created_by,
+                    created_by,
+                    created_by if review_status == "approved" else "",
+                    review_status,
+                    int(approved_for_rag),
+                    review_status,
+                ),
             )
-            return int(cursor.lastrowid)
+            memory_id = int(cursor.lastrowid)
+            self._record_memory_audit_conn(
+                conn,
+                country=country,
+                memory_id=memory_id,
+                action="create",
+                actor=created_by,
+                new_review_status=review_status,
+                approved_for_rag=approved_for_rag,
+                metadata={"memory_layer": memory_layer, "memory_type": memory_type},
+            )
+            return memory_id
 
     def layered_memories(
         self,
@@ -107,7 +139,10 @@ class PuzzleRepository:
             rows = conn.execute(
                 f"""
                 SELECT memory_id, country, memory_layer, memory_type, payload, status,
-                       source_memory_id, expires_at, fingerprint, human_verified, created_at, updated_at
+                       source_memory_id, expires_at, fingerprint, human_verified,
+                       created_by, updated_by, approved_by, approved_at, retired_by,
+                       retired_at, approved_for_rag, review_status, rag_hit_count,
+                       last_rag_hit_at, created_at, updated_at
                 FROM layered_memory {where} ORDER BY memory_id
                 """,
                 params,
@@ -120,6 +155,8 @@ class PuzzleRepository:
             except json.JSONDecodeError:
                 item["payload"] = {}
             item["human_verified"] = bool(item.get("human_verified"))
+            item["approved_for_rag"] = bool(item.get("approved_for_rag"))
+            item["rag_hit_count"] = int(item.get("rag_hit_count") or 0)
             items.append(item)
         return tuple(items)
 
@@ -130,6 +167,7 @@ class PuzzleRepository:
         target_layer: str,
         target_type: str,
         human_note: str,
+        actor: str = "",
     ) -> int:
         with self._connect() as conn:
             source = conn.execute("SELECT * FROM layered_memory WHERE memory_id = ?", (memory_id,)).fetchone()
@@ -154,22 +192,175 @@ class PuzzleRepository:
             payload,
             source_memory_id=memory_id,
             human_verified=True,
+            created_by=actor,
         )
         with self._connect() as conn:
             conn.execute(
-                "UPDATE layered_memory SET status = 'promoted', updated_at = CURRENT_TIMESTAMP WHERE memory_id = ?",
-                (memory_id,),
+                "UPDATE layered_memory SET status = 'promoted', updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE memory_id = ?",
+                (actor, memory_id),
             )
         return target_id
 
-    def retire_layered_memory(self, memory_id: int) -> None:
+    def review_layered_memory(
+        self,
+        memory_id: int,
+        *,
+        review_status: str,
+        approved_for_rag: bool = False,
+        actor: str = "",
+    ) -> None:
+        if review_status not in {"draft", "approved", "rejected", "conflict_locked", "retired"}:
+            raise ValueError(f"未知 memory review_status：{review_status}")
+        approved_by = actor if review_status == "approved" else ""
+        approved_at_sql = "CURRENT_TIMESTAMP" if review_status == "approved" else "NULL"
         with self._connect() as conn:
-            cursor = conn.execute(
-                "UPDATE layered_memory SET status = 'retired', updated_at = CURRENT_TIMESTAMP WHERE memory_id = ? AND status = 'active'",
+            before = conn.execute(
+                "SELECT country, review_status, approved_for_rag FROM layered_memory WHERE memory_id = ? AND status = 'active'",
                 (memory_id,),
+            ).fetchone()
+            cursor = conn.execute(
+                f"""
+                UPDATE layered_memory
+                SET review_status = ?, approved_for_rag = ?, updated_by = ?,
+                    approved_by = ?, approved_at = {approved_at_sql}, updated_at = CURRENT_TIMESTAMP
+                WHERE memory_id = ? AND status = 'active'
+                """,
+                (review_status, int(approved_for_rag and review_status == "approved"), actor, approved_by, memory_id),
+            )
+            if cursor.rowcount == 0:
+                raise ValueError(f"没有可审核的 active memory：{memory_id}")
+            self._record_memory_audit_conn(
+                conn,
+                country=str(before["country"]) if before else "",
+                memory_id=memory_id,
+                action="review",
+                actor=actor,
+                old_review_status=str(before["review_status"]) if before else "",
+                new_review_status=review_status,
+                approved_for_rag=approved_for_rag and review_status == "approved",
+            )
+
+    def retire_layered_memory(self, memory_id: int, *, actor: str = "") -> None:
+        with self._connect() as conn:
+            before = conn.execute(
+                "SELECT country, review_status FROM layered_memory WHERE memory_id = ? AND status = 'active'",
+                (memory_id,),
+            ).fetchone()
+            cursor = conn.execute(
+                """
+                UPDATE layered_memory
+                SET status = 'retired', review_status = 'retired', approved_for_rag = 0,
+                    retired_by = ?, retired_at = CURRENT_TIMESTAMP, updated_by = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE memory_id = ? AND status = 'active'
+                """,
+                (actor, actor, memory_id),
             )
             if cursor.rowcount == 0:
                 raise ValueError(f"没有可停用的 active memory：{memory_id}")
+            self._record_memory_audit_conn(
+                conn,
+                country=str(before["country"]) if before else "",
+                memory_id=memory_id,
+                action="retire",
+                actor=actor,
+                old_review_status=str(before["review_status"]) if before else "",
+                new_review_status="retired",
+                approved_for_rag=False,
+            )
+
+    def record_memory_rag_hits(self, country: str, hits: tuple[dict[str, object], ...] | list[dict[str, object]]) -> None:
+        if not hits:
+            return
+        with self._connect() as conn:
+            for hit in hits:
+                try:
+                    memory_id = int(hit.get("memory_id", 0))  # type: ignore[union-attr]
+                except (TypeError, ValueError):
+                    continue
+                if memory_id <= 0:
+                    continue
+                cursor = conn.execute(
+                    """
+                    UPDATE layered_memory
+                    SET rag_hit_count = COALESCE(rag_hit_count, 0) + 1,
+                        last_rag_hit_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE memory_id = ? AND country = ?
+                    """,
+                    (memory_id, country),
+                )
+                if cursor.rowcount:
+                    self._record_memory_audit_conn(
+                        conn,
+                        country=country,
+                        memory_id=memory_id,
+                        action="rag_hit",
+                        actor="system",
+                        metadata={
+                            "chunk_id": str(hit.get("chunk_id", "")),
+                            "trace_id": str(hit.get("trace_id", "")),
+                        },
+                    )
+
+    def memory_audit_events(self, country: str, *, action: str = "", limit: int = 100) -> tuple[dict[str, object], ...]:
+        where = "WHERE country = ?"
+        params: list[object] = [country]
+        if action:
+            where += " AND action = ?"
+            params.append(action)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT event_id, country, memory_id, action, actor, old_review_status,
+                       new_review_status, approved_for_rag, metadata, created_at
+                FROM memory_audit_events {where}
+                ORDER BY event_id LIMIT ?
+                """,
+                (*params, max(limit, 0)),
+            ).fetchall()
+        items = []
+        for row in rows:
+            item = dict(row)
+            try:
+                item["metadata"] = json.loads(str(item.get("metadata", "{}") or "{}"))
+            except json.JSONDecodeError:
+                item["metadata"] = {}
+            item["approved_for_rag"] = bool(item.get("approved_for_rag"))
+            items.append(item)
+        return tuple(items)
+
+    @staticmethod
+    def _record_memory_audit_conn(
+        conn: sqlite3.Connection,
+        *,
+        country: str,
+        memory_id: int,
+        action: str,
+        actor: str = "",
+        old_review_status: str = "",
+        new_review_status: str = "",
+        approved_for_rag: bool = False,
+        metadata: dict[str, object] | None = None,
+    ) -> None:
+        conn.execute(
+            """
+            INSERT INTO memory_audit_events(
+                country, memory_id, action, actor, old_review_status,
+                new_review_status, approved_for_rag, metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                country,
+                memory_id,
+                action,
+                actor,
+                old_review_status,
+                new_review_status,
+                int(approved_for_rag),
+                json.dumps(metadata or {}, ensure_ascii=False, sort_keys=True),
+            ),
+        )
 
     def expire_layered_memories(self) -> int:
         with self._connect() as conn:
@@ -180,7 +371,7 @@ class PuzzleRepository:
         cursor = conn.execute(
             """
             UPDATE layered_memory
-            SET status = 'expired', updated_at = CURRENT_TIMESTAMP
+            SET status = 'expired', approved_for_rag = 0, updated_at = CURRENT_TIMESTAMP
             WHERE status = 'active' AND expires_at IS NOT NULL AND expires_at <= ?
             """,
             (now,),
@@ -405,7 +596,23 @@ class PuzzleRepository:
                     memory_layer TEXT NOT NULL, memory_type TEXT NOT NULL, payload TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'active', source_memory_id INTEGER, expires_at TEXT,
                     fingerprint TEXT NOT NULL DEFAULT '', human_verified INTEGER NOT NULL DEFAULT 0,
+                    created_by TEXT NOT NULL DEFAULT '', updated_by TEXT NOT NULL DEFAULT '',
+                    approved_by TEXT NOT NULL DEFAULT '', approved_at TEXT,
+                    retired_by TEXT NOT NULL DEFAULT '', retired_at TEXT,
+                    approved_for_rag INTEGER NOT NULL DEFAULT 0,
+                    review_status TEXT NOT NULL DEFAULT 'draft',
+                    rag_hit_count INTEGER NOT NULL DEFAULT 0,
+                    last_rag_hit_at TEXT,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS memory_audit_events (
+                    event_id INTEGER PRIMARY KEY AUTOINCREMENT, country TEXT NOT NULL,
+                    memory_id INTEGER NOT NULL, action TEXT NOT NULL, actor TEXT NOT NULL DEFAULT '',
+                    old_review_status TEXT NOT NULL DEFAULT '', new_review_status TEXT NOT NULL DEFAULT '',
+                    approved_for_rag INTEGER NOT NULL DEFAULT 0, metadata TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
                 """,
                 """
@@ -450,9 +657,20 @@ class PuzzleRepository:
             self._ensure_column(conn, "layered_memory", "expires_at", "TEXT")
             self._ensure_column(conn, "layered_memory", "fingerprint", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, "layered_memory", "human_verified", "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, "layered_memory", "created_by", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(conn, "layered_memory", "updated_by", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(conn, "layered_memory", "approved_by", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(conn, "layered_memory", "approved_at", "TEXT")
+            self._ensure_column(conn, "layered_memory", "retired_by", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(conn, "layered_memory", "retired_at", "TEXT")
+            self._ensure_column(conn, "layered_memory", "approved_for_rag", "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, "layered_memory", "review_status", "TEXT NOT NULL DEFAULT 'draft'")
+            self._ensure_column(conn, "layered_memory", "rag_hit_count", "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, "layered_memory", "last_rag_hit_at", "TEXT")
             self._ensure_column(conn, "layered_memory", "updated_at", "TEXT")
             self._backfill_layered_memory_fingerprints(conn)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_layered_memory_active ON layered_memory(country, memory_layer, status)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_memory_audit_country_action ON memory_audit_events(country, action, created_at)")
 
     @staticmethod
     def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
