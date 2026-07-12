@@ -2582,6 +2582,7 @@ class PuzzleOpsAgent:
                             "review_status": memory.get("review_status", "draft"),
                             "approved_for_rag": bool(memory.get("approved_for_rag")),
                             "approved_by": memory.get("approved_by", ""),
+                            "memory_scope": memory.get("memory_scope", "operational_fact"),
                             **_memory_trust_metadata(memory),
                         },
                     )
@@ -2602,6 +2603,20 @@ class PuzzleOpsAgent:
 
     def record_working_memory(self, country: str, memory_type: str, payload: dict[str, object], *, actor: str = "") -> int:
         return self.repository.add_layered_memory(country, "working", memory_type, payload, ttl_seconds=24 * 3600, created_by=actor)
+
+    def record_personal_preference_memory(self, country: str, user_id: str, payload: dict[str, object]) -> int:
+        scoped_payload = dict(payload)
+        scoped_payload["user_id"] = user_id
+        scoped_payload.setdefault("preference_scope", "personal")
+        return self.repository.add_layered_memory(
+            country,
+            "working",
+            "personal_preference",
+            scoped_payload,
+            ttl_seconds=30 * 24 * 3600,
+            created_by=user_id,
+            memory_scope="personal_preference",
+        )
 
     def record_rag_citation_feedback(
         self,
@@ -2726,6 +2741,12 @@ class PuzzleOpsAgent:
     def record_extracted_fact(self, country: str, memory_type: str, payload: dict[str, object], *, actor: str = "") -> int:
         return self.repository.add_layered_memory(country, "facts", memory_type, payload, created_by=actor)
 
+    def migrate_memory_country(self, memory_id: int, *, target_country: str, actor: str = "", note: str = "") -> int:
+        target_country = target_country.strip()
+        if target_country not in COUNTRIES:
+            raise ValueError(f"未知目标国家：{target_country}")
+        return self.repository.migrate_layered_memory_country(memory_id, target_country=target_country, actor=actor, note=note)
+
     def promote_memory(self, memory_id: int, *, target_layer: str, human_note: str, actor: str = "") -> int:
         if target_layer not in {"facts", "long_term"}:
             raise ValueError("memory 只能人工晋升为 facts 或 long_term")
@@ -2842,8 +2863,13 @@ class PuzzleOpsAgent:
             for memory_id in conflict.get("memory_ids", ()):
                 conflicts_by_id.setdefault(int(memory_id), []).append(conflict_id)
         conflict_memory_ids = set(conflicts_by_id)
+        memories = tuple(self.repository.layered_memories(country, include_inactive=True))
+        superseded_ids: set[int] = set()
+        for memory in memories:
+            payload = memory.get("payload", {}) if isinstance(memory.get("payload", {}), dict) else {}
+            superseded_ids.update(_memory_superseded_ids(payload))
         rows: list[dict[str, object]] = []
-        for memory in self.repository.layered_memories(country, include_inactive=True):
+        for memory in memories:
             layer = str(memory.get("memory_layer", ""))
             payload = memory.get("payload", {})
             summary = _payload_text(payload) if isinstance(payload, dict) else ""
@@ -2867,13 +2893,14 @@ class PuzzleOpsAgent:
                     "retired_by": str(memory.get("retired_by", "")),
                     "retired_at": str(memory.get("retired_at", "") or ""),
                     "approved_for_rag": bool(memory.get("approved_for_rag")),
+                    "memory_scope": str(memory.get("memory_scope", "operational_fact") or "operational_fact"),
                     "review_status": str(memory.get("review_status", "draft")),
                     "created_at": str(memory.get("created_at", "")),
                     "updated_at": str(memory.get("updated_at", "")),
                     "rag_ready": self._memory_rag_ready(memory, conflict_memory_ids=conflict_memory_ids),
                     "match_score": _memory_match_score(summary, query),
                     "conflict_ids": tuple(conflicts_by_id.get(int(memory.get("memory_id", 0)), ())),
-                    **self._memory_quality_metrics(memory, conflicts_by_id),
+                    **self._memory_quality_metrics(memory, conflicts_by_id, superseded_ids=superseded_ids),
                 }
             )
         rows.sort(key=lambda row: (float(row["match_score"]), str(row["created_at"])), reverse=True)
@@ -2942,6 +2969,32 @@ class PuzzleOpsAgent:
             "recently_retired": retired[:8],
             "recent_rag_hits": recent_hits[:8],
             "cleanup": cleanup[:8],
+            "lifecycle": self.memory_lifecycle_summary(country),
+        }
+
+    def memory_lifecycle_summary(self, country: str) -> dict[str, object]:
+        rows = self.memory_debug(country, limit=500)
+        weekly_cleanup = tuple(row for row in rows if row.get("cleanup_suggestions"))
+        stale = tuple(row for row in rows if "长期未命中" in "；".join(str(item) for item in row.get("cleanup_suggestions", ())))
+        conflict_prone = tuple(row for row in rows if int(row.get("conflict_count", 0) or 0) > 0)
+        superseded = tuple(row for row in rows if "已被新规则覆盖" in "；".join(str(item) for item in row.get("cleanup_suggestions", ())))
+        personal_preferences = tuple(row for row in rows if row.get("memory_scope") == "personal_preference")
+        operational_facts = tuple(row for row in rows if row.get("memory_scope") == "operational_fact")
+        return {
+            "country": country,
+            "weekly_cleanup": weekly_cleanup[:20],
+            "long_unhit": stale[:20],
+            "conflict_prone": conflict_prone[:20],
+            "superseded": superseded[:20],
+            "personal_preferences": personal_preferences[:20],
+            "operational_facts_count": len(operational_facts),
+            "personal_preferences_count": len(personal_preferences),
+            "storage_plan": {
+                "source_of_truth": "SQLite/Postgres",
+                "vector_index": "Milvus approved RAG chunks",
+                "cache": "Redis short-term state + embedding hot cache",
+                "object_store": "Files/Object storage for images, raw RAG docs, reports",
+            },
         }
 
     def seed_memory_production_validation(self, country: str, *, actor: str = "") -> dict[str, object]:
@@ -3061,28 +3114,46 @@ class PuzzleOpsAgent:
         return (
             bool(_payload_text(payload))
             and str(memory.get("status", "active")) == "active"
+            and str(memory.get("memory_scope", "operational_fact") or "operational_fact") == "operational_fact"
             and str(memory.get("review_status", "draft")) == "approved"
             and bool(memory.get("approved_for_rag"))
             and memory_id not in conflict_memory_ids
         )
 
     @staticmethod
-    def _memory_quality_metrics(memory: dict[str, object], conflicts_by_id: dict[int, list[str]]) -> dict[str, object]:
+    def _memory_quality_metrics(
+        memory: dict[str, object],
+        conflicts_by_id: dict[int, list[str]],
+        *,
+        superseded_ids: set[int] | None = None,
+    ) -> dict[str, object]:
         payload = memory.get("payload", {})
         memory_id = int(memory.get("memory_id", 0))
         not_useful = 1 if _memory_negative_feedback(payload) else 0
         conflicts = len(conflicts_by_id.get(memory_id, ()))
+        rag_hit_count = int(memory.get("rag_hit_count", 0) or 0)
         suggestions: list[str] = []
         if not_useful:
             suggestions.append("多次/本次 not useful，建议复核")
         if conflicts:
             suggestions.append("参与冲突，需治理")
+        if (
+            str(memory.get("status", "")) == "active"
+            and str(memory.get("review_status", "")) == "approved"
+            and bool(memory.get("approved_for_rag"))
+            and rag_hit_count == 0
+        ):
+            suggestions.append("长期未命中，建议周清理复核")
+        if _memory_superseded_ids(payload):
+            suggestions.append("已覆盖其他旧记忆，检查旧规则是否应停用")
+        if memory_id in (superseded_ids or set()):
+            suggestions.append("已被新规则覆盖，建议停用或降权")
         if str(memory.get("status", "")) == "expired":
             suggestions.append("已过期，检查是否有新规则覆盖")
         if str(memory.get("review_status", "")) == "rejected":
             suggestions.append("已驳回，可定期清理")
         return {
-            "rag_hit_count": int(memory.get("rag_hit_count", 0) or 0),
+            "rag_hit_count": rag_hit_count,
             "accepted_count": 1 if str(memory.get("review_status", "")) == "approved" else 0,
             "not_useful_count": not_useful,
             "conflict_count": conflicts,
@@ -4972,6 +5043,24 @@ def _memory_negative_feedback(payload: object) -> bool:
     if not isinstance(payload, dict):
         return False
     return str(payload.get("usefulness", "")).strip() == "not_useful"
+
+
+def _memory_superseded_ids(payload: object) -> set[int]:
+    if not isinstance(payload, dict):
+        return set()
+    raw = payload.get("supersedes_memory_ids", ())
+    if isinstance(raw, (str, int)):
+        raw = (raw,)
+    ids: set[int] = set()
+    if isinstance(raw, (list, tuple, set)):
+        for item in raw:
+            try:
+                memory_id = int(item)
+            except (TypeError, ValueError):
+                continue
+            if memory_id > 0:
+                ids.add(memory_id)
+    return ids
 
 
 def _memory_payload_citations(payload: dict[str, object]) -> tuple[str, ...]:

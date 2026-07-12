@@ -1288,7 +1288,9 @@ def test_runtime_page_shows_memory_debug_table():
     assert "状态" in html
     assert 'action="/promote_memory"' in html
     assert 'action="/retire_memory"' in html
+    assert 'action="/migrate_memory_country"' in html
     assert "晋升为事实" in html
+    assert "迁移国家" in html
 
 
 def test_runtime_page_exposes_memory_workbench_filters_and_audit_columns():
@@ -1303,6 +1305,21 @@ def test_runtime_page_exposes_memory_workbench_filters_and_audit_columns():
     assert 'name="memory_subject"' in html
     assert "RAG命中" in html
     assert "not useful" in html
+
+
+def test_runtime_page_shows_team_memory_lifecycle_summary(tmp_path):
+    agent = agent_without_vlm(tmp_path)
+    agent.record_personal_preference_memory("日本", "jp_owner", {"subject": "猫", "preference": "优先看猫类素材"})
+    stale_id = agent.record_extracted_fact("日本", "market_fact", {"subject": "寿司", "rule": "旧规则"})
+    replacement_id = agent.record_extracted_fact("日本", "market_fact", {"subject": "寿司", "rule": "新规则", "supersedes_memory_ids": [stale_id]})
+    agent.review_memory(stale_id, action="approve_rag", actor="jp_owner")
+    agent.review_memory(replacement_id, action="approve_rag", actor="jp_owner")
+
+    html = render_page(agent, AppState(country="日本", view="runtime"))
+
+    assert "团队级生命周期" in html
+    assert "个人偏好不进入市场事实 RAG" in html
+    assert "SQLite/Postgres + Milvus + Redis" in html
 
 
 def test_page_css_prevents_grid_content_from_widening_viewport():

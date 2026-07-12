@@ -60,9 +60,11 @@ class PuzzleRepository:
         created_by: str = "",
         review_status: str = "draft",
         approved_for_rag: bool = False,
+        memory_scope: str = "operational_fact",
     ) -> int:
         if review_status not in {"draft", "approved", "rejected", "conflict_locked", "retired"}:
             raise ValueError(f"未知 memory review_status：{review_status}")
+        memory_scope = memory_scope if memory_scope in {"operational_fact", "personal_preference"} else "operational_fact"
         encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         fingerprint = _text_hash(encoded)
         expires_at = None
@@ -87,8 +89,8 @@ class PuzzleRepository:
                 INSERT INTO layered_memory(
                     country, memory_layer, memory_type, payload, status, source_memory_id,
                     expires_at, fingerprint, human_verified, created_by, updated_by,
-                    approved_by, approved_at, approved_for_rag, review_status, updated_at
-                ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 'approved' THEN CURRENT_TIMESTAMP ELSE NULL END, ?, ?, CURRENT_TIMESTAMP)
+                    approved_by, approved_at, approved_for_rag, review_status, memory_scope, updated_at
+                ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 'approved' THEN CURRENT_TIMESTAMP ELSE NULL END, ?, ?, ?, CURRENT_TIMESTAMP)
                 """,
                 (
                     country,
@@ -105,6 +107,7 @@ class PuzzleRepository:
                     review_status,
                     int(approved_for_rag),
                     review_status,
+                    memory_scope,
                 ),
             )
             memory_id = int(cursor.lastrowid)
@@ -142,7 +145,7 @@ class PuzzleRepository:
                        source_memory_id, expires_at, fingerprint, human_verified,
                        created_by, updated_by, approved_by, approved_at, retired_by,
                        retired_at, approved_for_rag, review_status, rag_hit_count,
-                       last_rag_hit_at, created_at, updated_at
+                       last_rag_hit_at, memory_scope, created_at, updated_at
                 FROM layered_memory {where} ORDER BY memory_id
                 """,
                 params,
@@ -159,6 +162,56 @@ class PuzzleRepository:
             item["rag_hit_count"] = int(item.get("rag_hit_count") or 0)
             items.append(item)
         return tuple(items)
+
+    def migrate_layered_memory_country(self, memory_id: int, *, target_country: str, actor: str = "", note: str = "") -> int:
+        with self._connect() as conn:
+            source = conn.execute("SELECT * FROM layered_memory WHERE memory_id = ?", (memory_id,)).fetchone()
+            if source is None:
+                raise ValueError(f"memory_id 不存在：{memory_id}")
+            if str(source["country"]) == target_country:
+                raise ValueError("目标国家不能与源国家相同")
+            try:
+                payload = json.loads(str(source["payload"]))
+            except json.JSONDecodeError:
+                payload = {}
+            if not isinstance(payload, dict):
+                payload = {}
+            payload = dict(payload)
+            payload["source_country"] = str(source["country"])
+            payload["migration_note"] = note.strip()
+            migrated_id = self.add_layered_memory(
+                target_country,
+                str(source["memory_layer"]),
+                str(source["memory_type"]),
+                payload,
+                source_memory_id=memory_id,
+                human_verified=bool(source["human_verified"]),
+                created_by=actor,
+                review_status="draft",
+                approved_for_rag=False,
+                memory_scope=str(source["memory_scope"] or "operational_fact"),
+            )
+        self.retire_layered_memory(memory_id, actor=actor)
+        with self._connect() as conn:
+            self._record_memory_audit_conn(
+                conn,
+                country=str(source["country"]),
+                memory_id=memory_id,
+                action="country_migrate_out",
+                actor=actor,
+                new_review_status="retired",
+                metadata={"target_country": target_country, "migrated_memory_id": migrated_id, "note": note.strip()},
+            )
+            self._record_memory_audit_conn(
+                conn,
+                country=target_country,
+                memory_id=migrated_id,
+                action="country_migrate_in",
+                actor=actor,
+                new_review_status="draft",
+                metadata={"source_country": str(source["country"]), "source_memory_id": memory_id, "note": note.strip()},
+            )
+        return migrated_id
 
     def promote_layered_memory(
         self,
@@ -601,6 +654,7 @@ class PuzzleRepository:
                     retired_by TEXT NOT NULL DEFAULT '', retired_at TEXT,
                     approved_for_rag INTEGER NOT NULL DEFAULT 0,
                     review_status TEXT NOT NULL DEFAULT 'draft',
+                    memory_scope TEXT NOT NULL DEFAULT 'operational_fact',
                     rag_hit_count INTEGER NOT NULL DEFAULT 0,
                     last_rag_hit_at TEXT,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -665,6 +719,7 @@ class PuzzleRepository:
             self._ensure_column(conn, "layered_memory", "retired_at", "TEXT")
             self._ensure_column(conn, "layered_memory", "approved_for_rag", "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(conn, "layered_memory", "review_status", "TEXT NOT NULL DEFAULT 'draft'")
+            self._ensure_column(conn, "layered_memory", "memory_scope", "TEXT NOT NULL DEFAULT 'operational_fact'")
             self._ensure_column(conn, "layered_memory", "rag_hit_count", "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(conn, "layered_memory", "last_rag_hit_at", "TEXT")
             self._ensure_column(conn, "layered_memory", "updated_at", "TEXT")

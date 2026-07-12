@@ -31,6 +31,7 @@ WRITE_PATHS = {
     "/review_memory",
     "/promote_memory",
     "/retire_memory",
+    "/migrate_memory_country",
     "/resolve_memory_conflict",
     "/seed_memory_validation",
     "/record_rag_feedback",
@@ -425,6 +426,19 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             state.sync_message = "Memory 已停用，不再进入 RAG。"
         except (TypeError, ValueError) as exc:
             state.sync_message = f"Memory 停用失败：{exc}"
+        state.sync_url = ""
+        state.view = "runtime"
+    elif path == "/migrate_memory_country":
+        try:
+            migrated_id = agent.migrate_memory_country(
+                int(value(form, "memory_id", "0")),
+                target_country=value(form, "target_country", ""),
+                actor=state.user_id,
+                note=value(form, "migration_note", ""),
+            )
+            state.sync_message = f"Memory 国家迁移成功：新 memory_id={migrated_id}"
+        except (TypeError, ValueError) as exc:
+            state.sync_message = f"Memory 国家迁移失败：{exc}"
         state.sync_url = ""
         state.view = "runtime"
     elif path == "/resolve_memory_conflict":

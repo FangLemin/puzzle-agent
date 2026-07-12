@@ -164,6 +164,82 @@ def test_agent_memory_workbench_filters_by_layer_status_actor_and_subject(tmp_pa
     assert sushi_id not in pending_ids
 
 
+def test_personal_preference_memory_is_not_treated_as_market_fact_for_rag(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    preference_id = agent.record_personal_preference_memory(
+        "日本",
+        "jp_owner",
+        {"subject": "猫", "preference": "登录后优先看猫类素材"},
+    )
+    fact_id = agent.record_extracted_fact(
+        "日本",
+        "market_fact",
+        {"subject": "寿司", "rule": "寿司符合日本市场本土饮食文化。"},
+        actor="jp_owner",
+    )
+    agent.review_memory(preference_id, action="approve_rag", actor="jp_owner")
+    agent.review_memory(fact_id, action="approve_rag", actor="jp_owner")
+
+    rows = {row["memory_id"]: row for row in agent.memory_debug("日本", query="猫 寿司", limit=20)}
+    documents = agent._layered_memory_rag_documents("日本")
+
+    assert rows[preference_id]["memory_scope"] == "personal_preference"
+    assert rows[preference_id]["rag_ready"] is False
+    assert rows[fact_id]["memory_scope"] == "operational_fact"
+    assert any("寿司符合日本市场本土饮食文化" in document.text for document in documents)
+    assert all("登录后优先看猫类素材" not in document.text for document in documents)
+
+
+def test_memory_lifecycle_suggests_cleanup_for_stale_and_superseded_items(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    stale_id = agent.record_extracted_fact("日本", "market_fact", {"subject": "寿司", "rule": "旧规则：寿司只适合浅色背景。"})
+    replacement_id = agent.record_extracted_fact(
+        "日本",
+        "market_fact",
+        {
+            "subject": "寿司",
+            "rule": "新规则：寿司可用浅色或木色背景。",
+            "supersedes_memory_ids": [stale_id],
+        },
+    )
+    agent.review_memory(stale_id, action="approve_rag", actor="jp_owner")
+    agent.review_memory(replacement_id, action="approve_rag", actor="jp_owner")
+
+    summary = agent.memory_lifecycle_summary("日本")
+    cleanup_ids = {row["memory_id"] for row in summary["weekly_cleanup"]}
+    stale_row = next(row for row in summary["weekly_cleanup"] if row["memory_id"] == stale_id)
+
+    assert stale_id in cleanup_ids
+    assert any("长期未命中" in suggestion for suggestion in stale_row["cleanup_suggestions"])
+    assert any("已被新规则覆盖" in suggestion for suggestion in stale_row["cleanup_suggestions"])
+    assert summary["storage_plan"]["source_of_truth"] == "SQLite/Postgres"
+    assert summary["storage_plan"]["vector_index"] == "Milvus approved RAG chunks"
+
+
+def test_agent_migrates_memory_between_countries_with_audit(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    memory_id = agent.record_extracted_fact(
+        "日本",
+        "market_fact",
+        {"subject": "猫", "rule": "猫主题适合日本轻松治愈素材。"},
+        actor="jp_owner",
+    )
+
+    migrated_id = agent.migrate_memory_country(memory_id, target_country="法国", actor="fr_owner", note="业务国家调整")
+
+    source_row = next(row for row in agent.memory_debug("日本", query="猫", limit=20) if row["memory_id"] == memory_id)
+    target_row = next(row for row in agent.memory_debug("法国", query="猫", limit=20) if row["memory_id"] == migrated_id)
+    source_events = agent.repository.memory_audit_events("日本", action="country_migrate_out")
+    target_events = agent.repository.memory_audit_events("法国", action="country_migrate_in")
+
+    assert source_row["status"] == "retired"
+    assert target_row["source_memory_id"] == memory_id
+    assert target_row["payload"]["source_country"] == "日本"
+    assert target_row["payload"]["migration_note"] == "业务国家调整"
+    assert source_events[-1]["metadata"]["target_country"] == "法国"
+    assert target_events[-1]["metadata"]["source_memory_id"] == memory_id
+
+
 def test_agent_retires_memory_and_removes_it_from_rag(tmp_path):
     agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
     memory_id = agent.record_long_term_memory("日本", "approved_rule", {"rule": "寿司属于本土饮食文化"})

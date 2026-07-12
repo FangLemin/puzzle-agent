@@ -969,7 +969,34 @@ def render_memory_workbench(workbench: dict[str, object], state: AppState, filte
     seed = ""
     if can_write_country(state.user_id, state.country):
         seed = f'<form method="post" action="/seed_memory_validation">{hidden_context(state, view="runtime")}<button>生成生产验收样例</button></form>'
-    return readonly + render_memory_workbench_filters(state, filters) + "<div class='memory-grid'>" + "".join(cards) + "</div><div class='actions'>" + seed + "</div>"
+    lifecycle = render_memory_lifecycle_summary(workbench.get("lifecycle", {}))
+    return readonly + render_memory_workbench_filters(state, filters) + lifecycle + "<div class='memory-grid'>" + "".join(cards) + "</div><div class='actions'>" + seed + "</div>"
+
+
+def render_memory_lifecycle_summary(lifecycle: object) -> str:
+    if not isinstance(lifecycle, dict):
+        return ""
+    storage = lifecycle.get("storage_plan", {})
+    if not isinstance(storage, dict):
+        storage = {}
+    cleanup = lifecycle.get("weekly_cleanup", ())
+    conflict_prone = lifecycle.get("conflict_prone", ())
+    superseded = lifecycle.get("superseded", ())
+    cleanup_count = len(cleanup) if isinstance(cleanup, tuple) else 0
+    conflict_count = len(conflict_prone) if isinstance(conflict_prone, tuple) else 0
+    superseded_count = len(superseded) if isinstance(superseded, tuple) else 0
+    storage_text = (
+        f"SoT={storage.get('source_of_truth', 'SQLite/Postgres')}；"
+        f"Vector={storage.get('vector_index', 'Milvus approved RAG chunks')}；"
+        f"Cache={storage.get('cache', 'Redis')}"
+    )
+    return f"""
+    <div class="memory-grid">
+      <article class="memory-card"><strong>团队级生命周期</strong><span>周清理 {escape(str(cleanup_count))} 条</span><small>冲突频发 {escape(str(conflict_count))}；被新规则覆盖 {escape(str(superseded_count))}</small></article>
+      <article class="memory-card"><strong>事实 / 个人偏好</strong><span>运营事实 {escape(str(lifecycle.get('operational_facts_count', 0)))} 条</span><small>个人偏好 {escape(str(lifecycle.get('personal_preferences_count', 0)))} 条；个人偏好不进入市场事实 RAG</small></article>
+      <article class="memory-card"><strong>生产存储分配</strong><span>SQLite/Postgres + Milvus + Redis</span><small>{escape(storage_text)}</small></article>
+    </div>
+    """
 
 
 def render_memory_workbench_filters(state: AppState, filters: dict[str, str]) -> str:
@@ -1107,6 +1134,9 @@ def render_memory_actions(row: dict[str, object], state: AppState) -> str:
         )
     forms.append(
         f'<form method="post" action="/retire_memory">{context}<input type="hidden" name="memory_id" value="{memory_id}"><button>停用</button></form>'
+    )
+    forms.append(
+        f'<form method="post" action="/migrate_memory_country">{context}<input type="hidden" name="memory_id" value="{memory_id}"><input name="target_country" placeholder="目标国家"><input name="migration_note" placeholder="迁移备注"><button>迁移国家</button></form>'
     )
     return '<div class="memory-actions">' + "".join(forms) + "</div>"
 
