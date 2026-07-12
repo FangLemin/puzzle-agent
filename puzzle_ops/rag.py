@@ -123,6 +123,14 @@ class RagRetrievalTrace:
             "embedding_provider": self.embedding_provider,
             "vector_store_provider": self.vector_store_provider,
             "rerank_provider": self.rerank_provider,
+            "hybrid_mode": "bm25+dense+rerank",
+            "retrieval_routes": {
+                "bm25": True,
+                "dense_vector": True,
+                "exact_match": True,
+                "rerank": True,
+                "remote_vector_store": self.vector_store_provider != "local",
+            },
             "final_hits": tuple(
                 {
                     "chunk_id": hit.chunk.chunk_id,

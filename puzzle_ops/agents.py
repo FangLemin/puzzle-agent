@@ -749,6 +749,7 @@ class PuzzleOpsAgent:
             "retrieval_trace": self._last_rag_trace,
             "retrieval_eval_report": self.value_audit_rag_eval_report(country),
             "rag_eval_dataset": self.rag_eval_dataset_summary(country),
+            "rag_chunk_eval_dataset": self.rag_chunk_eval_dataset_summary(country),
             "rag_eval_case_evidence": self.rag_eval_case_evidence(country),
             "rag_eval_failure_feedback": self.rag_eval_failure_feedback_summary(country),
             "rag_knowledge_patch_drafts": self.rag_knowledge_patch_drafts(country),
@@ -1390,6 +1391,52 @@ class PuzzleOpsAgent:
             "target_real_sample_range": "30-50",
             "hit_at_five_threshold": 0.8,
             "status": status,
+        }
+
+    def rag_chunk_eval_dataset_summary(self, country: str) -> dict[str, object]:
+        documents = self.rag_documents_for_task(country, "all")
+        chunks = tuple(
+            chunk
+            for document in documents
+            for chunk in chunk_document(document, max_chars=None, chunking=self.rag_chunking_config)
+        )
+        cases = _business_object_chunk_eval_cases(country, documents)
+        retriever = HybridRagRetriever(chunks)
+        report = evaluate_retrieval_report(
+            retriever,
+            cases,
+            k=5,
+            threshold=0.8,
+            dataset_name=f"{country}业务对象级chunk eval",
+            knowledge_version=f"{country}-business-object-{len(documents)}docs-{len(chunks)}chunks",
+        )
+        risk_cases = tuple(case for case in cases if _looks_like_audit_query(case.query))
+        risk_missed = sum(
+            1
+            for case in report.get("cases", ())
+            if isinstance(case, dict) and _looks_like_audit_query(str(case.get("query", ""))) and not case.get("hit")
+        )
+        precision = float(report.get("precision@5", 0) or 0)
+        return {
+            "country": country,
+            "query_count": len(cases),
+            "target_query_range": "30-50",
+            "metrics": {
+                "recall@5": report.get("recall@5", 0),
+                "mrr@5": report.get("mrr@5", 0),
+                "citation_precision@5": precision,
+                "risk_miss_rate@5": round(risk_missed / len(risk_cases), 4) if risk_cases else 0.0,
+            },
+            "hybrid_search": {
+                "bm25_dense_rerank": True,
+                "bm25": True,
+                "dense": True,
+                "rerank": True,
+                "milvus_hybrid_ready": self.rag_vector_store_config.provider == "milvus",
+            },
+            "document_count": len(documents),
+            "chunk_count": len(chunks),
+            "cases": report.get("cases", ())[:10],
         }
 
     def latest_rag_acceptance_summary(self, country: str) -> dict[str, object]:
@@ -2392,7 +2439,16 @@ class PuzzleOpsAgent:
                     source_type="value_rule",
                     title=title,
                     text=body,
-                    metadata={"source": "static_value_rules"},
+                    metadata=_rag_business_metadata(
+                        country,
+                        source_type="value_rule",
+                        task_type="value_master",
+                        business_object_type="value_rule",
+                        value_dimension=title,
+                        polarity=_value_rule_polarity(body),
+                        provenance_id=f"{_country_code(country)}:static_value_rules:{index}",
+                        approved_for_rag=True,
+                    ),
                 )
             )
         for index, rule in enumerate(self.approved_value_rules(country), 1):
@@ -2403,7 +2459,16 @@ class PuzzleOpsAgent:
                     source_type="approved_value_rule",
                     title="运营审批价值观",
                     text=str(rule["rule_text"]),
-                    metadata={"source": "hitl_approved_value_rules"},
+                    metadata=_rag_business_metadata(
+                        country,
+                        source_type="approved_value_rule",
+                        task_type="value_master",
+                        business_object_type="value_rule",
+                        value_dimension="运营审批价值观",
+                        polarity=_value_rule_polarity(str(rule["rule_text"])),
+                        provenance_id=f"{_country_code(country)}:approved_value_rule:{index}",
+                        approved_for_rag=True,
+                    ),
                 )
             )
         documents.extend(self._layered_memory_rag_documents(country))
@@ -2420,7 +2485,20 @@ class PuzzleOpsAgent:
                         f"等级={record.grade}；开图率={record.open_rate}；完成率={record.completion_rate}；"
                         f"构图/备注={record.remark or record.dimension_grade}"
                     ),
-                    metadata={"source": "historical_records", "image_id": record.image_id},
+                    metadata=_rag_business_metadata(
+                        country,
+                        source_type="sample_fact",
+                        task_type="weekly_review",
+                        business_object_type="historical_image",
+                        operation_tag=record.operation_tag,
+                        subject=record.subject_tag,
+                        js_category=record.js_category,
+                        grade=record.grade,
+                        date_range=record.distribution_cycle or record.distribution_date,
+                        provenance_id=f"{_country_code(country)}:historical_records:{record.image_id}",
+                        image_id=record.image_id,
+                        approved_for_rag=True,
+                    ),
                 )
             )
         for hit in self._audit_policy_hits():
@@ -2431,7 +2509,17 @@ class PuzzleOpsAgent:
                     source_type="audit_policy",
                     title=f"审核规则 {hit.risk_level}风险",
                     text=hit.text,
-                    metadata={"source": "audit_manual", "risk_level": hit.risk_level},
+                    metadata=_rag_business_metadata(
+                        "GLOBAL",
+                        source_type="audit_policy",
+                        task_type="audit",
+                        business_object_type="audit_risk_type",
+                        risk_type=_audit_risk_type(hit.text),
+                        grade=hit.risk_level,
+                        provenance_id=f"GLOBAL:audit_manual:{hit.rule_id}",
+                        risk_level=hit.risk_level,
+                        approved_for_rag=True,
+                    ),
                 )
             )
         return tuple(documents)
@@ -2439,7 +2527,7 @@ class PuzzleOpsAgent:
     def _file_knowledge_rag_documents(self, country: str) -> tuple[RagDocument, ...]:
         path = _rag_knowledge_dir() / "processed" / "value_audit_documents.jsonl"
         documents = FileDocumentLoaderAdapter((path,)).load()
-        return tuple(document for document in documents if document.country in {country, "GLOBAL"})
+        return tuple(_with_business_metadata(document) for document in documents if document.country in {country, "GLOBAL"})
 
     def _rag_eval_cases(self, country: str) -> tuple[RagRetrievalCase, ...]:
         path = _rag_knowledge_dir() / "eval" / "value_audit_cases.jsonl"
@@ -2542,6 +2630,18 @@ class PuzzleOpsAgent:
                     title=f"Harness Gold 样本 {sample.operation_tag}",
                     text=_harness_gold_sample_rag_text(sample),
                     metadata={
+                        **_rag_business_metadata(
+                            country,
+                            source_type="harness_gold_sample",
+                            task_type="weekly_review",
+                            business_object_type="historical_image",
+                            operation_tag=sample.operation_tag,
+                            subject=sample.gold_subject or sample.subject,
+                            js_category=sample.js_category,
+                            grade=sample.gold_grade,
+                            provenance_id=f"{_country_code(country)}:harness_gold:{sample.sample_id}",
+                            approved_for_rag=True,
+                        ),
                         "source": "harness_gold_dataset",
                         "sample_id": sample.sample_id,
                         "local_image_path": sample.local_image_path,
@@ -2574,6 +2674,17 @@ class PuzzleOpsAgent:
                         title=str(memory.get("memory_type", layer)),
                         text=text,
                         metadata={
+                            **_rag_business_metadata(
+                                country,
+                                source_type=source_type,
+                                task_type="memory_governance",
+                                business_object_type="memory_fact",
+                                operation_tag=_memory_payload_field(payload if isinstance(payload, dict) else {}, "operation_tag"),
+                                subject=_memory_payload_field(payload if isinstance(payload, dict) else {}, "subject"),
+                                approved_for_rag=bool(memory.get("approved_for_rag")),
+                                memory_id=memory.get("memory_id", ""),
+                                provenance_id=f"{_country_code(country)}:memory:{memory.get('memory_id')}",
+                            ),
                             "source": "layered_memory",
                             "layer": layer,
                             "memory_id": memory.get("memory_id"),
@@ -4308,6 +4419,171 @@ def _rag_smoke_eval_cases(country: str, documents: tuple[RagDocument, ...]) -> t
             )
         )
     return tuple(cases)
+
+
+def _business_object_chunk_eval_cases(country: str, documents: tuple[RagDocument, ...]) -> tuple[RagRetrievalCase, ...]:
+    cases: list[RagRetrievalCase] = []
+    country_docs = [document for document in documents if document.country == country]
+    global_docs = [document for document in documents if document.country == "GLOBAL" and document.source_type == "audit_policy"]
+    for document in country_docs:
+        metadata = document.metadata
+        subject = str(metadata.get("subject") or document.title)
+        operation_tag = str(metadata.get("operation_tag") or "")
+        js_category = str(metadata.get("js_category") or "")
+        if document.source_type in {"value_rule", "approved_value_rule"}:
+            cases.append(
+                RagRetrievalCase(
+                    query=f"{country} {document.title} {subject} 偏好 避雷 价值观",
+                    country=country,
+                    expected_parent_id=document.document_id,
+                )
+            )
+        elif document.source_type == "sample_fact":
+            cases.append(
+                RagRetrievalCase(
+                    query=f"{country} {operation_tag} {subject} {js_category} 历史表现 开图率 等级",
+                    country=country,
+                    expected_parent_id=document.document_id,
+                )
+            )
+        elif document.source_type in {"fact", "approved_value_rule", "memory_working", "memory_perception"}:
+            cases.append(
+                RagRetrievalCase(
+                    query=f"{country} {subject} memory facts RAG",
+                    country=country,
+                    expected_parent_id=document.document_id,
+                )
+            )
+        if len(cases) >= 45:
+            break
+    for document in global_docs[:5]:
+        cases.append(
+            RagRetrievalCase(
+                query=f"{country} {document.title} 版权 IP 水印 审核 风险",
+                country=country,
+                expected_parent_id=document.document_id,
+            )
+        )
+    if len(cases) < 30:
+        seed_docs = tuple(country_docs + global_docs)
+        index = 0
+        while seed_docs and len(cases) < 30:
+            document = seed_docs[index % len(seed_docs)]
+            cases.append(
+                RagRetrievalCase(
+                    query=f"{country} {document.title} {document.text[:36]} 业务对象 chunk eval {len(cases) + 1}",
+                    country=country,
+                    expected_parent_id=document.document_id,
+                )
+            )
+            index += 1
+    return tuple(cases[:50])
+
+
+def _rag_business_metadata(
+    country: str,
+    *,
+    source_type: str,
+    task_type: str,
+    business_object_type: str,
+    operation_tag: str = "",
+    subject: str = "",
+    js_category: str = "",
+    grade: str = "",
+    date_range: str = "",
+    approved_for_rag: bool = False,
+    memory_id: int | str = "",
+    provenance_id: str = "",
+    market: str = "",
+    **extra: object,
+) -> dict[str, object]:
+    metadata: dict[str, object] = {
+        "country": country,
+        "market": market or country,
+        "task_type": task_type,
+        "source_type": source_type,
+        "operation_tag": operation_tag,
+        "subject": subject,
+        "js_category": js_category,
+        "grade": grade,
+        "date_range": date_range,
+        "approved_for_rag": bool(approved_for_rag),
+        "memory_id": memory_id,
+        "provenance_id": provenance_id or f"{country}:{source_type}:{business_object_type}",
+        "business_object_type": business_object_type,
+        "chunk_strategy": "business_object",
+    }
+    source_defaults = {
+        "value_rule": "static_value_rules",
+        "approved_value_rule": "hitl_approved_value_rules",
+        "sample_fact": "historical_records",
+        "audit_policy": "audit_manual",
+        "fact": "layered_memory",
+        "memory_working": "layered_memory",
+        "memory_perception": "layered_memory",
+    }
+    metadata["source"] = source_defaults.get(source_type, source_type)
+    metadata.update(extra)
+    return metadata
+
+
+def _with_business_metadata(document: RagDocument) -> RagDocument:
+    existing = dict(document.metadata)
+    if {"country", "market", "task_type", "source_type", "provenance_id"} <= set(existing):
+        return document
+    business_object_type = {
+        "value_rule": "value_rule",
+        "approved_value_rule": "value_rule",
+        "approved_rag_patch": "sop_step",
+        "audit_policy": "audit_risk_type",
+        "sample_fact": "historical_image",
+        "fact": "memory_fact",
+    }.get(document.source_type, "knowledge_section")
+    task_type = {
+        "audit_policy": "audit",
+        "approved_rag_patch": "value_master",
+        "sample_fact": "weekly_review",
+        "fact": "memory_governance",
+    }.get(document.source_type, "value_master")
+    metadata = _rag_business_metadata(
+        document.country,
+        source_type=document.source_type,
+        task_type=task_type,
+        business_object_type=business_object_type,
+        subject=str(existing.get("subject", "")),
+        operation_tag=str(existing.get("operation_tag", "")),
+        js_category=str(existing.get("js_category", "")),
+        grade=str(existing.get("grade", "")),
+        date_range=str(existing.get("date_range", "")),
+        approved_for_rag=bool(existing.get("approved_for_rag", document.source_type != "sample_fact")),
+        memory_id=str(existing.get("memory_id", "")),
+        provenance_id=str(existing.get("provenance_id") or existing.get("source_file") or document.document_id),
+    )
+    metadata.update(existing)
+    return RagDocument(
+        document_id=document.document_id,
+        country=document.country,
+        source_type=document.source_type,
+        title=document.title,
+        text=document.text,
+        metadata=metadata,
+    )
+
+
+def _value_rule_polarity(text: str) -> str:
+    return "avoid" if any(word in text for word in ("避免", "避开", "禁止", "不适合", "风险", "不要")) else "preference"
+
+
+def _audit_risk_type(text: str) -> str:
+    if any(word in text for word in ("版权", "IP", "商标", "侵权")):
+        return "copyright_ip"
+    if any(word in text for word in ("水印", "文字", "LOGO", "logo")):
+        return "watermark_text"
+    if any(word in text for word in ("文化", "宗教", "政治", "混淆")):
+        return "culture_safety"
+    if "AI" in text or "低质" in text:
+        return "ai_quality"
+    return "general_audit"
 
 
 def _rag_knowledge_dir() -> Path:

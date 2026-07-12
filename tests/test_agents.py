@@ -106,6 +106,106 @@ def test_agent_builds_task_specific_rag_document_layers(tmp_path):
     assert all(document.source_type in {"memory_perception", "memory_working", "approved_value_rule", "fact"} for document in memory_docs)
 
 
+def test_agent_builds_business_object_rag_chunks_with_strong_metadata(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+
+    agent.build_value_audit_rag_index("日本")
+    chunks = agent.repository.rag_chunks("日本")
+
+    value_chunk = next(chunk for chunk in chunks if str(chunk["parent_id"]).startswith("JP_VALUE_"))
+    sample_chunk = next(chunk for chunk in chunks if str(chunk["source_type"]) == "sample_fact")
+    audit_chunk = next(chunk for chunk in chunks if str(chunk["source_type"]) == "audit_policy")
+    value_metadata = value_chunk["metadata"]
+    sample_metadata = sample_chunk["metadata"]
+    audit_metadata = audit_chunk["metadata"]
+
+    required_keys = {
+        "country",
+        "market",
+        "task_type",
+        "source_type",
+        "operation_tag",
+        "subject",
+        "js_category",
+        "grade",
+        "date_range",
+        "approved_for_rag",
+        "memory_id",
+        "provenance_id",
+    }
+    assert required_keys <= set(value_metadata)
+    assert value_metadata["chunk_strategy"] == "business_object"
+    assert value_metadata["business_object_type"] == "value_rule"
+    assert value_metadata["value_dimension"]
+    assert value_metadata["polarity"] in {"preference", "avoid"}
+    assert sample_metadata["business_object_type"] == "historical_image"
+    assert sample_metadata["operation_tag"]
+    assert sample_metadata["subject"]
+    assert sample_metadata["grade"] in {"S", "A", "B", "C", "D"}
+    assert audit_metadata["business_object_type"] == "audit_risk_type"
+    assert audit_metadata["risk_type"]
+
+
+def test_rag_retrieval_keeps_country_filter_unless_global_rule(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+
+    prompt = agent.value_audit_rag_answer("日本", "法国 薰衣草 庄园 生活艺术", top_k=8, task_index="all")
+
+    chunk_by_id = {str(chunk["chunk_id"]): chunk for chunk in agent.repository.rag_chunks("日本")}
+    cited_countries = {str(chunk_by_id[citation]["country"]) for citation in prompt.citations if citation in chunk_by_id}
+    assert cited_countries <= {"日本", "GLOBAL"}
+    assert "法国" not in cited_countries
+
+
+def test_agent_chunk_eval_dataset_summary_tracks_business_metrics(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+
+    summary = agent.rag_chunk_eval_dataset_summary("日本")
+    france_summary = agent.rag_chunk_eval_dataset_summary("法国")
+
+    assert summary["country"] == "日本"
+    assert summary["target_query_range"] == "30-50"
+    assert summary["query_count"] >= 30
+    assert france_summary["country"] == "法国"
+    assert france_summary["target_query_range"] == "30-50"
+    assert france_summary["query_count"] >= 30
+    assert summary["metrics"]["recall@5"] >= 0
+    assert "citation_precision@5" in summary["metrics"]
+    assert "risk_miss_rate@5" in summary["metrics"]
+    assert summary["hybrid_search"]["bm25_dense_rerank"] is True
+
+
+def test_agent_normalizes_file_knowledge_to_business_metadata(monkeypatch, tmp_path):
+    knowledge_dir = tmp_path / "knowledge"
+    processed = knowledge_dir / "processed"
+    processed.mkdir(parents=True)
+    (processed / "value_audit_documents.jsonl").write_text(
+        json.dumps(
+            {
+                "document_id": "JP_FILE_SOP_001",
+                "country": "日本",
+                "source_type": "approved_rag_patch",
+                "title": "试新提需流程",
+                "text": "步骤1：先确认主体和国家文化语境，再进入价值观审核。",
+                "metadata": {"knowledge_version": "unit-test"},
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+
+    document = next(item for item in agent.rag_documents_for_task("日本", "all") if item.document_id == "JP_FILE_SOP_001")
+
+    assert document.metadata["chunk_strategy"] == "business_object"
+    assert document.metadata["business_object_type"] == "sop_step"
+    assert document.metadata["task_type"] == "value_master"
+    assert document.metadata["country"] == "日本"
+    assert document.metadata["provenance_id"]
+
+
 def test_value_rag_answer_uses_value_master_index_and_trace_metadata(tmp_path):
     agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
     agent.rag_vector_store_config = agent.rag_vector_store_config.__class__()

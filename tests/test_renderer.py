@@ -246,6 +246,9 @@ def test_runtime_page_shows_rag_feedback_summary(tmp_path):
     assert "useful=1" in html
     assert "not_useful=1" in html
     assert "RAG 检索评测" in html
+    assert "业务对象 Chunk Eval" in html
+    assert "citation_precision@5" in html
+    assert "risk_miss_rate@5" in html
     assert "任务索引" in html
     assert "value_master" in html
     assert "Milvus 主检索" in html

@@ -1247,6 +1247,7 @@ def render_rag_summary(summary: dict[str, object], state: AppState | None = None
     if eval_report.get("business_sample_gate"):
         eval_dataset_payload["business_sample_gate"] = eval_report.get("business_sample_gate")
     eval_dataset_card = render_rag_eval_dataset(eval_dataset_payload)
+    chunk_eval_card = render_rag_chunk_eval_dataset(summary.get("rag_chunk_eval_dataset", {}))
     vector_store_search = "on" if summary.get("vector_store_search_enabled") else "off"
     return f"""
 <div class="rag-grid">
@@ -1259,6 +1260,7 @@ def render_rag_summary(summary: dict[str, object], state: AppState | None = None
   <article><strong>在线检索</strong><span>Rewrite + Hybrid Recall + Rerank</span><small>VectorStore search={escape(vector_store_search)}；{escape(online_pipeline[:220])}</small></article>
   <article><strong>RAG 检索评测</strong><span>hit@5 / mrr@5</span><small>{escape(eval_text)}；{escape(trace_text)}</small></article>
   {eval_dataset_card}
+  {chunk_eval_card}
   {acceptance_card}
   {live_model_ops_card}
   <article><strong>版本化知识库</strong><span>Documents + Eval Cases</span><small>{escape(knowledge_text[:260])}</small></article>
@@ -1564,6 +1566,35 @@ def render_rag_eval_dataset(summary: dict[str, object]) -> str:
     )
     return (
         "<article><strong>真实 Eval Dataset</strong>"
+        f"<span>{escape(headline)}</span>"
+        f"<small>{escape(detail)}</small></article>"
+    )
+
+
+def render_rag_chunk_eval_dataset(summary: object) -> str:
+    if not isinstance(summary, dict):
+        return ""
+    metrics = summary.get("metrics", {})
+    if not isinstance(metrics, dict):
+        metrics = {}
+    hybrid = summary.get("hybrid_search", {})
+    if not isinstance(hybrid, dict):
+        hybrid = {}
+    headline = (
+        f"queries={summary.get('query_count', 0)}；"
+        f"docs={summary.get('document_count', 0)}；"
+        f"chunks={summary.get('chunk_count', 0)}"
+    )
+    detail = (
+        f"target={summary.get('target_query_range', '30-50')}；"
+        f"recall@5={metrics.get('recall@5', 0)}；"
+        f"mrr@5={metrics.get('mrr@5', 0)}；"
+        f"citation_precision@5={metrics.get('citation_precision@5', 0)}；"
+        f"risk_miss_rate@5={metrics.get('risk_miss_rate@5', 0)}；"
+        f"hybrid=BM25+dense+rerank:{hybrid.get('bm25_dense_rerank', False)}"
+    )
+    return (
+        "<article><strong>业务对象 Chunk Eval</strong>"
         f"<span>{escape(headline)}</span>"
         f"<small>{escape(detail)}</small></article>"
     )

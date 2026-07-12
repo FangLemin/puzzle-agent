@@ -1288,6 +1288,9 @@ def test_hybrid_retriever_can_use_milvus_vector_scores_before_rerank():
 
     assert "JP_VECTOR#chunk-1" in trace.vector_candidates
     assert trace.as_dict()["vector_store_provider"] == "milvus"
+    assert trace.as_dict()["hybrid_mode"] == "bm25+dense+rerank"
+    assert trace.as_dict()["retrieval_routes"]["bm25"] is True
+    assert trace.as_dict()["retrieval_routes"]["dense_vector"] is True
     assert any(hit.chunk.parent_id == "JP_VECTOR" and hit.vector_score == 0.97 for hit in trace.final_hits)
 
 
