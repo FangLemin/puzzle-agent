@@ -3718,6 +3718,55 @@ class PuzzleOpsAgent:
             "next_actions": tuple(next_actions),
         }
 
+    def harness_business_acceptance(self, country: str) -> dict[str, object]:
+        samples = tuple(sample for sample in self.harness_samples(country) if sample.is_real)
+        human_gold_samples = tuple(
+            sample
+            for sample in samples
+            if sample.label_source == "human_gold" and sample.label_status == "reviewed"
+        )
+        run = self.harness_display_run(country)
+        metric_specs = (
+            ("S/A预测准确率", 0.8, "gte"),
+            ("提需建议采纳率", 0.8, "gte"),
+            ("RAG Citation Precision", 0.75, "gte"),
+            ("国家文化风险漏召回率", 0.1, "lte"),
+            ("飞书字段完整率", 0.98, "gte"),
+            ("工具调用成功率", 0.95, "gte"),
+        )
+        gates: list[dict[str, object]] = [
+            {
+                "name": "30-50 张 human_gold 上线集",
+                "passed": len(human_gold_samples) >= 30,
+                "value": f"{len(human_gold_samples)} / 30-50",
+                "threshold": ">=30",
+                "next_action": "每周滚动补充真实 gold 样本。" if len(human_gold_samples) >= 30 else "补齐 30-50 张真实 human_gold 样本。",
+            }
+        ]
+        for name, threshold, direction in metric_specs:
+            count = int(run.metric_evaluable_counts.get(name, 0))
+            value = float(run.metrics.get(name, 0.0))
+            passed = count > 0 and (value >= threshold if direction == "gte" else value <= threshold)
+            comparator = ">=" if direction == "gte" else "<="
+            gates.append(
+                {
+                    "name": name,
+                    "passed": passed,
+                    "value": _pct(value) if count else "未评测",
+                    "threshold": f"{comparator}{_pct(threshold)}",
+                    "next_action": "保持周度回归。" if passed else "补充样本或复盘失败 case。",
+                    "evaluable_count": count,
+                }
+            )
+        return {
+            "run_id": run.run_id,
+            "target": "30-50 real human_gold samples, weekly rolling",
+            "overall_passed": all(bool(gate.get("passed")) for gate in gates),
+            "human_gold_count": len(human_gold_samples),
+            "real_sample_count": len(samples),
+            "gates": tuple(gates),
+        }
+
     def front_two_layers_readiness(self, country: str) -> dict[str, object]:
         harness_ready = self.harness_readiness(country)
         memory = self.memory_overview(country)

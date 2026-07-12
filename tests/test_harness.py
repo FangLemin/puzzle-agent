@@ -466,6 +466,50 @@ def test_harness_metrics_include_rag_runtime_stats():
     assert run.metrics["RAG降级率"] >= 0.0
 
 
+def test_harness_business_acceptance_metrics_cover_operational_gates(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "business-harness.db"))
+    samples = []
+    for index in range(30):
+        image_path = tmp_path / f"gold-{index:02d}.png"
+        image_path.write_bytes(b"fake-png")
+        grade = "S" if index % 2 == 0 else "A"
+        samples.append(
+            EvalSample(
+                sample_id=f"human-gold-{index:02d}",
+                country="日本",
+                local_image_path=str(image_path),
+                operation_tag=f"试新_日本_寿司{index:02d}",
+                subject="寿司",
+                js_category="food",
+                source="real",
+                position=index + 1,
+                metrics={"open_rate": 0.32, "completion_rate": 0.92, "avg_finish_time": 42.0},
+                gold_grade=grade,
+                gold_subject="寿司",
+                gold_color_mood="清爽明亮",
+                gold_composition="日式餐桌近景",
+                gold_value_labels=("本土饮食文化",),
+                gold_risk_labels=("文字水印",),
+                human_note="文字水印风险需审核",
+                label_source="human_gold",
+                label_status="reviewed",
+            )
+        )
+
+    run = AgentHarness(agent).run(tuple(samples), dataset_name="human-gold-launch", version="0.3.60")
+
+    assert run.metrics["S/A预测准确率"] == 1.0
+    assert "提需建议采纳率" in run.metrics
+    assert "RAG Citation Precision" in run.metrics
+    assert "国家文化风险漏召回率" in run.metrics
+    assert "飞书字段完整率" in run.metrics
+    assert "工具调用成功率" in run.metrics
+    assert run.metric_evaluable_counts["S/A预测准确率"] == 30
+    assert run.metric_evaluable_counts["提需建议采纳率"] == 30
+    assert run.metric_evaluable_counts["RAG Citation Precision"] == 30
+    assert run.metric_evaluable_counts["飞书字段完整率"] == 30
+
+
 def test_cloud_generation_provider_writes_returned_images_with_generation_metadata(tmp_path):
     png_b64 = (
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/"

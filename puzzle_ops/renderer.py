@@ -1832,6 +1832,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
     baseline_summary = agent.harness_baseline_summary(state.country)
     gold_coverage = agent.harness_gold_coverage(state.country)
     readiness = agent.harness_readiness(state.country)
+    business_acceptance = agent.harness_business_acceptance(state.country)
     front_two_layers = agent.front_two_layers_readiness(state.country)
     harness_samples = agent.harness_samples(state.country)
     harness_run = agent.harness_display_run(state.country)
@@ -1854,6 +1855,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
         if key not in {"run_id"}
     )
     readiness_panel = render_harness_readiness(readiness)
+    business_acceptance_panel = render_harness_business_acceptance(business_acceptance)
     front_two_layers_panel = render_front_two_layers_readiness(front_two_layers)
     gold_rows = render_harness_gold_workbench_rows(harness_samples, state)
     review_cases = list(harness_run.failures)
@@ -1913,6 +1915,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
   <small>Gold label 是 Harness 的人工标准答案；AI 预标注只是 silver label。运营保存确认后才会作为人工确认事实进入 memory/RAG。</small>
   <div class="table-wrap"><table class="gold-workbench"><thead><tr><th>样本</th><th>等级</th><th>主体</th><th>色彩氛围</th><th>构图环境</th><th>价值观/风险</th><th>标注状态</th><th>操作</th></tr></thead><tbody>{gold_rows}</tbody></table></div>
 </section>
+{business_acceptance_panel}
 <section class="grid two">
   <div class="panel"><h2>数据集概览</h2><div class="table-wrap"><table><tbody>{summary_rows}</tbody></table></div></div>
   <div class="panel"><h2>本次运行</h2><dl class="detail">
@@ -2007,6 +2010,34 @@ def render_harness_readiness(readiness: dict[str, object]) -> str:
     </div>
     <ol>{action_items}</ol>
   </div>
+"""
+
+
+def render_harness_business_acceptance(summary: dict[str, object]) -> str:
+    gates = summary.get("gates", ())
+    if not isinstance(gates, (list, tuple)):
+        gates = ()
+    rows = []
+    for gate in gates:
+        if not isinstance(gate, dict):
+            continue
+        passed = bool(gate.get("passed"))
+        rows.append(
+            "<tr>"
+            f"<td>{escape(str(gate.get('name', '')))}</td>"
+            f"<td><span class=\"gate-status {'passed' if passed else 'failed'}\">{'通过' if passed else '待处理'}</span></td>"
+            f"<td>{escape(str(gate.get('value', '')))}</td>"
+            f"<td>{escape(str(gate.get('threshold', '')))}</td>"
+            f"<td>{escape(str(gate.get('next_action', '')))}</td>"
+            "</tr>"
+        )
+    status = "可进入上线验收" if summary.get("overall_passed") else "尚未满足上线验收"
+    return f"""
+<section class="panel">
+  <div class="section-line"><h2>业务上线验收</h2><span class="status-pill">{escape(status)}</span></div>
+  <p>上线集目标：30-50 张真实 human_gold 样本，每周滚动更新；当前真实样本 {escape(str(summary.get("real_sample_count", 0)))}，human_gold {escape(str(summary.get("human_gold_count", 0)))}。</p>
+  <div class="table-wrap"><table class="readiness-table"><thead><tr><th>指标</th><th>状态</th><th>当前值</th><th>阈值</th><th>动作</th></tr></thead><tbody>{''.join(rows) or '<tr><td colspan="5">暂无验收指标。</td></tr>'}</tbody></table></div>
+</section>
 """
 
 

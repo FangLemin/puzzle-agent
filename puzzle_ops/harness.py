@@ -453,6 +453,13 @@ class AgentHarness:
         }
         failures: list[str] = []
         failure_categories: list[str] = []
+        if sample.gold_value_labels:
+            label_hits = sum(1 for label in sample.gold_value_labels if label in rag_context or label in evidence)
+            scores["RAG Citation Precision"] = 1.0 if rag_citations and label_hits else 0.0
+            scores["提需建议采纳"] = 1.0 if scores["引用视觉证据"] == 1.0 and label_hits else 0.0
+        else:
+            scores["RAG Citation Precision"] = "not_evaluable"
+            scores["提需建议采纳"] = "not_evaluable"
         if sample.gold_value_labels and self.execute_model_calls and semantic is not None:
             matched = sum(1 for label in sample.gold_value_labels if label in evidence)
             scores["价值观一致"] = _safe_ratio(matched, len(sample.gold_value_labels))
@@ -515,8 +522,12 @@ class AgentHarness:
         predicted = _predict_grade(sample.metrics)
         if sample.gold_grade:
             score: float | str = 1.0 if predicted == sample.gold_grade else 0.0
+            sa_score: float | str = 1.0 if sample.gold_grade in {"S", "A"} and predicted in {"S", "A"} else 0.0
+            if sample.gold_grade not in {"S", "A"}:
+                sa_score = "not_evaluable"
         else:
             score = "not_evaluable"
+            sa_score = "not_evaluable"
         failures = () if score in {1.0, "not_evaluable"} else (f"SABCD预测不一致：预测{predicted}，gold={sample.gold_grade}",)
         return HarnessCaseResult(
             sample.sample_id,
@@ -525,7 +536,7 @@ class AgentHarness:
             f"预测等级：{predicted}",
             ("metrics.grade_predict",),
             ("读取开图率/完成率/时长", "输出等级预测"),
-            {"SABCD预测": score, "工具调用正确": 1.0, "步骤效率": 1.0},
+            {"SABCD预测": score, "S/A预测": sa_score, "工具调用正确": 1.0, "步骤效率": 1.0},
             failures,
             failure_categories=("grade_mismatch",) if failures else (),
         )
@@ -672,6 +683,12 @@ class AgentHarness:
             "Step Efficiency": _score_average(cases, "步骤效率"),
             "生成图审核通过率": _score_average(cases, "生成图审核通过"),
             "飞书同步成功率": _score_average(cases, "字段完整性"),
+            "S/A预测准确率": _score_average(cases, "S/A预测"),
+            "提需建议采纳率": _score_average(cases, "提需建议采纳"),
+            "RAG Citation Precision": _score_average(cases, "RAG Citation Precision"),
+            "国家文化风险漏召回率": _risk_miss_rate(cases),
+            "飞书字段完整率": _score_average(cases, "字段完整性"),
+            "工具调用成功率": _score_average(cases, "工具调用正确"),
         }
         metrics.update(self._generation_trace_metrics(samples))
         metrics.update(self._rag_runtime_metrics())
@@ -805,6 +822,13 @@ def _score_average(cases: tuple[HarnessCaseResult, ...], key: str) -> float:
     return _safe_ratio(sum(float(score) for score in scores), len(scores))
 
 
+def _risk_miss_rate(cases: tuple[HarnessCaseResult, ...]) -> float:
+    risk_cases = [case for case in cases if isinstance(case.scores.get("风险召回"), (int, float))]
+    if not risk_cases:
+        return 0.0
+    return round(1.0 - _score_average(tuple(risk_cases), "风险召回"), 3)
+
+
 def _metric_evaluable_counts(cases: tuple[HarnessCaseResult, ...]) -> dict[str, int]:
     score_keys = {
         "三段式描述合规率": "三段式描述合规",
@@ -818,6 +842,12 @@ def _metric_evaluable_counts(cases: tuple[HarnessCaseResult, ...]) -> dict[str, 
         "飞书同步成功率": "字段完整性",
         "工具调用正确率": "工具调用正确",
         "Step Efficiency": "步骤效率",
+        "S/A预测准确率": "S/A预测",
+        "提需建议采纳率": "提需建议采纳",
+        "RAG Citation Precision": "RAG Citation Precision",
+        "国家文化风险漏召回率": "风险召回",
+        "飞书字段完整率": "字段完整性",
+        "工具调用成功率": "工具调用正确",
     }
     return {
         metric: sum(1 for case in cases if isinstance(case.scores.get(score_key), (int, float)))
