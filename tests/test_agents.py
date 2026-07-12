@@ -80,6 +80,74 @@ def test_agent_rag_answer_updates_memory_hit_metrics_from_real_retrieval(tmp_pat
     assert any(event["action"] == "rag_hit" for event in agent.repository.memory_audit_events("日本"))
 
 
+def test_agent_builds_task_specific_rag_document_layers(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    memory_id = agent.record_extracted_fact(
+        "日本",
+        "image_fact",
+        {"subject": "寿司", "rule": "寿司适合日本本土饮食文化。"},
+    )
+    agent.review_memory(memory_id, action="approve_rag", actor="jp_ops")
+
+    value_docs = agent.rag_documents_for_task("日本", "value_master")
+    audit_docs = agent.rag_documents_for_task("日本", "audit")
+    weekly_docs = agent.rag_documents_for_task("日本", "weekly_review")
+    memory_docs = agent.rag_documents_for_task("日本", "memory_governance")
+
+    assert any(document.source_type == "value_rule" for document in value_docs)
+    assert any(document.source_type == "fact" for document in value_docs)
+    assert not any(document.source_type == "sample_fact" for document in value_docs)
+    assert any(document.source_type == "audit_policy" for document in value_docs)
+    assert any(document.source_type == "audit_policy" for document in audit_docs)
+    assert all(document.source_type in {"audit_policy", "approved_rag_patch", "value_rule", "approved_value_rule", "fact"} for document in audit_docs)
+    assert any(document.source_type == "sample_fact" for document in weekly_docs)
+    assert not any(document.source_type == "audit_policy" for document in weekly_docs)
+    assert any(document.source_type == "fact" for document in memory_docs)
+    assert all(document.source_type in {"memory_perception", "memory_working", "approved_value_rule", "fact"} for document in memory_docs)
+
+
+def test_value_rag_answer_uses_value_master_index_and_trace_metadata(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent.rag_vector_store_config = agent.rag_vector_store_config.__class__()
+
+    prompt = agent.value_audit_rag_answer("日本", "寿司 本土 价值观", top_k=4)
+
+    assert prompt.citations
+    assert agent._last_rag_trace["task_index"] == "value_master"
+    assert agent._last_rag_trace["milvus_primary"] is False
+    assert not any(hit["source_type"] == "sample_fact" for hit in agent._last_rag_trace["final_hits"])
+
+
+def test_audit_rag_answer_uses_audit_task_index(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+
+    prompt = agent.value_audit_rag_answer("日本", "版权 IP 水印 审核 风险", top_k=4, task_index="audit")
+
+    assert prompt.citations
+    assert agent._last_rag_trace["task_index"] == "audit"
+    assert any(hit["source_type"] == "audit_policy" for hit in agent._last_rag_trace["final_hits"])
+    assert not any(hit["source_type"] == "sample_fact" for hit in agent._last_rag_trace["final_hits"])
+
+
+def test_milvus_ready_is_reported_as_primary_rag_retrieval(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent.rag_vector_store_config = agent.rag_vector_store_config.__class__(
+        provider="milvus",
+        endpoint="http://127.0.0.1:19530",
+        collection="puzzle_ops_rag",
+        configured=True,
+        ready=True,
+        status_text="Milvus ready：http://127.0.0.1:19530 / puzzle_ops_rag",
+    )
+
+    status = agent.rag_retrieval_runtime_status("value_master")
+
+    assert status["task_index"] == "value_master"
+    assert status["primary_provider"] == "Milvus"
+    assert status["milvus_primary"] is True
+    assert status["fallback_active"] is False
+
+
 def test_agent_memory_workbench_filters_by_layer_status_actor_and_subject(tmp_path):
     agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
     sushi_id = agent.record_extracted_fact("日本", "image_fact", {"subject": "寿司", "operation_tag": "JP_SUSHI"}, actor="jp_owner")
@@ -2435,6 +2503,24 @@ def test_agent_rag_summary_can_enable_milvus_online_search_path(monkeypatch):
     summary = PuzzleOpsAgent().value_audit_rag_summary("日本")
 
     assert summary["vector_store_search_enabled"] is True
+    assert summary["retrieval_trace"]["vector_store_provider"] == "milvus"
+
+
+def test_agent_rag_summary_uses_ready_milvus_as_primary_without_extra_search_flag(monkeypatch):
+    monkeypatch.setenv("RAG_VECTOR_STORE_PROVIDER", "milvus")
+    monkeypatch.setenv("MILVUS_URI", "http://127.0.0.1:19530")
+    monkeypatch.setenv("MILVUS_COLLECTION", "puzzle_ops_rag")
+    monkeypatch.delenv("RAG_MILVUS_SEARCH_ENABLED", raising=False)
+    monkeypatch.delenv("RAG_VECTOR_STORE_SEARCH_ENABLED", raising=False)
+    monkeypatch.setenv("RAG_EMBEDDING_PROVIDER", "local")
+    monkeypatch.setenv("RAG_RERANK_PROVIDER", "local")
+    monkeypatch.setenv("RAG_ENABLE_REMOTE_CALLS", "")
+
+    summary = PuzzleOpsAgent().value_audit_rag_summary("日本")
+
+    assert summary["vector_store_search_enabled"] is True
+    assert summary["milvus_primary"] is True
+    assert summary["rag_retrieval_runtime_status"]["mode"] == "primary"
     assert summary["retrieval_trace"]["vector_store_provider"] == "milvus"
 
 

@@ -1144,6 +1144,19 @@ def render_rag_summary(summary: dict[str, object], state: AppState | None = None
         f"rerank remote {summary.get('rerank_remote_calls', 0)}；"
         f"rerank fallback {summary.get('rerank_fallbacks', 0)}"
     )
+    task_index = str(summary.get("task_index", "value_master"))
+    task_label = str(summary.get("task_label", "价值观大师"))
+    task_source_types = summary.get("task_source_types", ())
+    if isinstance(task_source_types, (tuple, list)):
+        task_sources_text = "、".join(str(item) for item in task_source_types)
+    else:
+        task_sources_text = str(task_source_types or "all")
+    runtime_status = summary.get("rag_retrieval_runtime_status", {})
+    if not isinstance(runtime_status, dict):
+        runtime_status = {}
+    retrieval_mode = str(runtime_status.get("mode") or summary.get("vector_store_mode") or "fallback")
+    milvus_mode = "primary" if runtime_status.get("milvus_primary") or summary.get("milvus_primary") else "fallback"
+    milvus_reason = str(runtime_status.get("fallback_reason") or runtime_status.get("status_text") or summary.get("vector_store_status", ""))
     trace = summary.get("retrieval_trace", {})
     if not isinstance(trace, dict):
         trace = {}
@@ -1208,6 +1221,8 @@ def render_rag_summary(summary: dict[str, object], state: AppState | None = None
     return f"""
 <div class="rag-grid">
   <article><strong>父子知识块</strong><span>{escape(str(summary.get("chunk_count", 0)))} 个 chunk</span><small>{escape(source_text)}</small></article>
+  <article><strong>任务索引</strong><span>{escape(task_index)} · {escape(task_label)}</span><small>{escape(task_sources_text[:220])}</small></article>
+  <article><strong>Milvus 主检索</strong><span>{escape(milvus_mode)}</span><small>mode={escape(retrieval_mode)}；provider={escape(str(runtime_status.get("primary_provider", summary.get("vector_store", "SQLite"))))}；{escape(milvus_reason[:180])}</small></article>
   <article><strong>多路召回</strong><span>BM25 + Embedding + Rerank</span><small>Embedding：{escape(embedding)}；Rerank：{escape(rerank)}。{escape(provider_status)}</small></article>
   <article><strong>引用依据</strong><span>{escape(citation_text or "暂无引用")}</span><small>{escape(context[:140] or "暂无召回上下文")}；{escape(stats)}</small></article>
   <article><strong>离线建库</strong><span>DocumentLoader + Chunk + Store</span><small>{escape(offline_pipeline)}</small></article>

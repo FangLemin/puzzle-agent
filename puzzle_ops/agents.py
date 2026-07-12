@@ -29,6 +29,48 @@ from puzzle_ops.visual_analysis import LocalImageAnalyzer
 from puzzle_ops.visual_assets import image_bytes
 
 
+RAG_TASK_INDEX_SOURCE_TYPES: dict[str, tuple[str, ...] | None] = {
+    "all": None,
+    "value_master": (
+        "value_rule",
+        "approved_value_rule",
+        "approved_rag_patch",
+        "audit_policy",
+        "fact",
+        "harness_gold_sample",
+    ),
+    "audit": (
+        "audit_policy",
+        "approved_rag_patch",
+        "value_rule",
+        "approved_value_rule",
+        "fact",
+    ),
+    "weekly_review": (
+        "sample_fact",
+        "harness_gold_sample",
+        "value_rule",
+        "approved_value_rule",
+        "approved_rag_patch",
+        "fact",
+    ),
+    "memory_governance": (
+        "memory_perception",
+        "memory_working",
+        "approved_value_rule",
+        "fact",
+    ),
+}
+
+RAG_TASK_INDEX_LABELS = {
+    "all": "全量兼容索引",
+    "value_master": "价值观大师",
+    "audit": "审核/版权风险",
+    "weekly_review": "周复盘历史表现",
+    "memory_governance": "Memory 治理",
+}
+
+
 class PuzzleOpsAgent:
     """Business-facing Agent service for outbound puzzle content operations."""
 
@@ -460,8 +502,8 @@ class PuzzleOpsAgent:
         ]
         return tuple(base_rules + approved)
 
-    def build_value_audit_rag_index(self, country: str) -> tuple[RagDocument, ...]:
-        documents = StaticDocumentLoaderAdapter(self._rag_documents(country)).load()
+    def build_value_audit_rag_index(self, country: str, *, task_index: str = "all") -> tuple[RagDocument, ...]:
+        documents = StaticDocumentLoaderAdapter(self.rag_documents_for_task(country, task_index)).load()
         chunks = tuple(
             chunk
             for document in documents
@@ -470,6 +512,55 @@ class PuzzleOpsAgent:
         self.repository.save_rag_index(country, documents, chunks)
         return documents
 
+    def rag_documents_for_task(self, country: str, task_index: str = "all") -> tuple[RagDocument, ...]:
+        normalized = self._normalize_rag_task_index(task_index)
+        allowed_sources = RAG_TASK_INDEX_SOURCE_TYPES[normalized]
+        documents = self._rag_documents(country)
+        if allowed_sources is None:
+            return documents
+        allowed = set(allowed_sources)
+        return tuple(document for document in documents if document.source_type in allowed)
+
+    def rag_task_source_types(self, task_index: str = "all") -> tuple[str, ...] | None:
+        return RAG_TASK_INDEX_SOURCE_TYPES[self._normalize_rag_task_index(task_index)]
+
+    def rag_retrieval_runtime_status(self, task_index: str = "value_master") -> dict[str, object]:
+        provider = (self.rag_vector_store_config.provider or "sqlite").strip().lower()
+        search_enabled = self._rag_vector_store_search_enabled()
+        milvus_primary = provider == "milvus" and self.rag_vector_store_config.ready and search_enabled
+        fallback_active = not milvus_primary
+        if milvus_primary:
+            primary_provider = "Milvus"
+            fallback_reason = ""
+            mode = "primary"
+        elif provider == "milvus":
+            primary_provider = "SQLite"
+            mode = "fallback"
+            fallback_reason = "Milvus 已配置但未就绪或未开启搜索，当前使用本地 BM25/Embedding fallback"
+        else:
+            primary_provider = provider.upper() if provider == "qdrant" and search_enabled else "SQLite"
+            mode = "fallback"
+            fallback_reason = "Milvus 未作为当前 provider，当前使用本地或已配置向量库 fallback"
+        normalized = self._normalize_rag_task_index(task_index)
+        return {
+            "task_index": normalized,
+            "task_label": RAG_TASK_INDEX_LABELS.get(normalized, normalized),
+            "task_source_types": RAG_TASK_INDEX_SOURCE_TYPES[normalized],
+            "provider": provider,
+            "primary_provider": primary_provider,
+            "mode": mode,
+            "milvus_primary": milvus_primary,
+            "fallback_active": fallback_active,
+            "fallback_reason": fallback_reason,
+            "search_enabled": search_enabled,
+            "collection": self.rag_vector_store_config.collection,
+            "status_text": self.rag_vector_store_config.status_text,
+        }
+
+    def _normalize_rag_task_index(self, task_index: str) -> str:
+        normalized = (task_index or "all").strip().lower()
+        return normalized if normalized in RAG_TASK_INDEX_SOURCE_TYPES else "all"
+
     def value_audit_rag_answer(
         self,
         country: str,
@@ -477,9 +568,11 @@ class PuzzleOpsAgent:
         top_k: int = 6,
         *,
         provider_config: RagProviderConfig | None = None,
+        task_index: str = "value_master",
     ) -> RagPrompt:
         started_at = time.perf_counter()
-        self.build_value_audit_rag_index(country)
+        task_index = self._normalize_rag_task_index(task_index)
+        self.build_value_audit_rag_index(country, task_index=task_index)
         chunks = tuple(_rag_chunk_from_row(row) for row in self.repository.rag_chunks(country))
         stats = RagRuntimeStats()
         embedding_provider, rerank_provider = providers_from_config(
@@ -505,6 +598,7 @@ class PuzzleOpsAgent:
             rewritten_query,
             country=country,
             top_k=top_k,
+            source_types=self.rag_task_source_types(task_index),
             bm25_top_k=self.rag_bm25_top_k,
             vector_top_k=self.rag_vector_top_k,
         )
@@ -520,7 +614,15 @@ class PuzzleOpsAgent:
             )
             if audit_hits:
                 hits = tuple(list(hits[: max(top_k - 1, 0)]) + [audit_hits[0]])
-        trace_payload = trace.as_dict()
+        runtime_status = self.rag_retrieval_runtime_status(task_index)
+        trace_payload = {
+            **trace.as_dict(),
+            "task_index": task_index,
+            "task_label": runtime_status["task_label"],
+            "task_source_types": runtime_status["task_source_types"],
+            "milvus_primary": runtime_status["milvus_primary"],
+            "vector_store_mode": runtime_status["mode"],
+        }
         if hits != trace.final_hits:
             trace_payload = dict(trace_payload)
             trace_payload["final_hits"] = tuple(_rag_hit_trace_payload(hit) for hit in hits)
@@ -590,7 +692,9 @@ class PuzzleOpsAgent:
 
     def value_audit_rag_summary(self, country: str) -> dict[str, object]:
         query = f"{country}市场试新提需是否符合价值观，并检查版权/IP、文字水印、文化混淆和AI质量风险"
-        answer = self.value_audit_rag_answer(country, query, top_k=5)
+        task_index = "value_master"
+        answer = self.value_audit_rag_answer(country, query, top_k=5, task_index=task_index)
+        runtime_status = self.rag_retrieval_runtime_status(task_index)
         chunks = self.repository.rag_chunks(country)
         chunk_by_id = {str(chunk["chunk_id"]): chunk for chunk in chunks}
         citation_details = tuple(
@@ -632,6 +736,12 @@ class PuzzleOpsAgent:
             "vector_store_ready": self.rag_vector_store_config.ready,
             "vector_store_status": self.rag_vector_store_config.status_text,
             "vector_store_search_enabled": self._rag_vector_store_search_enabled(),
+            "task_index": runtime_status["task_index"],
+            "task_label": runtime_status["task_label"],
+            "task_source_types": runtime_status["task_source_types"],
+            "rag_retrieval_runtime_status": runtime_status,
+            "milvus_primary": runtime_status["milvus_primary"],
+            "vector_store_mode": runtime_status["mode"],
             "bm25_top_k": self.rag_bm25_top_k,
             "vector_top_k": self.rag_vector_top_k,
             "rerank_top_k": 5,
@@ -1457,6 +1567,10 @@ class PuzzleOpsAgent:
             "citations": prompt.citations,
             "prompt": prompt.prompt,
             "retrieval_trace": retrieval_trace,
+            "task_index": retrieval_trace.get("task_index", ""),
+            "task_label": retrieval_trace.get("task_label", ""),
+            "milvus_primary": retrieval_trace.get("milvus_primary", False),
+            "vector_store_mode": retrieval_trace.get("vector_store_mode", ""),
             "runtime_stats": runtime_stats,
             "embedding_provider": self.rag_provider_config.embedding_provider,
             "embedding_model": self.rag_provider_config.embedding_model,
@@ -1481,6 +1595,8 @@ class PuzzleOpsAgent:
     def _rag_vector_store_search_enabled(self) -> bool:
         if self.rag_vector_store_config.provider == "milvus":
             enabled = os.getenv("RAG_MILVUS_SEARCH_ENABLED", os.getenv("RAG_VECTOR_STORE_SEARCH_ENABLED", ""))
+            if not enabled.strip():
+                return self.rag_vector_store_config.ready
         else:
             enabled = os.getenv("RAG_QDRANT_SEARCH_ENABLED", os.getenv("RAG_VECTOR_STORE_SEARCH_ENABLED", ""))
         return (

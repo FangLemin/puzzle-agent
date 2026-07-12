@@ -246,6 +246,10 @@ def test_runtime_page_shows_rag_feedback_summary(tmp_path):
     assert "useful=1" in html
     assert "not_useful=1" in html
     assert "RAG 检索评测" in html
+    assert "任务索引" in html
+    assert "value_master" in html
+    assert "Milvus 主检索" in html
+    assert "fallback" in html
     assert "hit@5" in html
     assert "候选池" in html
     assert "VectorStore search=off" in html
@@ -391,6 +395,9 @@ def test_runtime_page_uses_current_vector_store_actions_for_milvus(tmp_path):
     assert 'action="/apply_rag_patch_rebuild_and_reindex_vector_store"' in html
     assert "重建并入库Milvus" in html
     assert "应用补丁并入库Milvus" in html
+    assert "任务索引" in html
+    assert "Milvus 主检索" in html
+    assert "primary" in html
     assert 'action="/milvus_smoke_diagnostic"' in html
     assert "Milvus Smoke" in html
     assert "向量库 manifest=none" in html
