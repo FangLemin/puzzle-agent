@@ -17,6 +17,8 @@ WRITE_PATHS = {
     "/confirm_weekly_review_needs",
     "/save_needs",
     "/sync_needs_feishu",
+    "/approve_guarded_action",
+    "/revert_guarded_action",
     "/save_trial",
     "/sync_trial_feishu",
     "/apply_value_master",
@@ -218,16 +220,44 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             state.sync_url = ""
             state.view = "regular"
             return None
-        result = agent.sync_demand_rows(state.country, rows, require_real=True)
-        if result.success:
-            state.need_rows.clear()
-            state.sync_message = f"同步成功，当前已完成提需{count}条"
-            state.sync_url = agent.feishu.web_url()
-            state.view = "regular"
+        proposal = agent.propose_feishu_sync(state.country, rows, actor=state.user_id, source_trace_id=f"{state.country}-regular-feishu")
+        if proposal.guard_status == "blocked":
+            state.sync_message = f"同步草案被拦截：{'；'.join(proposal.guard_reasons)}"
         else:
-            state.sync_message = f"同步失败：{result.error}"
-            state.sync_url = ""
+            state.sync_message = f"同步草案已生成：{proposal.proposal_id}，待人工确认，预计写入飞书 {count} 条。"
+        state.sync_url = ""
         state.view = "regular"
+    elif path == "/approve_guarded_action":
+        proposal_id = value(form, "proposal_id", "")
+        note = value(form, "approval_note", "")
+        try:
+            proposal = agent.approve_guarded_action(state.country, proposal_id, actor=state.user_id, note=note)
+            if proposal.guard_status != "approved":
+                state.sync_message = f"Guarded Action 未批准：{'；'.join(proposal.guard_reasons) or proposal.guard_status}"
+                state.sync_url = ""
+                return None
+            if value(form, "execute_after_approval", "") == "1":
+                result = agent.execute_guarded_action(state.country, proposal_id, actor=state.user_id)
+                if result.success:
+                    _clear_rows_after_guarded_execution(state, agent, proposal)
+                    state.sync_message = f"同步成功，Guarded Action 已执行：{proposal_id}"
+                    state.sync_url = agent.feishu.web_url()
+                else:
+                    state.sync_message = f"Guarded Action 执行失败：{result.error}"
+                    state.sync_url = ""
+            else:
+                state.sync_message = f"Guarded Action 已批准：{proposal_id}"
+                state.sync_url = ""
+        except ValueError as exc:
+            state.sync_message = f"Guarded Action 批准失败：{exc}"
+            state.sync_url = ""
+    elif path == "/revert_guarded_action":
+        proposal_id = value(form, "proposal_id", "")
+        result = agent.revert_guarded_action(state.country, proposal_id, actor=state.user_id, note=value(form, "revert_note", "运营撤销"))
+        state.sync_message = result.message if result.success else f"Guarded Action 撤销失败：{result.error}"
+        state.sync_url = ""
+        if state.view not in {"regular", "trial", "runtime"}:
+            state.view = "runtime"
     elif path == "/save_trial":
         rows = state.trial_rows or [state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)]
         saved = []
@@ -261,17 +291,13 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
             state.sync_url = ""
             state.view = "trial"
             return None
-        result = agent.sync_demand_rows(state.country, [_demand_row_payload(row) for row in rows_to_sync], require_real=True)
-        if result.success:
-            state.trial_row = agent.create_trial_demand(state.country, state.category, state.trial_mode)
-            state.trial_rows = []
-            state.trial_uploads = []
-            state.sync_message = f"同步成功，当前已完成试新提需{len(rows_to_sync)}条"
-            state.sync_url = agent.feishu.web_url()
-            state.view = "trial"
+        rows = [_demand_row_payload(row) for row in rows_to_sync]
+        proposal = agent.propose_feishu_sync(state.country, rows, actor=state.user_id, source_trace_id=f"{state.country}-trial-feishu")
+        if proposal.guard_status == "blocked":
+            state.sync_message = f"同步草案被拦截：{'；'.join(proposal.guard_reasons)}"
         else:
-            state.sync_message = f"同步失败：{result.error}"
-            state.sync_url = ""
+            state.sync_message = f"同步草案已生成：{proposal.proposal_id}，待人工确认，预计写入飞书 {len(rows_to_sync)} 条。"
+        state.sync_url = ""
         state.view = "trial"
     elif path == "/apply_value_master":
         if state.trial_rows:
@@ -1058,6 +1084,17 @@ def _demand_row_payload(row) -> dict[str, object]:
         payload["_reference_image_content_type"] = row.reference_image_content_type or "image/png"
         payload["_reference_image_syncable"] = row.reference_image_syncable
     return payload
+
+
+def _clear_rows_after_guarded_execution(state: AppState, agent: PuzzleOpsAgent, proposal) -> None:
+    source = str(getattr(proposal, "source_trace_id", ""))
+    if state.view == "trial" or "trial" in source:
+        state.trial_row = agent.create_trial_demand(state.country, state.category, state.trial_mode)
+        state.trial_rows = []
+        state.trial_uploads = []
+        return
+    if state.view == "regular" or "regular" in source:
+        state.need_rows.clear()
 
 
 def _rag_preflight_summary(preflight: dict[str, object]) -> str:

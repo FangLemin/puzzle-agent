@@ -4,7 +4,7 @@ import json
 import re
 
 from puzzle_ops.cms import MockCMSClient
-from puzzle_ops.runtime import ToolRegistry
+from puzzle_ops.runtime import ToolRegistry, ToolSpec
 
 
 class MCPToolAdapter:
@@ -15,14 +15,26 @@ class MCPToolAdapter:
         self._tools: dict[str, str] = {}
 
     def register_cms(self, cms: MockCMSClient) -> None:
-        self.registry.register("cms.query_inventory", cms.query_inventory)
-        self.registry.register("cms.search_assets", cms.search_assets)
-        self.registry.register("cms.low_stock_tags", cms.low_stock_tags)
+        self.registry.register("cms.query_inventory", cms.query_inventory, spec=ToolSpec("cms.query_inventory", side_effect="read"))
+        self.registry.register("cms.search_assets", cms.search_assets, spec=ToolSpec("cms.search_assets", side_effect="read"))
+        self.registry.register("cms.low_stock_tags", cms.low_stock_tags, spec=ToolSpec("cms.low_stock_tags", side_effect="read"))
+        self.registry.register(
+            "cms.upload_asset",
+            lambda **_: {"status": "not_implemented"},
+            spec=ToolSpec("cms.upload_asset", side_effect="external_write", approval_required=True),
+        )
+        self.registry.register(
+            "feishu.write_table",
+            lambda **_: {"status": "guarded_executor_required"},
+            spec=ToolSpec("feishu.write_table", side_effect="external_write", approval_required=True),
+        )
         self._tools.update(
             {
                 "cms.query_inventory": "查询 CMS 全局未分发素材库中某个运营 tag 的库存。",
                 "cms.search_assets": "按国家/JS分类检索 CMS Mock 素材。",
                 "cms.low_stock_tags": "返回库存低于阈值的运营 tag。",
+                "cms.upload_asset": "上传素材到 CMS，必须通过 Guarded Action 人工批准。",
+                "feishu.write_table": "写入飞书提需表，必须通过 Guarded Action 人工批准。",
             }
         )
 

@@ -362,7 +362,7 @@ def render_regular(agent: PuzzleOpsAgent, state: AppState) -> str:
   </div>
   <p class="note">{feishu_copy}</p>
   {sync_message}
-  <form method="post" action="/save_needs">{context}{rows}<div class="section-line"><button class="primary">保存表格修改</button><button formaction="/sync_needs_feishu" formmethod="post">一键同步到飞书表格</button></div></form>
+  <form method="post" action="/save_needs">{context}{rows}<div class="section-line"><button class="primary">保存表格修改</button><button formaction="/sync_needs_feishu" formmethod="post">生成同步草案</button></div></form>
 </section>
 """
 
@@ -434,7 +434,7 @@ def render_trial(agent: PuzzleOpsAgent, state: AppState) -> str:
 <section class="panel">
   <div class="section-line"><h2>试新提需表预览</h2><div class="inline-actions"><form method="post" action="/apply_value_master">{context}<button>价值观大师</button></form>{approval_form}</div></div>
   {sync_message}
-  <form method="post" action="/save_trial">{context}<div class="demand-card-list trial-demand-list">{row_html}</div><div class="section-line"><button class="primary">保存试新修改</button><button formaction="/sync_trial_feishu" formmethod="post">一键同步到飞书表格</button></div></form>
+  <form method="post" action="/save_trial">{context}<div class="demand-card-list trial-demand-list">{row_html}</div><div class="section-line"><button class="primary">保存试新修改</button><button formaction="/sync_trial_feishu" formmethod="post">生成同步草案</button></div></form>
   {rag_details}
   {value_correction}
 </section>
@@ -812,6 +812,7 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
     memory_conflicts = render_memory_conflicts(agent.memory_conflicts(state.country), state)
     provenance_root = int(memory_debug[0].get("memory_id", 0)) if memory_debug else 0
     memory_provenance = render_memory_provenance(agent.memory_provenance(state.country, provenance_root) if provenance_root else {})
+    guarded_actions = render_guarded_actions_workbench(agent.guarded_action_workbench(state.country), state)
     return f"""
 <section class="panel">
   <h2>多模态底座</h2>
@@ -848,12 +849,89 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
   <div class="panel"><h2>HITL Memory</h2><ul>{memory_items or '<li>暂无人工反馈记忆。</li>'}</ul></div>
 </section>
 <section class="panel"><h2>四层 Memory 概览</h2><div class="memory-grid">{memory_overview_cards}</div></section>
+<section class="panel"><h2>Guarded Actions</h2>{guarded_actions}</section>
 <section class="panel"><h2>Memory 工作台</h2>{memory_workbench}</section>
 <section class="panel"><h2>Memory Conflict</h2>{memory_conflicts}</section>
 <section class="panel"><h2>Memory Provenance</h2>{memory_provenance}</section>
 <section class="panel"><h2>Memory Debug</h2><div class="table-wrap"><table><thead><tr><th>ID</th><th>层级/类型</th><th>状态</th><th>审核状态</th><th>进入RAG</th><th>创建人</th><th>批准人</th><th>更新时间</th><th>RAG Source</th><th>命中分</th><th>冲突</th><th>来源</th><th>记忆内容</th><th>治理</th></tr></thead><tbody>{memory_debug_rows}</tbody></table></div></section>
 <section class="panel"><div class="section-line"><h2>价值观与审核 RAG</h2><div class="actions">{rag_actions}</div></div>{rag_cards}</section>
 """
+
+
+def render_guarded_actions_workbench(workbench: dict[str, object], state: AppState) -> str:
+    groups = workbench.get("groups", {})
+    if not isinstance(groups, dict):
+        groups = {}
+    cards = (
+        ("待我确认", "pending"),
+        ("已批准待执行", "approved"),
+        ("已执行", "executed"),
+        ("执行失败", "failed"),
+        ("已撤销 / 需人工处理", "reverted"),
+    )
+    card_html = "".join(
+        f"<article class='memory-card'><strong>{escape(label)}</strong><span>{len(groups.get(key, ()) if isinstance(groups.get(key, ()), tuple) else ())} 条</span><small>{escape(_guarded_group_preview(groups.get(key, ())))}</small></article>"
+        for label, key in cards
+    )
+    proposals = workbench.get("proposals", ())
+    events_by_proposal = workbench.get("events_by_proposal", {})
+    if not isinstance(events_by_proposal, dict):
+        events_by_proposal = {}
+    rows = "".join(render_guarded_action_row(item, state, events_by_proposal.get(item.proposal_id, ())) for item in proposals if hasattr(item, "proposal_id"))
+    readonly = "" if can_write_country(state.user_id, state.country) else "<p class='muted'>只读国家仅展示 Guarded Action，不允许批准或执行。</p>"
+    return f"""
+{readonly}
+<div class="memory-grid">{card_html}</div>
+<div class="table-wrap"><table><thead><tr><th>Action</th><th>状态</th><th>影响</th><th>来源</th><th>Guard</th><th>审计</th><th>操作</th></tr></thead><tbody>{rows or '<tr><td colspan="7">暂无 Guarded Action。</td></tr>'}</tbody></table></div>
+"""
+
+
+def render_guarded_action_row(proposal, state: AppState, events: object = ()) -> str:
+    preview = proposal.payload_preview if isinstance(proposal.payload_preview, dict) else {}
+    reasons = "；".join(proposal.guard_reasons) or "待人工确认"
+    event_items = ""
+    if isinstance(events, (list, tuple)):
+        event_items = "".join(
+            f"<li>{escape(str(event.get('event_type', '')))}: {escape(str(event.get('new_status', '')))} · {escape(str(event.get('actor', '')))}</li>"
+            for event in events
+            if isinstance(event, dict)
+        )
+    event_details = f"<details><summary>查看审计链路</summary><ol>{event_items or '<li>暂无事件</li>'}</ol></details>"
+    context = hidden_context(state, view=state.view)
+    actions = ""
+    if can_write_country(state.user_id, state.country):
+        if proposal.guard_status in {"pending_approval", "blocked", "failed"}:
+            actions += (
+                f'<form method="post" action="/approve_guarded_action">{context}'
+                f'<input type="hidden" name="proposal_id" value="{escape(proposal.proposal_id)}">'
+                '<input type="hidden" name="execute_after_approval" value="1">'
+                '<input name="approval_note" value="运营确认写入">'
+                '<button>确认写入飞书</button></form>'
+            )
+        if proposal.guard_status in {"approved", "executed", "failed"}:
+            actions += (
+                f'<form method="post" action="/revert_guarded_action">{context}'
+                f'<input type="hidden" name="proposal_id" value="{escape(proposal.proposal_id)}">'
+                '<input name="revert_note" value="运营撤销">'
+                '<button>取消草案</button></form>'
+            )
+    return (
+        "<tr>"
+        f"<td>{escape(proposal.proposal_id)}<br><small>{escape(proposal.target_system)} · {escape(proposal.action_type)}</small></td>"
+        f"<td>{escape(proposal.guard_status)}<br><small>创建 {escape(proposal.created_at)}</small></td>"
+        f"<td>{escape(str(preview.get('row_count', 0)))} 行<br><small>{escape(str(preview.get('first_operation_tag', '')))}</small></td>"
+        f"<td>{escape(proposal.source_trace_id)}<br><small>创建 {escape(proposal.actor)}；批准 {escape(proposal.approved_by or '-')}</small></td>"
+        f"<td>{escape(proposal.risk_level)}<br><small>{escape(reasons)}</small></td>"
+        f"<td>{event_details}</td>"
+        f"<td>{actions or '-'}</td>"
+        "</tr>"
+    )
+
+
+def _guarded_group_preview(items: object) -> str:
+    if not isinstance(items, tuple) or not items:
+        return "暂无"
+    return "；".join(f"{item.action_type}:{item.guard_status}" for item in items[:2] if hasattr(item, "action_type")) or "暂无"
 
 
 def render_rag_runtime_actions(agent: PuzzleOpsAgent, state: AppState) -> str:

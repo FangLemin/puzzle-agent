@@ -16,7 +16,8 @@ from puzzle_ops.audit import AuditPolicyRetriever, AuditRuleEngine
 from puzzle_ops.cms import MockCMSClient
 from puzzle_ops.excel_importer import import_history_workbook
 from puzzle_ops.feishu import FeishuClientFactory, MockFeishuClient
-from puzzle_ops.models import AgentTrace, AnalysisReport, AnalysisRow, DemandRow, HolidayRecommendation, ImageProfile, ScheduleItem, TagMeta, ValuePredictionCard, ValueRuleCandidate
+from puzzle_ops.guarded_tools import GuardedToolExecutor, GuardedToolPolicy
+from puzzle_ops.models import AgentTrace, AnalysisReport, AnalysisRow, DemandRow, HolidayRecommendation, ImageProfile, ScheduleItem, TagMeta, ToolResult, ValuePredictionCard, ValueRuleCandidate
 from puzzle_ops.multimodal import ImageFeatureExtractor, SimilarImageRetriever, ValueInsightMiner
 from puzzle_ops.rag import FeedbackAwareRerankProvider, FileDocumentLoaderAdapter, HybridRagRetriever, LocalEmbeddingProvider, MilvusVectorStore, MilvusVectorStoreRetriever, MissingRagAnswerGenerator, QdrantVectorStore, QdrantVectorStoreRetriever, QwenRagAnswerGenerator, RagChunk, RagChunkingConfig, RagDocument, RagGeneratedAnswer, RagPrompt, RagProviderConfig, RagRetrievalCase, RagRuntimeStats, RagVectorStoreConfig, RetrievalCaseLoaderAdapter, StaticDocumentLoaderAdapter, build_processed_documents_from_raw, build_rag_prompt, chunk_document, evaluate_rag_quality_report, evaluate_retrieval_report, export_offline_rag_index, export_rag_acceptance_report, prepare_qdrant_points, providers_from_config, rewrite_rag_query
 from puzzle_ops.storage import PuzzleRepository
@@ -2390,12 +2391,85 @@ class PuzzleOpsAgent:
             missing = ", ".join(self.feishu.config_status()["missing"])
             message = f"未配置真实飞书：缺少 {missing}"
             self.repository.add_sync_event(country, "提需同步", "飞书在线表格", "失败")
-            from puzzle_ops.models import ToolResult
 
             return ToolResult(False, {"missing": missing}, message, error=message)
         result = self.feishu.write_table("提需表", rows)
         self.repository.add_sync_event(country, "提需同步", "飞书在线表格", "成功" if result.success else "失败")
         return result
+
+    def propose_feishu_sync(
+        self,
+        country: str,
+        rows: list[dict[str, object]],
+        *,
+        actor: str = "",
+        source_trace_id: str = "",
+    ):
+        payload = {
+            "table_name": "提需表",
+            "rows": rows,
+            "mode": "real" if self.feishu.is_real else "mock",
+        }
+        return self._guarded_executor(country).propose(
+            country,
+            actor,
+            "feishu",
+            "feishu.write_table",
+            payload,
+            source_trace_id or f"{country}-feishu-sync",
+        )
+
+    def approve_guarded_action(self, country: str, proposal_id: str, *, actor: str = "", note: str = ""):
+        proposal = self.repository.guarded_action_proposal(proposal_id)
+        if proposal is None:
+            raise ValueError(f"找不到 Guarded Action：{proposal_id}")
+        if proposal.country != country:
+            raise ValueError(f"Guarded Action 不属于当前国家：{proposal.country}")
+        return self._guarded_executor(country).approve(proposal_id, actor, note)
+
+    def execute_guarded_action(self, country: str, proposal_id: str, *, actor: str = ""):
+        proposal = self.repository.guarded_action_proposal(proposal_id)
+        if proposal is None:
+            return ToolResult(False, {}, f"找不到 Guarded Action：{proposal_id}", error="PROPOSAL_NOT_FOUND")
+        if proposal.country != country:
+            return ToolResult(False, {"proposal_country": proposal.country}, "Guarded Action 不属于当前国家", error="COUNTRY_MISMATCH")
+        return self._guarded_executor(country).execute(proposal_id, actor)
+
+    def revert_guarded_action(self, country: str, proposal_id: str, *, actor: str = "", note: str = ""):
+        proposal = self.repository.guarded_action_proposal(proposal_id)
+        if proposal is None:
+            return ToolResult(False, {}, f"找不到 Guarded Action：{proposal_id}", error="PROPOSAL_NOT_FOUND")
+        if proposal.country != country:
+            return ToolResult(False, {"proposal_country": proposal.country}, "Guarded Action 不属于当前国家", error="COUNTRY_MISMATCH")
+        return self._guarded_executor(country).revert(proposal_id, actor, note)
+
+    def guarded_action_proposals(self, country: str = "", *, limit: int = 50):
+        return self.repository.guarded_action_proposals(country, limit=limit)
+
+    def guarded_action_events(self, proposal_id: str = "", *, country: str = "", limit: int = 100):
+        return self.repository.guarded_action_events(proposal_id, country=country, limit=limit)
+
+    def guarded_action_workbench(self, country: str) -> dict[str, object]:
+        proposals = self.guarded_action_proposals(country, limit=100)
+        events_by_proposal = {
+            proposal.proposal_id: self.guarded_action_events(proposal.proposal_id)
+            for proposal in proposals
+        }
+        groups = {
+            "pending": tuple(item for item in proposals if item.guard_status in {"pending_approval", "blocked"}),
+            "approved": tuple(item for item in proposals if item.guard_status == "approved"),
+            "executed": tuple(item for item in proposals if item.guard_status == "executed"),
+            "failed": tuple(item for item in proposals if item.guard_status == "failed"),
+            "reverted": tuple(item for item in proposals if item.guard_status == "reverted"),
+        }
+        return {"proposals": proposals, "groups": groups, "events_by_proposal": events_by_proposal}
+
+    def _guarded_executor(self, country: str) -> GuardedToolExecutor:
+        return GuardedToolExecutor(
+            self.repository,
+            tools={"feishu.write_table": lambda table_name, rows, approved_proposal_id="", **_: self.sync_demand_rows(country, rows, require_real=True)},
+            policy=GuardedToolPolicy(writable_countries=(country,)),
+        )
 
     def multimodal_profile(self, country: str) -> ImageProfile:
         records = self._history_records(country)

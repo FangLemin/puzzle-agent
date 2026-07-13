@@ -152,9 +152,13 @@ def test_confirm_weekly_review_needs_adds_suggested_rows():
     assert "周三复盘提需建议已生成" in APP.state.sync_message
 
 
-def test_sync_needs_to_feishu_clears_rows_and_sets_success_message():
+def test_sync_needs_to_feishu_creates_guarded_proposal_without_calling_feishu():
+    class FailingFeishu(MockFeishuClient):
+        def write_table(self, table_name, rows):
+            raise AssertionError("sync should create a guarded proposal before writing feishu")
+
     APP.state = AppState(country="日本", view="regular", category="人物", tag="常规_日本_传统浴袍美女0604")
-    APP.agent.feishu = MockFeishuClient(APP.agent._runtime_dir / "test_feishu_mock")
+    APP.agent.feishu = FailingFeishu(APP.agent._runtime_dir / "test_feishu_mock")
     APP.state.need_rows = [
         APP.agent.add_regular_demand("日本", "人物", "常规_日本_传统浴袍美女0604", 0),
         APP.agent.add_regular_demand("日本", "人物", "常规_日本_传统浴袍美女0604", 1),
@@ -163,11 +167,68 @@ def test_sync_needs_to_feishu_clears_rows_and_sets_success_message():
 
     redirect = handle_action("/sync_needs_feishu", {"country": ["日本"], "view": ["regular"]})
 
+    assert len(APP.state.need_rows) == 2
+    assert "同步草案已生成" in APP.state.sync_message
+    assert "待人工确认" in APP.state.sync_message
+    assert APP.state.sync_url == ""
+    assert redirect is None
+    proposal = next(item for item in APP.agent.guarded_action_proposals("日本") if item.guard_status == "pending_approval")
+    assert proposal.action_type == "feishu.write_table"
+    assert proposal.guard_status == "pending_approval"
+
+
+def test_approved_guarded_sync_needs_executes_feishu_and_clears_rows():
+    APP.state = AppState(country="日本", view="regular", category="人物", tag="常规_日本_传统浴袍美女0604")
+    APP.agent.feishu = MockFeishuClient(APP.agent._runtime_dir / "test_feishu_mock")
+    APP.agent.feishu.allow_real_sync = True
+    APP.state.need_rows = [
+        APP.agent.add_regular_demand("日本", "人物", "常规_日本_传统浴袍美女0604", 0),
+        APP.agent.add_regular_demand("日本", "人物", "常规_日本_传统浴袍美女0604", 1),
+    ]
+    handle_action("/sync_needs_feishu", {"country": ["日本"], "view": ["regular"], "user_id": ["jp_owner"]})
+    proposal = next(item for item in APP.agent.guarded_action_proposals("日本") if item.guard_status == "pending_approval")
+
+    redirect = handle_action(
+        "/approve_guarded_action",
+        {
+            "country": ["日本"],
+            "view": ["regular"],
+            "user_id": ["jp_owner"],
+            "proposal_id": [proposal.proposal_id],
+            "approval_note": ["确认写入飞书"],
+            "execute_after_approval": ["1"],
+        },
+    )
+
     assert APP.state.need_rows == []
-    assert APP.state.sync_message == "同步成功，当前已完成提需2条"
+    assert "同步成功" in APP.state.sync_message
     assert APP.state.sync_url == APP.agent.feishu.web_url()
     assert redirect is None
-    assert any(row[2] == "提需同步" for row in APP.agent.sync_rows())
+    assert any(row[2] == "提需同步" and row[4] == "成功" for row in APP.agent.sync_rows())
+
+
+def test_readonly_country_blocks_guarded_action_approval():
+    APP.state = AppState(user_id="jp_owner", country="法国", view="runtime")
+    proposal = APP.agent.propose_feishu_sync(
+        "法国",
+        [{"提需分类": "常规", "国家": "法国", "JS分类": "花卉", "运营tag": "常规_法国_薰衣草0713", "主体内容": "薰衣草", "张数": 7, "需求等级": "P1", "加工方式": "纯AI", "图片本身": "薰衣草", "主体描述": "主体内容：薰衣草；色彩氛围：紫色；构图环境：田野。", "备注": "人工确认。"}],
+        actor="fr_owner",
+    )
+
+    handle_action(
+        "/approve_guarded_action",
+        {
+            "user_id": ["jp_owner"],
+            "country": ["法国"],
+            "view": ["runtime"],
+            "proposal_id": [proposal.proposal_id],
+            "approval_note": ["越权确认"],
+            "execute_after_approval": ["1"],
+        },
+    )
+
+    assert "只有只读权限" in APP.state.sync_message
+    assert APP.agent.repository.guarded_action_proposal(proposal.proposal_id).guard_status == "pending_approval"
 
 
 def test_sync_needs_requires_real_feishu_and_keeps_rows_without_config():
@@ -179,8 +240,8 @@ def test_sync_needs_requires_real_feishu_and_keeps_rows_without_config():
     handle_action("/sync_needs_feishu", {"country": ["日本"], "view": ["regular"]})
 
     assert len(APP.state.need_rows) == 1
-    assert "未配置真实飞书" in APP.state.sync_message
-    assert any(row[4] == "失败" for row in APP.agent.sync_rows())
+    assert "同步草案已生成" in APP.state.sync_message
+    assert APP.agent.guarded_action_proposals("日本")
 
 
 def test_sync_needs_rejects_empty_demand_rows_before_feishu_call():
@@ -811,7 +872,7 @@ def test_real_generation_derivatives_with_vlm_risk_stay_unsyncable(tmp_path):
     assert all("版权/IP风险" in row.remark for row in APP.state.trial_rows)
 
 
-def test_sync_trial_to_feishu_records_success_and_resets_trial_row():
+def test_sync_trial_to_feishu_creates_guarded_proposal_then_confirmation_resets_trial_row():
     APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="parse")
     APP.agent.feishu = MockFeishuClient(APP.agent._runtime_dir / "test_feishu_mock")
     APP.agent.feishu.allow_real_sync = True
@@ -820,11 +881,29 @@ def test_sync_trial_to_feishu_records_success_and_resets_trial_row():
     redirect = handle_action("/sync_trial_feishu", {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["parse"]})
 
     assert APP.state.view == "trial"
-    assert APP.state.sync_message == "同步成功，当前已完成试新提需1条"
+    assert "同步草案已生成" in APP.state.sync_message
+    assert APP.state.sync_url == ""
+    assert len(APP.state.trial_rows) == 1
+    assert redirect is None
+    proposal = next(item for item in APP.agent.guarded_action_proposals("日本") if item.guard_status == "pending_approval")
+
+    handle_action(
+        "/approve_guarded_action",
+        {
+            "country": ["日本"],
+            "view": ["trial"],
+            "category": ["人物"],
+            "trial_mode": ["parse"],
+            "proposal_id": [proposal.proposal_id],
+            "approval_note": ["试新提需确认"],
+            "execute_after_approval": ["1"],
+        },
+    )
+
+    assert "同步成功" in APP.state.sync_message
     assert APP.state.sync_url == APP.agent.feishu.web_url()
     assert APP.state.trial_rows == []
     assert "上传参考图" in APP.state.trial_row.image_name
-    assert redirect is None
     assert any(row[2] == "提需同步" and row[4] == "成功" for row in APP.agent.sync_rows())
 
 

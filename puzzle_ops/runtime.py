@@ -6,17 +6,30 @@ from typing import Callable
 from puzzle_ops.models import ToolResult
 
 
+@dataclass(frozen=True)
+class ToolSpec:
+    name: str
+    side_effect: str = "read"
+    approval_required: bool = False
+
+
 class ToolRegistry:
     def __init__(self):
         self._tools: dict[str, Callable[..., object]] = {}
+        self._specs: dict[str, ToolSpec] = {}
 
-    def register(self, name: str, func: Callable[..., object]) -> None:
+    def register(self, name: str, func: Callable[..., object], *, spec: ToolSpec | None = None) -> None:
         self._tools[name] = func
+        self._specs[name] = spec or ToolSpec(name)
 
     def call(self, name: str, **kwargs: object) -> ToolResult:
         if name not in self._tools:
             return ToolResult(False, {}, f"{name} 未注册", error="TOOL_NOT_FOUND")
+        spec = self._specs.get(name, ToolSpec(name))
+        if spec.approval_required and not kwargs.get("approved_proposal_id"):
+            return ToolResult(False, {"tool": name}, f"{name} 需要人工批准后才能执行", error="APPROVAL_REQUIRED")
         try:
+            kwargs.pop("approved_proposal_id", None)
             data = self._tools[name](**kwargs)
             if isinstance(data, ToolResult):
                 return data

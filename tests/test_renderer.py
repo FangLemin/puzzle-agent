@@ -87,7 +87,7 @@ def test_regular_page_renders_business_table_fields_and_empty_delivery_input():
     assert 'class="demand-card-list regular-demand-list"' in html
     assert 'class="demand-card-grid"' in html
     assert 'class="demand-long-fields"' in html
-    assert "一键同步到飞书表格" in html
+    assert "生成同步草案" in html
     assert 'formtarget="_blank"' not in html
     assert "常规_日本_传统浴袍美女0604" in html
     assert "stock-hot" in html
@@ -118,6 +118,7 @@ def test_trial_page_keeps_core_fields_and_value_match_column(tmp_path):
     assert 'action="/simulate_trial_upload"' in html
     assert 'action="/generate_trial_derivatives"' in html
     assert "生成衍生参考图" in html
+    assert "生成同步草案" in html
     assert "生成 provider 未配置" in html
     assert 'action="/upload_trial_images"' in html
     assert 'formaction="/sync_trial_feishu"' in html
@@ -136,6 +137,40 @@ def test_trial_page_keeps_core_fields_and_value_match_column(tmp_path):
     assert 'class="image-preview-cell"' in html
     assert 'class="operation-tag-input"' in html
     assert 'class="small-input"' in html
+
+
+def test_runtime_page_shows_guarded_actions_workbench(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    proposal = agent.propose_feishu_sync(
+        "日本",
+        [{"提需分类": "常规", "国家": "日本", "JS分类": "人物", "运营tag": "常规_日本_猫咪0713", "主体内容": "猫咪", "张数": 7, "需求等级": "P1", "加工方式": "纯AI", "图片本身": "猫咪", "主体描述": "主体内容：猫咪；色彩氛围：清爽；构图环境：庭院。", "备注": "人工确认。"}],
+        actor="jp_owner",
+        source_trace_id="trace-render",
+    )
+
+    html = render_page(agent, AppState(user_id="jp_owner", country="日本", view="runtime"))
+
+    assert "Guarded Actions" in html
+    assert "待我确认" in html
+    assert "确认写入飞书" in html
+    assert "查看审计链路" in html
+    assert "create: pending_approval" in html
+    assert proposal.proposal_id in html
+
+
+def test_runtime_guarded_actions_are_readonly_for_unowned_country(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent.propose_feishu_sync(
+        "法国",
+        [{"提需分类": "常规", "国家": "法国", "JS分类": "花卉", "运营tag": "常规_法国_薰衣草0713", "主体内容": "薰衣草", "张数": 7, "需求等级": "P1", "加工方式": "纯AI", "图片本身": "薰衣草", "主体描述": "主体内容：薰衣草；色彩氛围：紫色；构图环境：田野。", "备注": "人工确认。"}],
+        actor="fr_owner",
+    )
+
+    html = render_page(agent, AppState(user_id="jp_owner", country="法国", view="runtime"))
+
+    assert "Guarded Actions" in html
+    assert "只读国家仅展示 Guarded Action" in html
+    assert "确认写入飞书" not in html
 
 
 def test_trial_page_shows_value_match_rag_citation_details(tmp_path):

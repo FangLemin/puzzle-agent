@@ -554,6 +554,127 @@ class PuzzleRepository:
             ).fetchall()
         return tuple(tuple(str(row[index]) for index in range(5)) for row in rows)
 
+    def save_guarded_action_proposal(self, proposal) -> None:
+        payload = json.dumps(proposal.payload, ensure_ascii=False, sort_keys=True)
+        payload_preview = json.dumps(proposal.payload_preview, ensure_ascii=False, sort_keys=True)
+        guard_reasons = json.dumps(tuple(proposal.guard_reasons), ensure_ascii=False)
+        execution_result = json.dumps(proposal.execution_result, ensure_ascii=False, sort_keys=True)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO guarded_action_proposals(
+                    proposal_id, country, actor, target_system, action_type, payload,
+                    payload_preview, source_trace_id, risk_level, guard_status, guard_reasons,
+                    rollback_strategy, created_at, approved_by, approved_at, executed_at, execution_result
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(proposal_id) DO UPDATE SET
+                    country=excluded.country,
+                    actor=excluded.actor,
+                    target_system=excluded.target_system,
+                    action_type=excluded.action_type,
+                    payload=excluded.payload,
+                    payload_preview=excluded.payload_preview,
+                    source_trace_id=excluded.source_trace_id,
+                    risk_level=excluded.risk_level,
+                    guard_status=excluded.guard_status,
+                    guard_reasons=excluded.guard_reasons,
+                    rollback_strategy=excluded.rollback_strategy,
+                    approved_by=excluded.approved_by,
+                    approved_at=excluded.approved_at,
+                    executed_at=excluded.executed_at,
+                    execution_result=excluded.execution_result
+                """,
+                (
+                    proposal.proposal_id,
+                    proposal.country,
+                    proposal.actor,
+                    proposal.target_system,
+                    proposal.action_type,
+                    payload,
+                    payload_preview,
+                    proposal.source_trace_id,
+                    proposal.risk_level,
+                    proposal.guard_status,
+                    guard_reasons,
+                    proposal.rollback_strategy,
+                    proposal.created_at,
+                    proposal.approved_by,
+                    proposal.approved_at,
+                    proposal.executed_at,
+                    execution_result,
+                ),
+            )
+
+    def guarded_action_proposal(self, proposal_id: str):
+        from puzzle_ops.guarded_tools import ActionProposal
+
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM guarded_action_proposals WHERE proposal_id = ?", (proposal_id,)).fetchone()
+        if row is None:
+            return None
+        return _guarded_action_from_row(dict(row), ActionProposal)
+
+    def guarded_action_proposals(self, country: str = "", *, limit: int = 50):
+        from puzzle_ops.guarded_tools import ActionProposal
+
+        where = "WHERE country = ?" if country else ""
+        params: tuple[object, ...] = (country, limit) if country else (limit,)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM guarded_action_proposals {where} ORDER BY created_at DESC LIMIT ?",
+                params,
+            ).fetchall()
+        return tuple(_guarded_action_from_row(dict(row), ActionProposal) for row in rows)
+
+    def record_guarded_action_event(
+        self,
+        proposal_id: str,
+        country: str,
+        actor: str,
+        event_type: str,
+        old_status: str,
+        new_status: str,
+        metadata: dict[str, object] | None = None,
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO guarded_action_events(proposal_id, country, actor, event_type, old_status, new_status, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (proposal_id, country, actor, event_type, old_status, new_status, json.dumps(metadata or {}, ensure_ascii=False)),
+            )
+
+    def guarded_action_events(self, proposal_id: str = "", *, country: str = "", limit: int = 100) -> tuple[dict[str, object], ...]:
+        clauses = []
+        params: list[object] = []
+        if proposal_id:
+            clauses.append("proposal_id = ?")
+            params.append(proposal_id)
+        if country:
+            clauses.append("country = ?")
+            params.append(country)
+        where = "WHERE " + " AND ".join(clauses) if clauses else ""
+        params.append(limit)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT event_id, proposal_id, country, actor, event_type, old_status, new_status, metadata, created_at
+                FROM guarded_action_events {where}
+                ORDER BY event_id LIMIT ?
+                """,
+                tuple(params),
+            ).fetchall()
+        events = []
+        for row in rows:
+            item = dict(row)
+            try:
+                item["metadata"] = json.loads(str(item["metadata"]))
+            except json.JSONDecodeError:
+                item["metadata"] = {}
+            events.append(item)
+        return tuple(events)
+
     def save_harness_run(self, run) -> None:
         payload = json.dumps(asdict(run), ensure_ascii=False)
         with self._connect() as conn:
@@ -676,6 +797,24 @@ class PuzzleRepository:
                 )
                 """,
                 """
+                CREATE TABLE IF NOT EXISTS guarded_action_proposals (
+                    proposal_id TEXT PRIMARY KEY, country TEXT NOT NULL, actor TEXT NOT NULL,
+                    target_system TEXT NOT NULL, action_type TEXT NOT NULL, payload TEXT NOT NULL,
+                    payload_preview TEXT NOT NULL, source_trace_id TEXT NOT NULL, risk_level TEXT NOT NULL,
+                    guard_status TEXT NOT NULL, guard_reasons TEXT NOT NULL, rollback_strategy TEXT NOT NULL,
+                    created_at TEXT NOT NULL, approved_by TEXT NOT NULL DEFAULT '', approved_at TEXT,
+                    executed_at TEXT, execution_result TEXT NOT NULL DEFAULT '{}'
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS guarded_action_events (
+                    event_id INTEGER PRIMARY KEY AUTOINCREMENT, proposal_id TEXT NOT NULL,
+                    country TEXT NOT NULL, actor TEXT NOT NULL, event_type TEXT NOT NULL,
+                    old_status TEXT NOT NULL, new_status TEXT NOT NULL,
+                    metadata TEXT NOT NULL DEFAULT '{}', created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """,
+                """
                 CREATE TABLE IF NOT EXISTS harness_runs (
                     run_id TEXT PRIMARY KEY, version TEXT NOT NULL, dataset_name TEXT NOT NULL,
                     model_provider TEXT NOT NULL, generator_provider TEXT NOT NULL,
@@ -726,6 +865,8 @@ class PuzzleRepository:
             self._backfill_layered_memory_fingerprints(conn)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_layered_memory_active ON layered_memory(country, memory_layer, status)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_memory_audit_country_action ON memory_audit_events(country, action, created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_guarded_action_country_status ON guarded_action_proposals(country, guard_status, created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_guarded_action_events_proposal ON guarded_action_events(proposal_id, event_id)")
 
     @staticmethod
     def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
@@ -754,6 +895,46 @@ def _decode_metadata(item: dict[str, object]) -> dict[str, object]:
     except json.JSONDecodeError:
         item["metadata"] = {}
     return item
+
+
+def _guarded_action_from_row(row: dict[str, object], action_cls):
+    def decode_dict(key: str) -> dict[str, object]:
+        try:
+            value = json.loads(str(row.get(key, "{}") or "{}"))
+            return value if isinstance(value, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+
+    def decode_tuple(key: str) -> tuple[str, ...]:
+        try:
+            value = json.loads(str(row.get(key, "[]") or "[]"))
+        except json.JSONDecodeError:
+            value = []
+        if isinstance(value, list):
+            return tuple(str(item) for item in value)
+        if isinstance(value, tuple):
+            return tuple(str(item) for item in value)
+        return ()
+
+    return action_cls(
+        proposal_id=str(row["proposal_id"]),
+        country=str(row["country"]),
+        actor=str(row["actor"]),
+        target_system=str(row["target_system"]),
+        action_type=str(row["action_type"]),
+        payload=decode_dict("payload"),
+        payload_preview=decode_dict("payload_preview"),
+        source_trace_id=str(row["source_trace_id"]),
+        risk_level=str(row["risk_level"]),
+        guard_status=str(row["guard_status"]),
+        guard_reasons=decode_tuple("guard_reasons"),
+        rollback_strategy=str(row["rollback_strategy"]),
+        created_at=str(row["created_at"]),
+        approved_by=str(row.get("approved_by") or ""),
+        approved_at=str(row.get("approved_at") or ""),
+        executed_at=str(row.get("executed_at") or ""),
+        execution_result=decode_dict("execution_result"),
+    )
 
 
 def _text_hash(text: str) -> str:
