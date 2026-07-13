@@ -158,6 +158,25 @@ def test_runtime_page_shows_guarded_actions_workbench(tmp_path):
     assert proposal.proposal_id in html
 
 
+def test_runtime_page_shows_skill_center_contracts(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+
+    html = render_page(agent, AppState(user_id="jp_owner", country="日本", view="runtime"))
+
+    assert "Skill Center" in html
+    assert "周三复盘 Skill" in html
+    assert "常规提需 Skill" in html
+    assert "试新解析 Skill" in html
+    assert "价值观审核 Skill" in html
+    assert "Memory 治理 Skill" in html
+    assert "RAG source" in html
+    assert "Memory 写入" in html
+    assert "Harness 验收" in html
+    assert "Guarded Action" in html
+    assert 'action="/run_business_skill"' in html
+    assert "运行 Demo" in html
+
+
 def test_runtime_guarded_actions_are_readonly_for_unowned_country(tmp_path):
     agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
     agent.propose_feishu_sync(

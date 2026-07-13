@@ -19,6 +19,7 @@ WRITE_PATHS = {
     "/sync_needs_feishu",
     "/approve_guarded_action",
     "/revert_guarded_action",
+    "/run_business_skill",
     "/save_trial",
     "/sync_trial_feishu",
     "/apply_value_master",
@@ -258,6 +259,20 @@ def handle_action(path: str, form: dict[str, list[str]], files: dict[str, list[d
         state.sync_url = ""
         if state.view not in {"regular", "trial", "runtime"}:
             state.view = "runtime"
+    elif path == "/run_business_skill":
+        skill_id = value(form, "skill_id", "")
+        demo = next((case for case in agent.business_skill_acceptance_cases(state.country) if case.get("skill_id") == skill_id), None)
+        if not demo:
+            state.sync_message = f"Skill 运行失败：找不到 demo case {skill_id}"
+        else:
+            try:
+                result = agent.run_business_skill(skill_id, dict(demo["input_payload"]), actor=state.user_id)
+                proposal_copy = f"，生成 proposal {len(result.guarded_action_proposals)} 个" if result.guarded_action_proposals else ""
+                state.sync_message = f"Skill 已运行：{result.skill_id}，草稿字段 {len(result.draft_output)} 个{proposal_copy}。"
+            except Exception as exc:
+                state.sync_message = f"Skill 运行失败：{exc}"
+        state.sync_url = ""
+        state.view = "runtime"
     elif path == "/save_trial":
         rows = state.trial_rows or [state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)]
         saved = []

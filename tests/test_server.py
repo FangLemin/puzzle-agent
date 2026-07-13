@@ -231,6 +231,24 @@ def test_readonly_country_blocks_guarded_action_approval():
     assert APP.agent.repository.guarded_action_proposal(proposal.proposal_id).guard_status == "pending_approval"
 
 
+def test_run_business_skill_action_uses_demo_payload_and_creates_draft():
+    APP.state = AppState(user_id="jp_owner", country="日本", view="runtime")
+
+    handle_action(
+        "/run_business_skill",
+        {
+            "user_id": ["jp_owner"],
+            "country": ["日本"],
+            "view": ["runtime"],
+            "skill_id": ["regular_demand_skill"],
+        },
+    )
+
+    assert "Skill 已运行" in APP.state.sync_message
+    assert "regular_demand_skill" in APP.state.sync_message
+    assert APP.agent.guarded_action_proposals("日本")
+
+
 def test_sync_needs_requires_real_feishu_and_keeps_rows_without_config():
     APP.state = AppState(country="日本", view="regular", category="人物", tag="常规_日本_传统浴袍美女0604")
     APP.agent.feishu = MockFeishuClient(APP.agent._runtime_dir / "test_feishu_mock")

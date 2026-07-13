@@ -44,7 +44,10 @@ class PuzzleRepository:
 
     def memories(self, country: str) -> tuple[dict[str, str], ...]:
         with self._connect() as conn:
-            rows = conn.execute("SELECT country, memory_type, content FROM agent_memory WHERE country = ?", (country,)).fetchall()
+            rows = conn.execute(
+                "SELECT country, memory_type, content FROM agent_memory WHERE country = ? ORDER BY memory_id DESC",
+                (country,),
+            ).fetchall()
         return tuple(dict(row) for row in rows)
 
     def add_layered_memory(

@@ -813,6 +813,7 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
     provenance_root = int(memory_debug[0].get("memory_id", 0)) if memory_debug else 0
     memory_provenance = render_memory_provenance(agent.memory_provenance(state.country, provenance_root) if provenance_root else {})
     guarded_actions = render_guarded_actions_workbench(agent.guarded_action_workbench(state.country), state)
+    skill_center = render_skill_center(agent.business_skill_contracts(), state)
     return f"""
 <section class="panel">
   <h2>多模态底座</h2>
@@ -849,6 +850,7 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
   <div class="panel"><h2>HITL Memory</h2><ul>{memory_items or '<li>暂无人工反馈记忆。</li>'}</ul></div>
 </section>
 <section class="panel"><h2>四层 Memory 概览</h2><div class="memory-grid">{memory_overview_cards}</div></section>
+<section class="panel"><h2>Skill Center</h2>{skill_center}</section>
 <section class="panel"><h2>Guarded Actions</h2>{guarded_actions}</section>
 <section class="panel"><h2>Memory 工作台</h2>{memory_workbench}</section>
 <section class="panel"><h2>Memory Conflict</h2>{memory_conflicts}</section>
@@ -856,6 +858,32 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
 <section class="panel"><h2>Memory Debug</h2><div class="table-wrap"><table><thead><tr><th>ID</th><th>层级/类型</th><th>状态</th><th>审核状态</th><th>进入RAG</th><th>创建人</th><th>批准人</th><th>更新时间</th><th>RAG Source</th><th>命中分</th><th>冲突</th><th>来源</th><th>记忆内容</th><th>治理</th></tr></thead><tbody>{memory_debug_rows}</tbody></table></div></section>
 <section class="panel"><div class="section-line"><h2>价值观与审核 RAG</h2><div class="actions">{rag_actions}</div></div>{rag_cards}</section>
 """
+
+
+def render_skill_center(skills: object, state: AppState) -> str:
+    if not isinstance(skills, (list, tuple)) or not skills:
+        return "<p class='empty'>暂无业务 Skill 契约。</p>"
+    cards = []
+    context = hidden_context(state, view="runtime")
+    for skill in skills:
+        rag_sources = "、".join(getattr(skill, "rag_source_types", ()))
+        memory_policy = getattr(skill, "memory_write_policy", {})
+        memory_text = f"{memory_policy.get('layer', '-')}/{memory_policy.get('memory_type', '-')}" if isinstance(memory_policy, dict) else "-"
+        metrics = "、".join(getattr(skill, "acceptance_metrics", ()))
+        guarded = "、".join(getattr(skill, "guarded_tools", ())) or "无外部写入"
+        cards.append(
+            "<article class='memory-card'>"
+            f"<strong>{escape(getattr(skill, 'display_name', ''))}</strong>"
+            f"<span>{escape(getattr(skill, 'skill_id', ''))}</span>"
+            f"<small>{escape(getattr(skill, 'scenario', ''))}</small>"
+            f"<small>RAG source：{escape(rag_sources or '-')}</small>"
+            f"<small>Memory 写入：{escape(memory_text)}</small>"
+            f"<small>Guarded Action：{escape(guarded)}</small>"
+            f"<small>Harness 验收：{escape(metrics or '-')}</small>"
+            f'<form method="post" action="/run_business_skill">{context}<input type="hidden" name="skill_id" value="{escape(getattr(skill, "skill_id", ""))}"><button>运行 Demo</button></form>'
+            "</article>"
+        )
+    return "<div class='memory-grid'>" + "".join(cards) + "</div>"
 
 
 def render_guarded_actions_workbench(workbench: dict[str, object], state: AppState) -> str:

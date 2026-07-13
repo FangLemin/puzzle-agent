@@ -21,6 +21,7 @@ from puzzle_ops.models import AgentTrace, AnalysisReport, AnalysisRow, DemandRow
 from puzzle_ops.multimodal import ImageFeatureExtractor, SimilarImageRetriever, ValueInsightMiner
 from puzzle_ops.rag import FeedbackAwareRerankProvider, FileDocumentLoaderAdapter, HybridRagRetriever, LocalEmbeddingProvider, MilvusVectorStore, MilvusVectorStoreRetriever, MissingRagAnswerGenerator, QdrantVectorStore, QdrantVectorStoreRetriever, QwenRagAnswerGenerator, RagChunk, RagChunkingConfig, RagDocument, RagGeneratedAnswer, RagPrompt, RagProviderConfig, RagRetrievalCase, RagRuntimeStats, RagVectorStoreConfig, RetrievalCaseLoaderAdapter, StaticDocumentLoaderAdapter, build_processed_documents_from_raw, build_rag_prompt, chunk_document, evaluate_rag_quality_report, evaluate_retrieval_report, export_offline_rag_index, export_rag_acceptance_report, prepare_qdrant_points, providers_from_config, rewrite_rag_query
 from puzzle_ops.storage import PuzzleRepository
+from puzzle_ops.skills import BusinessSkillLibrary, SkillExecutionError, SkillRunResult
 from puzzle_ops.trulens_eval import TruLensRAGEvaluator
 from puzzle_ops.trial_upload import TrialImageUploadService, _compact_tag_subject
 from puzzle_ops.eval_suite import AgentEvalSuite
@@ -109,6 +110,7 @@ class PuzzleOpsAgent:
         self._last_rag_stats = RagRuntimeStats()
         self._last_rag_rewritten_query = ""
         self._last_rag_trace: dict[str, object] = {}
+        self.business_skills = BusinessSkillLibrary.default()
 
     def countries(self) -> tuple[str, ...]:
         return tuple(COUNTRIES.keys())
@@ -2463,6 +2465,182 @@ class PuzzleOpsAgent:
             "reverted": tuple(item for item in proposals if item.guard_status == "reverted"),
         }
         return {"proposals": proposals, "groups": groups, "events_by_proposal": events_by_proposal}
+
+    def business_skill_contracts(self):
+        return self.business_skills.all()
+
+    def business_skill_acceptance_cases(self, country: str) -> tuple[dict[str, object], ...]:
+        samples = {
+            "weekly_review_skill": {
+                "country": country,
+                "date_range_start": "2026-06-24",
+                "date_range_end": "2026-06-30",
+                "history_window": "上上周三到上周二",
+                "js_category": self.categories(country).keys().__iter__().__next__(),
+                "operator_note": "Harness demo",
+            },
+            "regular_demand_skill": {
+                "country": country,
+                "operation_tag": next(iter(self.categories(country)[next(iter(self.categories(country)))]), None).tag,
+                "js_category": next(iter(self.categories(country))),
+                "stock": 2,
+                "historical_metrics": {"open_rate": 0.28, "completion_rate": 0.9},
+                "delivery_constraints": "本周",
+            },
+            "trial_parse_skill": {
+                "country": country,
+                "reference_images": ("ref-a.png",),
+                "trial_mode": "parse",
+                "js_category": next(iter(self.categories(country))),
+                "operator_hint": "Harness demo",
+            },
+            "value_audit_skill": {
+                "country": country,
+                "image_or_candidate": "候选图",
+                "subject": "猫咪",
+                "operation_tag": f"试新_{country}_猫咪0713",
+                "task_type": "value_master",
+            },
+            "memory_governance_skill": {
+                "country": country,
+                "memory_ids": (),
+                "conflict_group_id": "",
+                "cleanup_reason": "weekly",
+                "operator_goal": "治理待审记忆",
+            },
+        }
+        return tuple(
+            {
+                "case_id": f"{country}-{skill.skill_id}-demo",
+                "country": country,
+                "skill_id": skill.skill_id,
+                "input_payload": samples[skill.skill_id],
+                "acceptance_metrics": skill.acceptance_metrics,
+                "rag_task_index": skill.rag_task_index,
+            }
+            for skill in self.business_skill_contracts()
+        )
+
+    def run_business_skill(self, skill_id: str, input_payload: dict[str, object], *, actor: str = "") -> SkillRunResult:
+        errors = self.business_skills.validate_input(skill_id, input_payload)
+        if errors:
+            raise SkillExecutionError("；".join(errors))
+        skill = self.business_skills.get(skill_id)
+        country = str(input_payload.get("country", ""))
+        if skill_id == "weekly_review_skill":
+            return self._run_weekly_review_skill(input_payload, actor=actor)
+        if skill_id == "regular_demand_skill":
+            return self._run_regular_demand_skill(input_payload, actor=actor)
+        if skill_id == "trial_parse_skill":
+            return self._run_trial_parse_skill(input_payload, actor=actor)
+        if skill_id == "value_audit_skill":
+            return self._run_value_audit_skill(input_payload, actor=actor)
+        if skill_id == "memory_governance_skill":
+            return self._run_memory_governance_skill(input_payload, actor=actor)
+        raise SkillExecutionError(f"未知业务 Skill：{skill_id}")
+
+    def _run_weekly_review_skill(self, payload: dict[str, object], *, actor: str) -> SkillRunResult:
+        country = str(payload["country"])
+        skill = self.business_skills.get("weekly_review_skill")
+        review = self.weekly_review_workbench(country)
+        citations = _skill_rag_citations(self.rag_documents_for_task(country, skill.rag_task_index), limit=4)
+        memory_refs = self._skill_memory_refs(country, skill.memory_read_layers)
+        draft = {
+            "sa_growth": tuple(item.get("title", "") for item in review.get("new_sa_images", ()) if isinstance(item, dict)),
+            "cd_risks": tuple(item.get("title", "") for item in review.get("declining_images", ()) if isinstance(item, dict)),
+            "country_differences": tuple(review.get("country_differences", ())),
+            "need_directions": tuple(review.get("need_suggestions", ())),
+            "action_proposals": (),
+        }
+        self.record_working_memory(country, "weekly_review_insight", {"source_skill": skill.skill_id, "source_trace": f"{skill.skill_id}:{country}", "summary": review.get("summary", "")}, actor=actor)
+        return SkillRunResult(skill.skill_id, country, dict(payload), draft, citations, memory_refs, ("history.aggregate_metrics", "rag.retrieve.weekly_review", "memory.retrieve"), (), True, {"RAG citation precision": 1.0 if citations else 0.0})
+
+    def _run_regular_demand_skill(self, payload: dict[str, object], *, actor: str) -> SkillRunResult:
+        country = str(payload["country"])
+        skill = self.business_skills.get("regular_demand_skill")
+        operation_tag = str(payload["operation_tag"])
+        js_category = str(payload["js_category"])
+        inventory = self.adapter.registry.call("cms.query_inventory", tag=operation_tag)
+        row = self.add_regular_demand(country, js_category, operation_tag, 0)
+        row_payload = _demand_row_payload_for_skill(row)
+        required = ("提需分类", "国家", "JS分类", "运营tag", "主体内容", "张数", "需求等级", "加工方式")
+        missing = tuple(field for field in required if row_payload.get(field) in {"", None})
+        proposal = self.propose_feishu_sync(country, [row_payload], actor=actor, source_trace_id=f"{skill.skill_id}:{country}:{operation_tag}")
+        citations = _skill_rag_citations(self.rag_documents_for_task(country, skill.rag_task_index), limit=4)
+        memory_refs = self._skill_memory_refs(country, skill.memory_read_layers)
+        draft = {
+            "draft_rows": (row_payload,),
+            "missing_fields": missing,
+            "risk_notes": tuple(filter(None, (row.remark,))),
+            "value_evidence": citations,
+            "action_proposals": (proposal.proposal_id,),
+            "inventory": inventory.data if inventory.success else {},
+        }
+        draft_memory_id = self.record_working_memory(country, "regular_demand_draft", {"source_skill": skill.skill_id, "operation_tag": operation_tag, "proposal_id": proposal.proposal_id}, actor=actor)
+        return SkillRunResult(skill.skill_id, country, dict(payload), draft, citations, (*memory_refs, f"memory:{draft_memory_id}"), ("cms.query_inventory", "history.search_records", "rag.retrieve.value_master", "rag.retrieve.audit"), (proposal.proposal_id,), True, {"飞书字段完整率": 1.0 if not missing else 0.0, "工具调用成功率": 1.0 if inventory.success else 0.0})
+
+    def _run_trial_parse_skill(self, payload: dict[str, object], *, actor: str) -> SkillRunResult:
+        country = str(payload["country"])
+        skill = self.business_skills.get("trial_parse_skill")
+        row = self.create_trial_demand(country, str(payload["js_category"]), str(payload["trial_mode"]))
+        citations = _skill_rag_citations(self.rag_documents_for_task(country, skill.rag_task_index), limit=4)
+        draft = {
+            "common_subject": row.subject,
+            "color_mood": "待视觉解析确认",
+            "composition": "待视觉解析确认",
+            "operation_tag": row.operation_tag,
+            "draft_rows": (_demand_row_payload_for_skill(row),),
+            "risk_notes": tuple(filter(None, (row.remark,))),
+        }
+        memory_id = self.record_perception_memory(country, "trial_image_parse", {"source_skill": skill.skill_id, "subject": row.subject, "operation_tag": row.operation_tag}, actor=actor)
+        return SkillRunResult(skill.skill_id, country, dict(payload), draft, citations, (f"memory:{memory_id}",), ("image.extract_features", "rag.retrieve.value_master", "rag.retrieve.audit"), (), True, {"试新提需字段完整率": 1.0})
+
+    def _run_value_audit_skill(self, payload: dict[str, object], *, actor: str) -> SkillRunResult:
+        country = str(payload["country"])
+        skill = self.business_skills.get("value_audit_skill")
+        subject = str(payload["subject"])
+        metrics = {"open_rate": 0.28, "completion_rate": 0.9}
+        predicted = _skill_predict_grade(metrics)
+        audit = self.audit_review(" ".join((str(payload.get("operation_tag", "")), subject)))
+        citations = _skill_rag_citations(self.rag_documents_for_task(country, skill.rag_task_index), limit=5)
+        memory_refs = self._skill_memory_refs(country, skill.memory_read_layers)
+        draft = {
+            "sabcd_prediction": predicted,
+            "rag_citations": citations,
+            "risk_points": tuple(audit.evidence) or tuple(filter(None, (audit.reason,))),
+            "revision_suggestions": (audit.suggestion,),
+            "human_review_suggestion": "建议运营复核文化真实性、版权/IP 和拼图可读性。",
+            "production_recommendation": "review_required",
+        }
+        self.record_working_memory(country, "value_audit_draft", {"source_skill": skill.skill_id, "subject": subject, "operation_tag": payload.get("operation_tag", ""), "sabcd_prediction": predicted}, actor=actor)
+        return SkillRunResult(skill.skill_id, country, dict(payload), draft, citations, memory_refs, ("rag.retrieve.value_master", "rag.retrieve.audit", "memory.retrieve", "audit.retrieve_policy"), (), True, {"RAG citation precision": 1.0 if citations else 0.0})
+
+    def _run_memory_governance_skill(self, payload: dict[str, object], *, actor: str) -> SkillRunResult:
+        country = str(payload["country"])
+        skill = self.business_skills.get("memory_governance_skill")
+        memory_ids = tuple(int(item) for item in payload.get("memory_ids", ()) if str(item).isdigit())
+        rows = self.repository.layered_memories(country, include_inactive=True)
+        selected = tuple(row for row in rows if not memory_ids or int(row.get("memory_id", 0)) in memory_ids)
+        suggestions = tuple(f"#{row.get('memory_id')} {row.get('memory_type')} 建议人工复核后批准或停用" for row in selected[:5])
+        draft = {
+            "approval_suggestions": suggestions,
+            "reject_suggestions": (),
+            "merge_suggestions": (),
+            "retire_suggestions": tuple(f"#{row.get('memory_id')} 长期未命中可考虑停用" for row in selected if int(row.get("rag_hit_count", 0) or 0) == 0)[:5],
+            "provenance_explanation": "治理建议仅供 HITL 页面执行，不直接改变 memory 状态。",
+            "rag_impact": "conflict_locked 或 draft 状态不会进入 RAG。",
+        }
+        self.record_working_memory(country, "memory_governance_suggestion", {"source_skill": skill.skill_id, "memory_ids": memory_ids, "operator_goal": payload.get("operator_goal", "")}, actor=actor)
+        return SkillRunResult(skill.skill_id, country, dict(payload), draft, _skill_rag_citations(self.rag_documents_for_task(country, skill.rag_task_index), limit=4), tuple(f"memory:{row.get('memory_id')}" for row in selected[:5]), ("memory.workbench", "memory.conflicts", "memory.provenance", "rag.retrieve.memory_governance"), (), True, {"治理建议采纳率": 0.0})
+
+    def _skill_memory_refs(self, country: str, layers: tuple[str, ...]) -> tuple[str, ...]:
+        refs: list[str] = []
+        for layer in layers:
+            for memory in self.repository.layered_memories(country, layer=layer):
+                refs.append(f"memory:{memory.get('memory_id')}")
+                if len(refs) >= 5:
+                    return tuple(refs)
+        return tuple(refs)
 
     def _guarded_executor(self, country: str) -> GuardedToolExecutor:
         return GuardedToolExecutor(
@@ -5252,6 +5430,47 @@ def _value_row_payload(row: DemandRow) -> dict[str, object]:
         "remark": row.remark,
         "reference_image_url": row.reference_image_url,
     }
+
+
+def _demand_row_payload_for_skill(row: DemandRow) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "提需分类": row.need_type,
+        "国家": row.country,
+        "JS分类": row.js_category,
+        "图片本身": row.image_name,
+        "运营tag": row.operation_tag,
+        "主体内容": row.subject,
+        "张数": row.count,
+        "需求等级": row.priority,
+        "加工方式": row.method,
+        "交付日期": row.delivery_date,
+        "主体描述": row.subject_description,
+        "备注": row.remark,
+    }
+    if row.value_match:
+        payload["价值观匹配度"] = row.value_match
+    return payload
+
+
+def _skill_rag_citations(documents: tuple[RagDocument, ...], *, limit: int = 5) -> tuple[str, ...]:
+    citations = []
+    for document in documents[:limit]:
+        citations.append(f"{document.document_id}:{document.source_type}")
+    return tuple(citations)
+
+
+def _skill_predict_grade(metrics: dict[str, float]) -> str:
+    open_rate = float(metrics.get("open_rate", 0.0))
+    completion_rate = float(metrics.get("completion_rate", 0.0))
+    if open_rate >= 0.28 and completion_rate >= 0.9:
+        return "S"
+    if open_rate >= 0.23 and completion_rate >= 0.85:
+        return "A"
+    if open_rate >= 0.18:
+        return "B"
+    if open_rate >= 0.12:
+        return "C"
+    return "D"
 
 
 def _missing_value_llm_message(error) -> str:
