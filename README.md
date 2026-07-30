@@ -2,6 +2,29 @@
 
 这是一个纯 Python 实现的“出海拼图内容运营 Agent”项目。它用结构真实、数据模拟的方式复现法国/日本拼图运营流程，包含常规提需、试新提需、节日提需建议、数据分析大师、价值观大师、排图工作台、同步记录，以及 v0.3.0 新增的多模态 Agent Runtime。
 
+## 简历级项目定位
+
+PuzzleOps Agent 当前定位为：**面向出海拼图内容运营的 Agent Harness 系统**。
+
+它不是单次 prompt demo，而是围绕真实运营工作流构建的可回放、可评测、可人工修正的 Agent 工程闭环：
+
+- 多模态理解：Qwen VLM 解析图片主体内容、色彩氛围、构图环境和风险。
+- RAG 依据：召回日本/法国价值观、审核规则、approved memory 和真实 gold 样本。
+- Memory 治理：感知记忆、短期记忆、长期记忆、结构化事实四层管理。
+- 工具落地：试新/常规提需、飞书多维表格同步、附件上传、生成图二次审核。
+- Agent Harness：真实样本评测、case trace、失败分类、HITL 修正和版本报告。
+
+第四层收口材料：
+
+- [简历级收口报告](docs/final_acceptance/v0.7.49_resume_closure_report.md)
+- [架构与链路说明](docs/final_acceptance/puzzleops_architecture.md)
+- [真实评测集摘要](docs/eval/gold_dataset_summary.md)
+- [价值观大师评测报告](docs/eval/value_master_eval_report.md)
+- [Prompt Benchmark v2 报告](docs/eval/value_master_prompt_benchmark_v2_report.md)
+- [RAG hard-negative 报告](docs/eval/rag_hard_negative_report.md)
+
+当前应诚实表述为：项目已达到可展示的 Agent 工程闭环，但价值观预测效果仍处于小样本评测和专项修复阶段，不建议夸大为“预测准确率已稳定”。
+
 ## 你需要看的核心文件
 
 - `puzzle_ops/agents.py`：核心 Agent 业务逻辑。

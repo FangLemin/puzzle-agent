@@ -2,6 +2,41 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.49 - Resume-Level Closure Draft
+
+日期：2026-07-30
+
+阶段目标：
+
+- 完成第四层“先看结果版”：README、架构图、最终报告整合。
+- 不改业务功能、不改价值观大师主预测链路，只输出简历级材料供用户审阅。
+
+已完成：
+
+- 新增最终收口报告：
+  - `docs/final_acceptance/v0.7.49_resume_closure_report.md`。
+  - 汇总项目定位、当前能力、真实评测集、RAG/Memory/Harness 设计、好图衍生链路、推荐简历写法和面试解释口径。
+- 新增架构说明：
+  - `docs/final_acceptance/puzzleops_architecture.md`。
+  - 包含 Agent 总览、RAG 离线/在线阶段、Memory 四层、Harness 评测闭环、好图衍生链路的 Mermaid 图。
+- README 增加“简历级项目定位”：
+  - 明确项目是“面向出海拼图内容运营的 Agent Harness 系统”。
+  - 增加最终报告、架构说明、真实评测集摘要、价值观大师评测、Prompt Benchmark、RAG hard-negative 报告入口。
+- 简历口径约束：
+  - 可写工程闭环、真实小样本 Harness、RAG/Memory/HITL、飞书落地和通义万相 provider 化。
+  - 暂不建议写“价值观预测准确率已稳定”，因为当前人工 Benchmark 显示 RAG citation、历史依据和等级可信度仍偏弱。
+
+验证：
+
+- 文档结构检查：新增报告和 README 链接已落地。
+- `python -m py_compile puzzle_ops/agents.py puzzle_ops/server.py puzzle_ops/renderer.py`：通过。
+- `ANALYSIS_LLM_ENABLE_REMOTE_CALLS=0 RAG_ENABLE_REMOTE_CALLS=false RAG_EMBEDDING_PROVIDER=local RAG_RERANK_PROVIDER=local VISION_LLM_PROVIDER=qwen QWEN_API_KEY= IMAGE_GENERATION_PROVIDER=mock PYTHONPATH=. pytest tests -q`：581 passed。
+
+当前限制：
+
+- 本版是材料收口，不提升价值观预测效果。
+- 第四层文档需要用户审阅后再决定是否调整简历 bullets、报告口径或架构图表达。
+
 ## v0.7.48 - Value Master Third-Layer Repair Closure
 
 日期：2026-07-30
