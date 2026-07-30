@@ -35,19 +35,45 @@ class TrialImageUploadService:
         mode: str,
         *,
         business_date: date | None = None,
+        run_vision: bool = True,
     ) -> tuple[DemandRow, tuple[dict[str, str], ...]]:
-        saved = tuple(self._save(file) for file in files if file.get("filename"))
+        saved = self.save_uploads(files)
+        return self.parse_saved(row, saved, mode, business_date=business_date, run_vision=run_vision)
+
+    def save_uploads(self, files: list[dict[str, object]]) -> tuple[dict[str, str], ...]:
+        return tuple(self._save(file) for file in files if file.get("filename"))
+
+    def parse_saved(
+        self,
+        row: DemandRow,
+        saved: tuple[dict[str, str], ...] | list[dict[str, object]],
+        mode: str,
+        *,
+        business_date: date | None = None,
+        run_vision: bool = True,
+    ) -> tuple[DemandRow, tuple[dict[str, str], ...]]:
+        saved = tuple(self._hydrate_saved_upload(item) for item in saved)
         if not saved:
             return row.edited(remark=(row.remark + "；" if row.remark else "") + "未选择图片，无法解析。"), ()
 
         names = tuple(item["filename"] for item in saved)
         subject = _subject_from_names(names) or row.subject
         visual = self.analyzer.summarize_bytes(tuple(item["content"] for item in saved))
-        semantic = self.vision_client.analyze(list(saved), row.country, row.js_category, visual) if self.vision_client else None
+        semantic = None
+        semantic_error = ""
+        if self.vision_client and run_vision:
+            try:
+                semantic = self.vision_client.analyze(list(saved), row.country, row.js_category, visual)
+            except Exception as exc:
+                semantic_error = str(exc)
         if semantic and semantic.subject:
             subject = semantic.subject
         operation_tag = _trial_operation_tag(row.operation_tag, row.country, subject, business_date or date.today())
-        semantic_remark = _semantic_remark(semantic) if semantic else _missing_semantic_remark(self.vision_config_error)
+        semantic_remark = (
+            _semantic_remark(semantic)
+            if semantic
+            else _missing_semantic_remark(self.vision_config_error, semantic_error, pending=bool(self.vision_client and not run_vision))
+        )
         if mode == "derive":
             image_name = f"{names[0]} + 衍生方向"
             remark = (
@@ -74,6 +100,16 @@ class TrialImageUploadService:
             reference_image_content_type=str(saved[0]["content_type"]),
         )
         return parsed, saved
+
+    def _hydrate_saved_upload(self, item: dict[str, object]) -> dict[str, str]:
+        hydrated = dict(item)
+        content = hydrated.get("content")
+        if not content and hydrated.get("path"):
+            path = Path(str(hydrated["path"]))
+            if path.is_file():
+                content = path.read_bytes()
+        hydrated["content"] = bytes(content or b"")
+        return hydrated  # type: ignore[return-value]
 
     def _save(self, file: dict[str, object]) -> dict[str, str]:
         filename = _safe_filename(str(file["filename"]))
@@ -187,6 +223,10 @@ def _missing_semantic_description(error: MissingVisionLLMConfig | None) -> str:
     return f"语义主体：待真实视觉 LLM 解析；场景：待解析；文化元素：待解析；风格：待解析；语义风险：缺少配置 {missing}"
 
 
-def _missing_semantic_remark(error: MissingVisionLLMConfig | None) -> str:
+def _missing_semantic_remark(error: MissingVisionLLMConfig | None, runtime_error: str = "", *, pending: bool = False) -> str:
+    if pending:
+        return "视觉LLM：Qwen 后台解析中，当前先使用本地图片解析结果"
+    if runtime_error:
+        return f"视觉LLM：调用失败，已保留本地图片解析结果；错误：{runtime_error}"
     missing = "、".join(error.missing) if error else "QWEN_API_KEY"
     return f"视觉LLM：未运行，缺少真实模型配置 {missing}；请配置后重新上传解析"

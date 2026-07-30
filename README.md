@@ -37,6 +37,31 @@ PYTHONPATH=. python3 run_app.py
 http://127.0.0.1:5188
 ```
 
+生产收口运行建议：
+
+```bash
+cd /Users/fanglemin/Desktop/puzzle-agent-python/.worktrees/multimodal-agent-runtime
+PUZZLEOPS_PRODUCTION_MODE=true \
+PUZZLEOPS_RUNTIME_DIR=/Users/fanglemin/Desktop/puzzle_ops_runtime_prod \
+PUZZLEOPS_WRITE_COUNTRIES=日本,法国 \
+HOLIDAY_LLM_ENABLE_REMOTE_CALLS=0 \
+RAG_ENABLE_REMOTE_CALLS=0 \
+RAG_RERANK_PROVIDER=local \
+RAG_EMBEDDING_PROVIDER=local \
+PYTHONPATH=. python -c 'from puzzle_ops.server import run; run(port=5199)'
+```
+
+最新本地页面：
+
+```text
+http://127.0.0.1:5199/?view=dashboard
+http://127.0.0.1:5199/?view=regular
+http://127.0.0.1:5199/?view=trial
+http://127.0.0.1:5199/?view=value
+http://127.0.0.1:5199/?view=runtime
+http://127.0.0.1:5199/?view=eval
+```
+
 ## 运行测试
 
 ```bash

@@ -1,9 +1,10 @@
 from puzzle_ops.agents import PuzzleOpsAgent
-from puzzle_ops.renderer import AppState
+from puzzle_ops.renderer import AppState, render_page
 from puzzle_ops.server import APP, classify_generation_error, generation_error_recovery_hint, handle_action, redirect_location, update_state_from_query
 from puzzle_ops.feishu import MockFeishuClient
 from puzzle_ops.image_generation import DerivativeImage, ImageGenerationProvider, MockImageGenerationProvider
 from puzzle_ops.rag import RagProviderConfig, RagVectorStoreConfig
+from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.vision_llm import MissingVisionLLMConfig, OpenAIVisionLLMClient, VisionLLMResult
 from PIL import Image
@@ -12,9 +13,20 @@ from io import BytesIO
 from pathlib import Path
 import json
 import pytest
+import threading
+import time
 
 
 TODAY_SUFFIX = date.today().strftime("%m%d")
+
+
+def wait_until(predicate, timeout: float = 1.5) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.05)
+    return bool(predicate())
 
 
 @pytest.mark.parametrize(
@@ -24,6 +36,7 @@ TODAY_SUFFIX = date.today().strftime("%m%d")
         ("DashScope 图像生成失败：Arrearage：Access denied, please make sure your account is in good standing", "billing_arrearage"),
         ("模型 qwen3-vl-flash 已下线，请迁移", "model_deprecated"),
         ("DashScope 图像生成超时：task_id=abc", "timeout"),
+        ("HTTPSConnectionPool(host='Qwen.aliyuncs.com', port=443): Failed to resolve 'Qwen.aliyuncs.com'", "endpoint_dns"),
         ("HTTP 401 Unauthorized invalid api key", "auth_error"),
         ("生成 provider 未配置", "config_missing"),
         ("返回结构缺少 output.task_id", "response_schema"),
@@ -61,42 +74,78 @@ def test_invalid_country_query_does_not_corrupt_state():
     assert state.view == "dashboard"
 
 
+def test_server_keeps_state_isolated_by_user_and_country():
+    APP.session_states = {}
+
+    japan = APP.state_for_params({"user_id": ["jp_owner"], "country": ["日本"]})
+    france = APP.state_for_params({"user_id": ["fr_owner"], "country": ["法国"]})
+    readonly_brazil = APP.state_for_params({"user_id": ["br_ru_owner"], "country": ["巴西"]})
+
+    japan.need_rows.append(APP.agent.add_regular_demand("日本", "animal", "常规_日本_猫咪鲤鱼0605", 0))
+
+    assert japan is APP.state_for_params({"user_id": ["jp_owner"], "country": ["日本"]})
+    assert france is not japan
+    assert readonly_brazil is not japan
+    assert france.need_rows == []
+    assert readonly_brazil.country == "巴西"
+
+
 def test_redirect_location_percent_encodes_chinese_state():
     state = AppState(country="日本", view="regular")
 
     location = redirect_location(state)
 
-    assert location == "/?country=%E6%97%A5%E6%9C%AC&view=regular"
+    assert "country=%E6%97%A5%E6%9C%AC" in location
+    assert "view=regular" in location
+    assert "trial_mode=parse" in location
+    assert "schedule_day=%E5%91%A8%E4%B8%80" in location
 
 
 def test_add_regular_action_uses_submitted_context_and_adds_need_row():
-    APP.state = AppState(country="日本", view="regular", category="人物", tag="常规_日本_传统浴袍美女0604")
+    APP.state = AppState(country="日本", view="regular", category="animal", tag="常规_日本_猫咪鲤鱼0605")
 
     handle_action(
         "/add_regular",
         {
             "country": ["日本"],
-            "category": ["人物"],
-            "tag": ["常规_日本_传统浴袍美女0604"],
+            "category": ["animal"],
+            "tag": ["常规_日本_猫咪鲤鱼0605"],
             "image_index": ["0"],
         },
     )
 
     assert APP.state.view == "regular"
     assert len(APP.state.need_rows) == 1
-    assert APP.state.need_rows[0].operation_tag == f"常规_日本_传统浴袍美女{TODAY_SUFFIX}"
+    assert APP.state.need_rows[0].operation_tag == f"常规_日本_猫咪鲤鱼{TODAY_SUFFIX}"
+
+
+def test_add_regular_all_adds_all_reference_images_for_current_tag():
+    APP.state = AppState(country="日本", view="regular", category="animal", tag="常规_日本_猫咪鲤鱼0605")
+
+    handle_action(
+        "/add_regular_all",
+        {
+            "country": ["日本"],
+            "view": ["regular"],
+            "category": ["animal"],
+            "tag": ["常规_日本_猫咪鲤鱼0605"],
+        },
+    )
+
+    assert APP.state.view == "regular"
+    assert len(APP.state.need_rows) == len(APP.agent.images_for_tag("日本", "常规_日本_猫咪鲤鱼0605"))
 
 
 def test_readonly_country_blocks_write_action():
-    APP.state = AppState(user_id="jp_owner", country="法国", view="regular", category="花卉", tag="常规_法国_薰衣草0604")
+    APP.state = AppState(user_id="jp_owner", country="法国", view="regular", category="objects", tag="试新_法国_赛车0526")
 
     handle_action(
         "/add_regular",
         {
             "user_id": ["jp_owner"],
             "country": ["法国"],
-            "category": ["花卉"],
-            "tag": ["常规_法国_薰衣草0604"],
+            "category": ["objects"],
+            "tag": ["试新_法国_赛车0526"],
             "image_index": ["0"],
         },
     )
@@ -106,20 +155,402 @@ def test_readonly_country_blocks_write_action():
     assert "只读权限" in APP.state.sync_message
 
 
-def test_generate_descriptions_action_updates_existing_need_rows():
-    APP.state = AppState(country="日本", view="regular", category="人物", tag="常规_日本_传统浴袍美女0604")
-    APP.state.need_rows.append(APP.agent.add_regular_demand("日本", "人物", "常规_日本_传统浴袍美女0604", 0))
+def test_create_production_backup_route_writes_backup(monkeypatch, tmp_path):
+    from puzzle_ops.agents import PuzzleOpsAgent
 
-    handle_action("/generate_descriptions", {})
+    previous_agent = APP.agent
+    try:
+        monkeypatch.setenv("PUZZLEOPS_RUNTIME_DIR", str(tmp_path / "prod_runtime"))
+        APP.agent = PuzzleOpsAgent()
+        APP.state = AppState(country="日本", view="runtime", user_id="jp_owner")
 
-    assert "主体内容：" in APP.state.need_rows[0].subject_description
-    assert "色彩氛围：" in APP.state.need_rows[0].subject_description
-    assert "构图环境：" in APP.state.need_rows[0].subject_description
+        handle_action(
+            "/create_production_backup",
+            {"country": ["日本"], "view": ["runtime"], "user_id": ["jp_owner"], "backup_label": ["launch"]},
+        )
+
+        assert "生产运行数据已备份" in APP.state.sync_message
+        assert (tmp_path / "prod_runtime" / "backups").exists()
+    finally:
+        APP.agent = previous_agent
+
+
+def test_generate_descriptions_action_updates_existing_need_rows(monkeypatch):
+    def transport(payload, api_key, endpoint):
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            '{"subject_description":"主体内容：幼猫坐在日式庭院锦鲤池边；色彩氛围：柔粉、湖蓝与暖米白自然光；构图环境：近景浅景深，猫与锦鲤形成互动层次。",'
+                            '"remark":"保留猫鱼互动层次。"}'
+                        )
+                    }
+                }
+            ]
+        }
+
+    monkeypatch.setenv("QWEN_API_KEY", "qwen-key")
+    APP.state = AppState(country="日本", view="regular", category="animal", tag="常规_日本_猫咪鲤鱼0605")
+    APP.agent._description_prompt_transport = transport
+    APP.state.need_rows.append(APP.agent.add_regular_demand("日本", "animal", "常规_日本_猫咪鲤鱼0605", 0))
+    APP.state.need_rows.append(APP.agent.add_regular_demand("日本", "animal", "常规_日本_幼猫0608", 0))
+
+    handle_action("/generate_descriptions", {"selected_rows": ["1"]})
+
+    assert APP.state.need_rows[0].subject_description == ""
+    assert APP.state.need_rows[1].subject_description.startswith("主体内容：幼猫坐在日式庭院")
+    assert APP.state.need_rows[1].remark == "保留猫鱼互动层次。"
+    assert APP.state.description_benchmarks == []
+
+
+def test_generate_description_benchmark_action_creates_comparison_without_polluting_normal_flow():
+    APP.state = AppState(country="日本", view="regular", category="animal", tag="常规_日本_猫咪鲤鱼0605")
+    APP.state.need_rows.append(APP.agent.add_regular_demand("日本", "animal", "常规_日本_猫咪鲤鱼0605", 0))
+
+    handle_action("/generate_description_benchmark", {"selected_rows": ["0"]})
+
+    assert len(APP.state.description_benchmarks) == 1
+    assert APP.state.show_prompt_benchmark is True
+    assert APP.state.description_benchmarks[0]["template_subject_description"]
+    assert "Prompt baseline v3" in APP.state.description_benchmarks[0]["prompt"]
+
+
+def test_save_description_benchmark_persists_scores(tmp_path):
+    previous_agent = APP.agent
+    try:
+        APP.agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+        APP.state = AppState(country="日本", view="regular", user_id="jp_owner")
+        APP.state.description_benchmarks = [{"operation_tag": "常规_日本_猫咪鲤鱼0605"}]
+
+        handle_action(
+            "/save_description_benchmark",
+            {
+                "country": ["日本"],
+                "view": ["regular"],
+                "image_name": ["猫咪鲤鱼"],
+                "operation_tag": ["常规_日本_猫咪鲤鱼0605"],
+                "template_output": ["主体内容：猫咪鲤鱼；色彩氛围：浅粉；构图环境：庭院。"],
+                "prompt_output": ["主体内容：猫咪与锦鲤池；色彩氛围：浅粉、湖蓝、明亮治愈；构图环境：日式庭院近景。"],
+                "template_benchmark_score_0": ["4"],
+                "template_benchmark_score_1": ["2"],
+                "template_benchmark_score_2": ["1"],
+                "template_benchmark_score_3": ["3"],
+                "template_benchmark_score_4": ["1"],
+                "prompt_benchmark_score_0": ["4"],
+                "prompt_benchmark_score_1": ["3"],
+                "prompt_benchmark_score_2": ["4"],
+                "prompt_benchmark_score_3": ["3"],
+                "prompt_benchmark_score_4": ["4"],
+                "template_benchmark_label": ["需要大改"],
+                "prompt_benchmark_label": ["轻微修改"],
+            },
+        )
+
+        rows = APP.agent.repository.description_benchmark_scores("日本")
+        assert len(rows) == 1
+        assert rows[0]["prompt_label"] == "轻微修改"
+        assert rows[0]["template_scores"]["production_actionability"] == 2
+        assert rows[0]["prompt_scores"]["conciseness"] == 4
+        assert rows[0]["template_score_1"] == 2
+        assert rows[0]["prompt_score_2"] == 4
+        assert "Prompt Benchmark 评分已保存" in APP.state.sync_message
+        assert "prompt平均 3.6" in APP.state.sync_message
+    finally:
+        APP.agent = previous_agent
+
+
+def test_save_description_benchmark_persists_batch_scores(tmp_path):
+    previous_agent = APP.agent
+    try:
+        APP.agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+        APP.state = AppState(country="日本", view="regular", user_id="jp_owner")
+
+        handle_action(
+            "/save_description_benchmark",
+            {
+                "country": ["日本"],
+                "view": ["regular"],
+                "benchmark_count": ["2"],
+                "image_name_0": ["樱花列车"],
+                "operation_tag_0": ["常规_日本_樱花列车0728"],
+                "template_output_0": ["主体内容：樱花列车；色彩氛围：暖色；构图环境：轨道。"],
+                "prompt_output_0": ["主体内容：日本通勤电车穿行樱花林荫道；色彩氛围：粉白暖光；构图环境：浅景深纵深。"],
+                "template_benchmark_label_0": ["需要大改"],
+                "prompt_benchmark_label_0": ["可直接用"],
+                "image_name_1": ["寿司"],
+                "operation_tag_1": ["常规_日本_寿司0728"],
+                "template_output_1": ["主体内容：寿司；色彩氛围：综合色；构图环境：桌面。"],
+                "prompt_output_1": ["主体内容：寿司拼盘搭配日式餐具；色彩氛围：米白橙红；构图环境：餐桌近景俯拍。"],
+                "template_benchmark_label_1": ["不可用"],
+                "prompt_benchmark_label_1": ["轻微修改"],
+                **{f"template_benchmark_score_0_{index}": ["1"] for index in range(5)},
+                **{f"prompt_benchmark_score_0_{index}": ["5"] for index in range(5)},
+                **{f"template_benchmark_score_1_{index}": ["2"] for index in range(5)},
+                **{f"prompt_benchmark_score_1_{index}": ["4"] for index in range(5)},
+            },
+        )
+
+        rows = APP.agent.repository.description_benchmark_scores("日本")
+        assert len(rows) == 2
+        assert {row["operation_tag"] for row in rows} == {"常规_日本_樱花列车0728", "常规_日本_寿司0728"}
+        assert rows[0]["prompt_scores"]["subject_accuracy"] in {4, 5}
+        assert "批量保存 2 条" in APP.state.sync_message
+    finally:
+        APP.agent = previous_agent
+
+
+def test_save_value_prediction_benchmark_persists_batch_scores(tmp_path):
+    previous_agent = APP.agent
+    try:
+        APP.agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+        APP.state = AppState(country="日本", view="value", user_id="jp_owner")
+
+        handle_action(
+            "/save_value_prediction_benchmark",
+            {
+                "country": ["日本"],
+                "view": ["value"],
+                "benchmark_count": ["2"],
+                "candidate_id_0": ["JP_CAND_001"],
+                "operation_tag_0": ["试新_日本_樱花"],
+                "baseline_output_0": ["当前预测"],
+                "candidate_output_0": ["候选预测"],
+                "baseline_label_0": ["轻微修改"],
+                "candidate_label_0": ["可直接用"],
+                "candidate_id_1": ["JP_CAND_002"],
+                "operation_tag_1": ["试新_日本_寿司"],
+                "baseline_output_1": ["当前预测2"],
+                "candidate_output_1": ["候选预测2"],
+                "baseline_label_1": ["需要大改"],
+                "candidate_label_1": ["轻微修改"],
+                **{f"baseline_value_score_0_{index}": ["3"] for index in range(8)},
+                **{f"candidate_value_score_0_{index}": ["5"] for index in range(8)},
+                **{f"baseline_value_score_1_{index}": ["2"] for index in range(8)},
+                **{f"candidate_value_score_1_{index}": ["4"] for index in range(8)},
+            },
+        )
+
+        rows = APP.agent.repository.value_prediction_benchmark_scores("日本")
+        assert len(rows) == 2
+        assert rows[0]["candidate_scores"]["visual_accuracy"] in {4, 5}
+        assert "价值观预测 Benchmark 评分已保存" in APP.state.sync_message
+    finally:
+        APP.agent = previous_agent
+
+
+def test_save_value_prediction_benchmark_uses_single_model_scores(tmp_path):
+    previous_agent = APP.agent
+    try:
+        APP.agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+        APP.state = AppState(country="日本", view="value", user_id="jp_owner")
+
+        handle_action(
+            "/save_value_prediction_benchmark",
+            {
+                "country": ["日本"],
+                "view": ["value"],
+                "benchmark_count": ["1"],
+                "candidate_id_0": ["JP_CAND_001"],
+                "operation_tag_0": ["试新_日本_樱花"],
+                "baseline_output_0": ["模型预测"],
+                "baseline_label_0": ["轻微修改"],
+                **{f"baseline_value_score_0_{index}": ["4"] for index in range(8)},
+            },
+        )
+
+        rows = APP.agent.repository.value_prediction_benchmark_scores("日本")
+        assert len(rows) == 1
+        assert rows[0]["baseline_scores"]["visual_accuracy"] == 4
+        assert rows[0]["candidate_scores"]["visual_accuracy"] == 4
+        assert rows[0]["candidate_label"] == "轻微修改"
+        assert rows[0]["candidate_output"] == "模型预测"
+        assert APP.agent.repository.value_prediction_benchmark_summary("日本")["candidate_average"] == 4.0
+    finally:
+        APP.agent = previous_agent
+
+
+def test_generate_value_prediction_benchmark_uses_selected_candidates(monkeypatch):
+    APP.state = AppState(country="日本", view="value", user_id="jp_owner")
+
+    def fake_candidates(country, grade=""):
+        return (
+            {
+                "candidate_id": "JP_CAND_001",
+                "operation_tag": "试新_日本_樱花",
+                "subject": "樱花",
+                "visual_subject": "樱花列车",
+                "visual_scene": "铁路沿线",
+                "visual_style": "柔和写实",
+                "predicted_grade": "S",
+                "sa_probability": 0.82,
+                "open_rate_range": "28%-34%",
+                "completion_rate_range": "90%-95%",
+                "finish_time_range": "18-24",
+                "action": "优先排图",
+                "risk_points": (),
+                "rag_citations": ("JP_VALUE#chunk-1",),
+                "similar_positive": (),
+                "similar_negative": (),
+                "evidence": "相似历史好图支持。",
+            },
+            {"candidate_id": "JP_CAND_002", "operation_tag": "试新_日本_寿司", "predicted_grade": "B", "sa_probability": 0.5},
+        )
+
+    monkeypatch.setattr(APP.agent, "undistributed_value_candidates", fake_candidates)
+
+    handle_action("/generate_value_prediction_benchmark", {"candidate_id": ["JP_CAND_001"]})
+
+    assert APP.state.show_value_benchmark is True
+    assert len(APP.state.value_prediction_benchmarks) == 1
+    assert APP.state.value_prediction_benchmarks[0]["candidate_id"] == "JP_CAND_001"
+    assert "樱花列车" in APP.state.value_prediction_benchmarks[0]["baseline_output"]
+
+
+def test_generate_value_prediction_benchmark_uses_readable_rag_citation_labels(monkeypatch):
+    APP.state = AppState(country="法国", view="value", user_id="jp_fr_assist")
+
+    def fake_candidates(country, grade=""):
+        return (
+            {
+                "candidate_id": "FR_CAND_002",
+                "operation_tag": "常规_法国_薰衣草田园0702",
+                "visual_subject": "薰衣草田园与风车",
+                "visual_scene": "法国乡村田野",
+                "visual_style": "柔和写实",
+                "predicted_grade": "A",
+                "sa_probability": 0.74,
+                "open_rate_range": "26%-32%",
+                "completion_rate_range": "88%-93%",
+                "finish_time_range": "24-30",
+                "action": "优先排图",
+                "risk_points": (),
+                "rag_citations": ("FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31#chunk-1",),
+                "similar_positive": (),
+                "similar_negative": (),
+                "evidence": "相似历史好图支持。",
+            },
+        )
+
+    def fake_details(country, citations):
+        return (
+            {
+                "chunk_id": str(citations[0]),
+                "parent_id": "FR_HARNESS_GOLD_fr-real-001",
+                "source_type": "human_gold",
+                "title": "常规_法国_薰衣草风车0624 · S图",
+                "text": "真实历史样本：薰衣草田园风车，法国市场高开图与高完成率。",
+            },
+        )
+
+    monkeypatch.setattr(APP.agent, "undistributed_value_candidates", fake_candidates)
+    monkeypatch.setattr(APP.agent, "rag_citation_details", fake_details)
+
+    handle_action("/generate_value_prediction_benchmark", {"candidate_id": ["FR_CAND_002"]})
+
+    output = APP.state.value_prediction_benchmarks[0]["baseline_output"]
+    assert "历史样本：常规_法国_薰衣草风车0624 · S图" in output
+    assert "真实历史样本：薰衣草田园风车" in output
+
+
+def test_generate_value_prediction_benchmark_predicts_pending_candidates_first(monkeypatch):
+    APP.state = AppState(country="日本", view="value", user_id="jp_owner")
+    calls = []
+
+    def fake_candidates(country, grade=""):
+        if calls:
+            return (
+                {
+                    "candidate_id": "JP_CAND_001",
+                    "operation_tag": "试新_日本_樱花",
+                    "visual_subject": "预测后的樱花庭院",
+                    "predicted_grade": "A",
+                    "sa_probability": 0.71,
+                    "open_rate_range": "24%-30%",
+                    "completion_rate_range": "88%-93%",
+                    "finish_time_range": "20-26",
+                    "action": "优先排图",
+                    "prediction_status": "predicted",
+                    "evidence": "已生成真实预测。",
+                },
+            )
+        return (
+            {
+                "candidate_id": "JP_CAND_001",
+                "operation_tag": "试新_日本_樱花",
+                "visual_subject": "",
+                "predicted_grade": "待预测",
+                "sa_probability": 0,
+                "prediction_status": "pending",
+                "evidence": "预测值尚未生成。",
+            },
+        )
+
+    def fake_predict(country, candidate_id, force=False):
+        calls.append((country, candidate_id, force))
+        return {"status": "predicted", "candidate_id": candidate_id}
+
+    monkeypatch.setattr(APP.agent, "undistributed_value_candidates", fake_candidates)
+    monkeypatch.setattr(APP.agent, "predict_single_undistributed_value_candidate", fake_predict)
+
+    handle_action("/generate_value_prediction_benchmark", {"candidate_id": ["JP_CAND_001"]})
+
+    assert calls == [("日本", "JP_CAND_001", False)]
+    assert "预测后的樱花庭院" in APP.state.value_prediction_benchmarks[0]["baseline_output"]
+
+
+def test_generate_value_prediction_benchmark_refreshes_stale_rag_cache(monkeypatch):
+    APP.state = AppState(country="日本", view="value", user_id="jp_owner")
+    calls = []
+
+    def fake_candidates(country, grade=""):
+        if calls:
+            return (
+                {
+                    "candidate_id": "JP_CAND_001",
+                    "operation_tag": "试新_日本_樱花",
+                    "visual_subject": "刷新后的樱花庭院",
+                    "predicted_grade": "A",
+                    "sa_probability": 0.71,
+                    "open_rate_range": "14%-17%",
+                    "completion_rate_range": "92%-95%",
+                    "finish_time_range": "15.1-19.7",
+                    "metric_levels": {"open_rate": "高", "completion_rate": "高", "avg_finish_time": "中"},
+                    "action": "优先排图",
+                    "prediction_status": "predicted",
+                    "rag_filter_version": "v0.7.32",
+                    "evidence": "刷新后生成强相关RAG依据。",
+                },
+            )
+        return (
+            {
+                "candidate_id": "JP_CAND_001",
+                "operation_tag": "试新_日本_樱花",
+                "visual_subject": "旧缓存樱花庭院",
+                "predicted_grade": "A",
+                "sa_probability": 0.71,
+                "prediction_status": "predicted",
+                "evidence": "旧缓存RAG依据未通过强相关过滤，已隐藏，重新预测后会写入强相关引用。",
+            },
+        )
+
+    def fake_predict(country, candidate_id, force=False):
+        calls.append((country, candidate_id, force))
+        return {"status": "predicted", "candidate_id": candidate_id}
+
+    monkeypatch.setattr(APP.agent, "undistributed_value_candidates", fake_candidates)
+    monkeypatch.setattr(APP.agent, "predict_single_undistributed_value_candidate", fake_predict)
+
+    handle_action("/generate_value_prediction_benchmark", {"candidate_id": ["JP_CAND_001"]})
+
+    assert calls == [("日本", "JP_CAND_001", True)]
+    assert "刷新后的樱花庭院" in APP.state.value_prediction_benchmarks[0]["baseline_output"]
+    assert "补预测状态：JP_CAND_001:predicted" in APP.state.sync_message
 
 
 def test_save_needs_can_edit_operation_tag():
-    APP.state = AppState(country="日本", view="regular", category="人物", tag="常规_日本_传统浴袍美女0604")
-    APP.state.need_rows = [APP.agent.add_regular_demand("日本", "人物", "常规_日本_传统浴袍美女0604", 0)]
+    APP.state = AppState(country="日本", view="regular", category="animal", tag="常规_日本_猫咪鲤鱼0605")
+    APP.state.need_rows = [APP.agent.add_regular_demand("日本", "animal", "常规_日本_猫咪鲤鱼0605", 0)]
 
     handle_action(
         "/save_needs",
@@ -152,53 +583,62 @@ def test_confirm_weekly_review_needs_adds_suggested_rows():
     assert "周三复盘提需建议已生成" in APP.state.sync_message
 
 
-def test_sync_needs_to_feishu_creates_guarded_proposal_without_calling_feishu():
-    class FailingFeishu(MockFeishuClient):
-        def write_table(self, table_name, rows):
-            raise AssertionError("sync should create a guarded proposal before writing feishu")
-
-    APP.state = AppState(country="日本", view="regular", category="人物", tag="常规_日本_传统浴袍美女0604")
-    APP.agent.feishu = FailingFeishu(APP.agent._runtime_dir / "test_feishu_mock")
+def test_sync_needs_to_feishu_writes_directly_and_clears_selected_rows():
+    APP.state = AppState(country="日本", view="regular", category="animal", tag="常规_日本_猫咪鲤鱼0605")
+    APP.agent.feishu = MockFeishuClient(APP.agent._runtime_dir / "test_feishu_mock")
     APP.state.need_rows = [
-        APP.agent.add_regular_demand("日本", "人物", "常规_日本_传统浴袍美女0604", 0),
-        APP.agent.add_regular_demand("日本", "人物", "常规_日本_传统浴袍美女0604", 1),
+        APP.agent.add_regular_demand("日本", "animal", "常规_日本_猫咪鲤鱼0605", 0),
+        APP.agent.add_regular_demand("日本", "animal", "常规_日本_幼猫0608", 0),
     ]
+    kept = APP.state.need_rows[1]
     APP.agent.feishu.allow_real_sync = True
 
-    redirect = handle_action("/sync_needs_feishu", {"country": ["日本"], "view": ["regular"]})
+    redirect = handle_action("/sync_needs_feishu", {"country": ["日本"], "view": ["regular"], "selected_rows": ["0"]})
 
-    assert len(APP.state.need_rows) == 2
-    assert "同步草案已生成" in APP.state.sync_message
-    assert "待人工确认" in APP.state.sync_message
-    assert APP.state.sync_url == ""
+    assert len(APP.state.need_rows) == 1
+    assert APP.state.need_rows[0] == kept
+    assert "同步成功" in APP.state.sync_message
+    assert APP.state.sync_url == APP.agent.feishu.web_url()
     assert redirect is None
-    proposal = next(item for item in APP.agent.guarded_action_proposals("日本") if item.guard_status == "pending_approval")
-    assert proposal.action_type == "feishu.write_table"
-    assert proposal.guard_status == "pending_approval"
 
 
-def test_approved_guarded_sync_needs_executes_feishu_and_clears_rows():
-    APP.state = AppState(country="日本", view="regular", category="人物", tag="常规_日本_传统浴袍美女0604")
+def test_regular_feishu_payload_has_request_date_image_attachment_and_no_value_match():
+    from puzzle_ops.server import _demand_row_payload
+
+    previous_today = APP.agent.today
+    try:
+        APP.agent.today = APP.agent.today.replace(year=2026, month=7, day=13)
+        row = APP.agent.add_regular_demand("日本", "animal", "常规_日本_猫咪鲤鱼0605", 0)
+        payload = _demand_row_payload(row)
+    finally:
+        APP.agent.today = previous_today
+
+    assert payload["提需日期"] == "20260713"
+    assert "价值观匹配度" not in payload
+    assert payload["备注"] == ""
+    assert payload["_reference_image_path"] == row.reference_image_path
+    assert payload["_reference_image_content_type"] == "image/png"
+    assert payload["图片本身"] == [{"text": row.image_name}]
+
+
+def test_trial_feishu_payload_leaves_js_category_for_operator_selection():
+    from puzzle_ops.server import _demand_row_payload
+
+    row = APP.agent.create_trial_demand("日本", "animal", "parse")
+    payload = _demand_row_payload(row)
+
+    assert payload["JS分类"] == ""
+
+
+def test_sync_needs_to_feishu_without_selection_writes_all_rows():
+    APP.state = AppState(country="日本", view="regular", category="animal", tag="常规_日本_猫咪鲤鱼0605")
     APP.agent.feishu = MockFeishuClient(APP.agent._runtime_dir / "test_feishu_mock")
     APP.agent.feishu.allow_real_sync = True
     APP.state.need_rows = [
-        APP.agent.add_regular_demand("日本", "人物", "常规_日本_传统浴袍美女0604", 0),
-        APP.agent.add_regular_demand("日本", "人物", "常规_日本_传统浴袍美女0604", 1),
+        APP.agent.add_regular_demand("日本", "animal", "常规_日本_猫咪鲤鱼0605", 0),
+        APP.agent.add_regular_demand("日本", "animal", "常规_日本_幼猫0608", 0),
     ]
-    handle_action("/sync_needs_feishu", {"country": ["日本"], "view": ["regular"], "user_id": ["jp_owner"]})
-    proposal = next(item for item in APP.agent.guarded_action_proposals("日本") if item.guard_status == "pending_approval")
-
-    redirect = handle_action(
-        "/approve_guarded_action",
-        {
-            "country": ["日本"],
-            "view": ["regular"],
-            "user_id": ["jp_owner"],
-            "proposal_id": [proposal.proposal_id],
-            "approval_note": ["确认写入飞书"],
-            "execute_after_approval": ["1"],
-        },
-    )
+    redirect = handle_action("/sync_needs_feishu", {"country": ["日本"], "view": ["regular"], "user_id": ["jp_owner"]})
 
     assert APP.state.need_rows == []
     assert "同步成功" in APP.state.sync_message
@@ -250,16 +690,15 @@ def test_run_business_skill_action_uses_demo_payload_and_creates_draft():
 
 
 def test_sync_needs_requires_real_feishu_and_keeps_rows_without_config():
-    APP.state = AppState(country="日本", view="regular", category="人物", tag="常规_日本_传统浴袍美女0604")
+    APP.state = AppState(country="日本", view="regular", category="drawing", tag="常规_日本_传统浴袍美女0510")
     APP.agent.feishu = MockFeishuClient(APP.agent._runtime_dir / "test_feishu_mock")
-    APP.state.need_rows = [APP.agent.add_regular_demand("日本", "人物", "常规_日本_传统浴袍美女0604", 0)]
+    APP.state.need_rows = [APP.agent.add_regular_demand("日本", "drawing", "常规_日本_传统浴袍美女0510", 0)]
     APP.agent.feishu.allow_real_sync = False
 
     handle_action("/sync_needs_feishu", {"country": ["日本"], "view": ["regular"]})
 
     assert len(APP.state.need_rows) == 1
-    assert "同步草案已生成" in APP.state.sync_message
-    assert APP.agent.guarded_action_proposals("日本")
+    assert "未配置真实飞书" in APP.state.sync_message
 
 
 def test_sync_needs_rejects_empty_demand_rows_before_feishu_call():
@@ -283,6 +722,21 @@ def test_apply_value_master_action_updates_trial_row():
     handle_action("/apply_value_master", {"country": ["法国"], "category": ["花卉"], "trial_mode": ["parse"]})
 
     assert "需要配置真实视觉 LLM" in APP.state.trial_row.value_match
+
+
+def test_apply_value_master_updates_active_parse_row_pool():
+    APP.state = AppState(country="法国", view="trial", category="花卉", trial_mode="parse")
+    row = APP.agent.create_trial_demand("法国", "花卉", "parse").edited(subject="薰衣草花园")
+    APP.state.trial_parse_row = row
+    APP.state.trial_parse_rows = [row]
+    APP.state.trial_row = APP.agent.create_trial_demand("法国", "花卉", "parse").edited(subject="旧行")
+
+    handle_action("/apply_value_master", {"country": ["法国"], "view": ["trial"], "category": ["花卉"], "trial_mode": ["parse"]})
+
+    assert APP.state.trial_parse_row.value_match
+    assert APP.state.trial_parse_rows[0].value_match == APP.state.trial_parse_row.value_match
+    assert APP.state.trial_row.value_match == APP.state.trial_parse_row.value_match
+    assert "价值观大师已完成" in APP.state.sync_message
 
 
 def test_apply_value_master_action_uses_real_llm_result_when_configured(tmp_path):
@@ -320,6 +774,72 @@ def test_apply_value_master_action_uses_real_llm_result_when_configured(tmp_path
         APP.agent.trial_uploads = previous_uploads
 
 
+def test_apply_value_master_reads_reference_image_before_rag_judgement(tmp_path):
+    previous_uploads = APP.agent.trial_uploads
+    calls: list[dict[str, object]] = []
+
+    def fake_transport(payload: dict[str, object], api_key: str) -> dict[str, object]:
+        calls.append(payload)
+        first_content = payload["input"][0]["content"]
+        has_image = any(item.get("type") == "input_image" for item in first_content)
+        if has_image:
+            return {
+                "output_text": json.dumps(
+                    {
+                        "subject": "柴犬樱花",
+                        "scene": "日式庭院樱花季",
+                        "culture_elements": ["樱花", "柴犬"],
+                        "style": "明亮治愈写实插画",
+                        "risk_tags": [],
+                        "prompt_keywords": ["shiba", "sakura"],
+                        "confidence": 0.91,
+                        "analysis": "识别为日本庭院中的柴犬与樱花。",
+                    },
+                    ensure_ascii=False,
+                )
+            }
+        return {
+            "output_text": json.dumps(
+                {
+                    "value_match": "LLM判断：柴犬樱花符合日本春季治愈向拼图价值观。",
+                    "confidence": 0.88,
+                    "evidence": ["主体内容：柴犬樱花"],
+                    "risk_tags": [],
+                },
+                ensure_ascii=False,
+            )
+        }
+
+    try:
+        APP.agent.trial_uploads = TrialImageUploadService(
+            tmp_path / "value_master_image",
+            vision_client=OpenAIVisionLLMClient(api_key="sk-test", transport=fake_transport),
+        )
+        reference_path = tmp_path / "shiba.png"
+        Image.new("RGB", (320, 240), (244, 190, 190)).save(reference_path)
+        row = APP.agent.create_trial_demand("日本", "人物", "parse").edited(
+            subject="旧主体",
+            operation_tag="试新_日本_旧主体0717",
+            subject_description="主体内容：旧主体；色彩氛围：待确认；构图环境：待确认。",
+            reference_image_path=str(reference_path),
+            reference_image_content_type="image/png",
+        )
+        APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="parse")
+        APP.state.trial_parse_row = row
+        APP.state.trial_parse_rows = [row]
+
+        handle_action("/apply_value_master", {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["parse"]})
+
+        assert len(calls) == 2
+        assert APP.state.trial_parse_row.subject == "柴犬樱花"
+        assert "日式庭院樱花季" in APP.state.trial_parse_row.subject_description
+        assert "价值观大师视觉解析：真实openai" in APP.state.trial_parse_row.remark
+        assert "LLM判断：柴犬樱花符合日本春季治愈向拼图价值观" in APP.state.trial_parse_row.value_match
+        assert APP.state.trial_parse_rows[0].value_match == APP.state.trial_parse_row.value_match
+    finally:
+        APP.agent.trial_uploads = previous_uploads
+
+
 def test_simulate_trial_upload_action_updates_trial_row():
     APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="derive")
 
@@ -346,11 +866,36 @@ def test_upload_trial_images_action_updates_trial_row_and_previews():
         },
     )
 
+    assert APP.state.trial_parse_uploads[0]["filename"] == "cat-koi.png"
+    assert APP.state.trial_rows == []
+    assert APP.state.trial_uploads[0]["filename"] == "cat-koi.png"
+    assert "已上传1张参考图" in APP.state.sync_message
+    assert "点击“解析图片”" in APP.state.sync_message
+
+    handle_action("/parse_trial_uploads", {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["parse"]})
+
     assert "cat-koi.png" in APP.state.trial_row.image_name
     assert "本地图片解析" in APP.state.trial_row.remark
     assert len(APP.state.trial_rows) == 1
     assert APP.state.trial_rows[0].image_name == APP.state.trial_row.image_name
-    assert APP.state.trial_uploads[0]["filename"] == "cat-koi.png"
+
+
+def test_redirect_location_preserves_trial_context_after_upload():
+    APP.state = AppState(
+        user_id="jp_fr_assist",
+        country="日本",
+        view="trial",
+        category="animal",
+        tag="常规_日本_猫咪鲤鱼0605",
+        trial_mode="derive",
+    )
+
+    location = redirect_location(APP.state)
+
+    assert "view=trial" in location
+    assert "trial_mode=derive" in location
+    assert "category=animal" in location
+    assert "%E7%8C%AB%E5%92%AA" in location
 
 
 def test_upload_trial_images_extracts_real_visual_features_into_demand_row():
@@ -368,11 +913,115 @@ def test_upload_trial_images_extracts_real_visual_features_into_demand_row():
             ]
         },
     )
+    handle_action("/parse_trial_uploads", {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["parse"]})
 
     assert "暖红" in APP.state.trial_row.subject_description
     assert "横向构图" in APP.state.trial_row.subject_description
     assert "120x60" in APP.state.trial_row.remark
     assert len(APP.state.trial_rows) == 1
+
+
+def test_upload_trial_images_keeps_local_parse_when_vision_times_out(tmp_path):
+    called = threading.Event()
+
+    class TimeoutVisionClient:
+        def analyze(self, uploads, country, js_category, visual):
+            called.set()
+            raise TimeoutError("<urlopen error The write operation timed out>")
+
+    previous_uploads = APP.agent.trial_uploads
+    try:
+        APP.agent.trial_uploads = TrialImageUploadService(tmp_path / "uploads", vision_client=TimeoutVisionClient())
+        APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="parse")
+        image = Image.new("RGB", (320, 240), (220, 70, 60))
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+
+        handle_action(
+            "/upload_trial_images",
+            {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["parse"]},
+            files={"trial_images": [{"filename": "timeout.png", "content_type": "image/png", "content": buffer.getvalue()}]},
+        )
+        assert "已上传1张参考图" in APP.state.sync_message
+        handle_action("/parse_trial_uploads", {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["parse"]})
+
+        assert "timeout.png" in APP.state.trial_row.image_name
+        assert "本地图片解析完成" in APP.state.trial_row.remark
+        assert "调用失败" in APP.state.trial_row.remark
+        assert "The write operation timed out" in APP.state.trial_row.remark
+        assert len(APP.state.trial_parse_rows) == 1
+        assert called.wait(1.0)
+    finally:
+        APP.agent.trial_uploads = previous_uploads
+
+
+def test_parse_trial_images_waits_then_background_completes_slow_vision(tmp_path, monkeypatch):
+    started = threading.Event()
+    release = threading.Event()
+
+    class SlowVisionClient:
+        def analyze(self, uploads, country, js_category, visual):
+            started.set()
+            release.wait(1.0)
+            return VisionLLMResult(
+                subject="柴犬樱花",
+                scene="日式庭院樱花季",
+                culture_elements=("樱花", "柴犬"),
+                style="明亮治愈写实插画",
+                risk_tags=(),
+                prompt_keywords=("日本", "柴犬", "樱花"),
+                confidence=0.91,
+                provider="qwen",
+                raw_text="后台视觉解析完成。",
+            )
+
+    monkeypatch.setenv("QWEN_FOREGROUND_WAIT_PARSE_SECONDS", "0.05")
+    previous_uploads = APP.agent.trial_uploads
+    try:
+        APP.agent.trial_uploads = TrialImageUploadService(tmp_path / "uploads", vision_client=SlowVisionClient())
+        APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="parse")
+        image = Image.new("RGB", (320, 240), (220, 70, 60))
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+
+        handle_action(
+            "/upload_trial_images",
+            {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["parse"]},
+            files={"trial_images": [{"filename": "slow.png", "content_type": "image/png", "content": buffer.getvalue()}]},
+        )
+        handle_action("/parse_trial_uploads", {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["parse"]})
+
+        assert started.wait(1.0)
+        assert APP.state.trial_row.subject != "柴犬樱花"
+        assert "后台解析中" in APP.state.trial_row.remark
+        assert "后台补充" in APP.state.sync_message
+
+        release.set()
+        assert wait_until(lambda: APP.state.trial_row.subject == "柴犬樱花", timeout=2.0)
+        assert "后台解析完成" in APP.state.sync_message
+    finally:
+        release.set()
+        APP.agent.trial_uploads = previous_uploads
+
+
+def test_trial_parse_and_derive_upload_pools_are_independent():
+    APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="derive")
+    image = Image.new("RGB", (320, 240), (220, 70, 60))
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+
+    handle_action(
+        "/upload_trial_images",
+        {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["derive"]},
+        files={"trial_images": [{"filename": "derive.png", "content_type": "image/png", "content": buffer.getvalue()}]},
+    )
+    assert APP.state.trial_derive_uploads[0]["filename"] == "derive.png"
+    assert APP.state.trial_parse_uploads == []
+
+    handle_action("/clear_trial_uploads", {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["parse"]})
+
+    assert APP.state.trial_parse_uploads == []
+    assert APP.state.trial_derive_uploads[0]["filename"] == "derive.png"
 
 
 def test_upload_trial_images_summarizes_multiple_visual_features():
@@ -394,6 +1043,7 @@ def test_upload_trial_images_summarizes_multiple_visual_features():
             ]
         },
     )
+    handle_action("/parse_trial_uploads", {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["parse"]})
 
     assert "已读取2张参考图" in APP.state.trial_row.remark
     assert "暖红" in APP.state.trial_row.subject_description
@@ -418,6 +1068,7 @@ def test_upload_trial_images_requires_real_vlm_config_for_semantics():
             ]
         },
     )
+    handle_action("/parse_trial_uploads", {"country": ["日本"], "view": ["trial"], "category": ["动物"], "trial_mode": ["parse"]})
 
     assert "主体内容：" in APP.state.trial_row.subject_description
     assert "色彩氛围：" in APP.state.trial_row.subject_description
@@ -464,6 +1115,8 @@ def test_upload_trial_images_writes_real_openai_semantics_when_configured(tmp_pa
                 ]
             },
         )
+        handle_action("/parse_trial_uploads", {"country": ["日本"], "view": ["trial"], "category": ["动物"], "trial_mode": ["parse"]})
+        assert wait_until(lambda: APP.state.trial_row.subject == "柴犬樱花")
 
         assert APP.state.trial_row.subject == "柴犬樱花"
         assert APP.state.trial_row.operation_tag == f"试新_日本_柴犬樱花{TODAY_SUFFIX}"
@@ -517,6 +1170,8 @@ def test_trial_upload_uses_real_semantic_subject_in_operation_tag_and_feishu_pay
                 ]
             },
         )
+        handle_action("/parse_trial_uploads", {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["parse"]})
+        assert wait_until(lambda: APP.state.trial_row.subject == "日式火车店铺少女")
 
         row = APP.state.trial_row
         payload = _demand_row_payload(row)
@@ -573,6 +1228,8 @@ def test_trial_upload_compacts_long_semantic_subject_for_operation_tag(tmp_path)
                 ]
             },
         )
+        handle_action("/parse_trial_uploads", {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["parse"]})
+        assert wait_until(lambda: "游客塔楼" in APP.state.trial_row.operation_tag)
 
         tag_subject = APP.state.trial_row.operation_tag.removeprefix("试新_日本_").removesuffix(TODAY_SUFFIX)
         assert tag_subject == "游客塔楼"
@@ -596,10 +1253,12 @@ def test_derive_upload_outputs_derivative_direction_without_claiming_real_genera
             ]
         },
     )
+    handle_action("/parse_trial_uploads", {"country": ["法国"], "view": ["trial"], "category": ["花卉"], "trial_mode": ["derive"]})
 
     assert "衍生方向" in APP.state.trial_row.remark
     assert "视觉LLM：未运行" in APP.state.trial_row.remark
     assert "已生成2张相似参考图" not in APP.state.trial_row.remark
+    assert "可继续点击“生成衍生参考图”" in APP.state.sync_message
 
 
 def test_generate_trial_derivatives_requires_provider_without_faking_images():
@@ -609,32 +1268,290 @@ def test_generate_trial_derivatives_requires_provider_without_faking_images():
 
     handle_action("/generate_trial_derivatives", {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["derive"]})
 
-    assert "生成 provider 未配置" in APP.state.trial_row.remark
+    assert "请先上传并解析一张真实历史好图" in APP.state.trial_row.remark
     assert APP.state.trial_rows == []
 
 
 def test_generate_trial_derivatives_creates_two_audited_reference_rows(tmp_path):
     APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="derive")
     APP.agent.image_generator = MockImageGenerationProvider(APP.agent._runtime_dir / "trial_uploads")
+    reference_path = tmp_path / "good.png"
+    reference_path.write_bytes(b"fake-reference-image")
     APP.state.trial_row = APP.agent.simulate_trial_upload("日本", "人物", "derive").edited(
-        reference_image_path=str(tmp_path / "good.png"),
+        reference_image_path=str(reference_path),
         subject="日式塔楼游客",
         subject_description="主体内容：日式塔楼游客；色彩氛围：明亮清透；构图环境：海边步道远景。",
     )
 
     handle_action("/generate_trial_derivatives", {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["derive"]})
 
-    assert len(APP.state.trial_rows) == 2
-    assert all("衍生参考图" in row.image_name for row in APP.state.trial_rows)
-    assert all(row.reference_image_url.startswith("/uploads/") for row in APP.state.trial_rows)
-    assert all(row.reference_image_syncable is False for row in APP.state.trial_rows)
-    assert all("二次 VLM 解析与审核" in row.remark for row in APP.state.trial_rows)
+    assert APP.state.trial_rows == []
+    assert len(APP.state.trial_derivative_candidates) == 2
+    assert all("衍生参考图" in row.image_name for row in APP.state.trial_derivative_candidates)
+    assert all(row.reference_image_url.startswith("/uploads/") for row in APP.state.trial_derivative_candidates)
+    assert all(row.reference_image_syncable is False for row in APP.state.trial_derivative_candidates)
+    assert all("二次 VLM 解析与审核" in row.remark for row in APP.state.trial_derivative_candidates)
+    assert all("一张独立完整图片" in row.remark for row in APP.state.trial_derivative_candidates)
+    assert all("严禁四宫格" in row.remark for row in APP.state.trial_derivative_candidates)
     assert "已生成2张衍生参考图" in APP.state.trial_row.remark
     assert APP.state.generation_event["source_operation_tag"] == APP.state.trial_row.operation_tag
     assert "mock-" in APP.state.generation_event["task_id"]
     assert ".png" in APP.state.generation_event["generated_image_paths"]
     assert APP.state.generation_event["second_review_status"] == "blocked"
     assert APP.state.generation_event["feishu_attachment_status"] == "blocked"
+
+
+def test_generate_trial_derivatives_uses_operator_prompt_and_negative_prompt(tmp_path):
+    APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="derive")
+    APP.agent.image_generator = MockImageGenerationProvider(APP.agent._runtime_dir / "trial_uploads")
+    reference_path = tmp_path / "good.png"
+    reference_path.write_bytes(b"fake-reference-image")
+    APP.state.trial_derive_row = APP.agent.simulate_trial_upload("日本", "人物", "derive").edited(
+        reference_image_path=str(reference_path),
+        subject="柴犬樱花",
+    )
+
+    handle_action(
+        "/generate_trial_derivatives",
+        {
+            "country": ["日本"],
+            "view": ["trial"],
+            "category": ["人物"],
+            "trial_mode": ["derive"],
+            "derivative_prompt": ["单张柴犬樱花庭院，不要多画面"],
+            "derivative_negative_prompt": ["不要四宫格，不要四季同图"],
+        },
+    )
+
+    assert len(APP.state.trial_derivative_candidates) == 2
+    assert APP.state.trial_derivative_prompt == "单张柴犬樱花庭院，不要多画面"
+    assert APP.state.trial_derivative_negative_prompt == "不要四宫格，不要四季同图"
+    assert all("Prompt：单张柴犬樱花庭院，不要多画面" in row.remark for row in APP.state.trial_derivative_candidates)
+    assert all("Negative：不要四宫格，不要四季同图" in row.remark for row in APP.state.trial_derivative_candidates)
+
+
+def test_approve_generated_derivatives_only_adds_selected_candidates(tmp_path):
+    APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="derive")
+    first = APP.agent.create_trial_demand("日本", "人物", "derive").edited(image_name="衍生参考图1.png")
+    second = APP.agent.create_trial_demand("日本", "人物", "derive").edited(image_name="衍生参考图2.png")
+    APP.state.trial_derivative_candidates = [first, second]
+
+    handle_action(
+        "/approve_generated_derivatives",
+        {"country": ["日本"], "view": ["trial"], "trial_mode": ["derive"], "selected_derivative_candidates": ["1"]},
+    )
+
+    assert len(APP.state.trial_derive_rows) == 1
+    assert APP.state.trial_derive_rows[0].image_name == "衍生参考图2.png"
+    assert APP.state.trial_derivative_candidates == []
+
+
+def test_approve_generated_derivatives_requires_selection():
+    APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="derive")
+    first = APP.agent.create_trial_demand("日本", "人物", "derive").edited(image_name="衍生参考图1.png")
+    second = APP.agent.create_trial_demand("日本", "人物", "derive").edited(image_name="衍生参考图2.png")
+    APP.state.trial_derivative_candidates = [first, second]
+
+    handle_action("/approve_generated_derivatives", {"country": ["日本"], "view": ["trial"], "trial_mode": ["derive"]})
+
+    assert "请至少选择一张满意的衍生图" in APP.state.sync_message
+    assert APP.state.trial_derive_rows == []
+    assert len(APP.state.trial_derivative_candidates) == 2
+
+
+def test_clear_derivative_candidates_keeps_operator_prompt():
+    APP.state = AppState(
+        country="日本",
+        view="trial",
+        category="人物",
+        trial_mode="derive",
+        trial_derivative_prompt="单张柴犬庭院",
+        trial_derivative_negative_prompt="不要四宫格",
+        trial_derivative_prompt_touched=True,
+    )
+    APP.state.trial_derivative_candidates = [APP.agent.create_trial_demand("日本", "人物", "derive")]
+    APP.state.trial_derivative_candidate_uploads = [{"filename": "one.png"}]
+
+    handle_action("/clear_derivative_candidates", {"country": ["日本"], "view": ["trial"], "trial_mode": ["derive"]})
+
+    assert APP.state.trial_derivative_candidates == []
+    assert APP.state.trial_derivative_candidate_uploads == []
+    assert APP.state.trial_derivative_prompt == "单张柴犬庭院"
+    assert APP.state.trial_derivative_negative_prompt == "不要四宫格"
+
+
+def test_save_derivative_prompt_persists_before_generation():
+    APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="derive")
+
+    handle_action(
+        "/save_derivative_prompt",
+        {
+            "country": ["日本"],
+            "view": ["trial"],
+            "trial_mode": ["derive"],
+            "derivative_prompt": ["先写单张柴犬庭院"],
+            "derivative_negative_prompt": ["不要拼贴"],
+        },
+    )
+
+    assert APP.state.trial_derivative_prompt == "先写单张柴犬庭院"
+    assert APP.state.trial_derivative_negative_prompt == "不要拼贴"
+    assert APP.state.trial_derivative_prompt_touched is True
+    assert "已保存衍生 prompt" in APP.state.sync_message
+
+
+def test_upload_trial_images_keeps_touched_derivative_prompt_and_clears_candidates():
+    APP.state = AppState(
+        country="日本",
+        view="trial",
+        category="人物",
+        trial_mode="derive",
+        trial_derivative_prompt="旧prompt",
+        trial_derivative_negative_prompt="旧negative",
+        trial_derivative_prompt_touched=True,
+    )
+    APP.state.trial_derivative_candidates = [APP.agent.create_trial_demand("日本", "人物", "derive")]
+    image = Image.new("RGB", (320, 240), (220, 70, 60))
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+
+    handle_action(
+        "/upload_trial_images",
+        {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["derive"]},
+        files={"trial_images": [{"filename": "new.png", "content_type": "image/png", "content": buffer.getvalue()}]},
+    )
+
+    assert APP.state.trial_derivative_candidates == []
+    assert APP.state.trial_derivative_prompt == "旧prompt"
+    assert APP.state.trial_derivative_negative_prompt == "旧negative"
+    assert APP.state.trial_derivative_prompt_touched is True
+
+
+def test_upload_trial_images_clears_untouched_derivative_prompt_and_candidates():
+    APP.state = AppState(
+        country="日本",
+        view="trial",
+        category="人物",
+        trial_mode="derive",
+        trial_derivative_prompt="旧prompt",
+        trial_derivative_negative_prompt="旧negative",
+        trial_derivative_prompt_touched=False,
+    )
+    APP.state.trial_derivative_candidates = [APP.agent.create_trial_demand("日本", "人物", "derive")]
+    image = Image.new("RGB", (320, 240), (220, 70, 60))
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+
+    handle_action(
+        "/upload_trial_images",
+        {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["derive"]},
+        files={"trial_images": [{"filename": "new.png", "content_type": "image/png", "content": buffer.getvalue()}]},
+    )
+
+    assert APP.state.trial_derivative_candidates == []
+    assert APP.state.trial_derivative_prompt == ""
+    assert APP.state.trial_derivative_negative_prompt == ""
+    assert APP.state.trial_derivative_prompt_touched is False
+
+
+def test_generate_trial_derivatives_blocks_too_small_reference_image(tmp_path):
+    APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="derive")
+    APP.agent.image_generator = MockImageGenerationProvider(APP.agent._runtime_dir / "trial_uploads")
+    reference_path = tmp_path / "tiny.png"
+    image = Image.new("RGB", (120, 90), (80, 160, 220))
+    image.save(reference_path)
+    APP.state.trial_row = APP.agent.simulate_trial_upload("日本", "人物", "derive").edited(reference_image_path=str(reference_path))
+
+    handle_action("/generate_trial_derivatives", {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["derive"]})
+
+    assert APP.state.trial_rows == []
+    assert "240-8000" in APP.state.trial_row.remark
+    assert APP.state.generation_event == {}
+
+
+def test_generate_trial_derivatives_calls_provider_twice_with_single_image_prompt(tmp_path):
+    APP.state = AppState(country="日本", view="trial", category="travel", trial_mode="derive")
+    provider = RecordingGenerationProvider(tmp_path)
+    APP.agent.image_generator = provider
+    APP.agent.trial_uploads = TrialImageUploadService(tmp_path / "review_uploads", vision_client=FakeGeneratedImageVisionClient(_safe_generated_result()))
+    reference_path = tmp_path / "sakura-road.png"
+    Image.new("RGB", (320, 320), (220, 180, 120)).save(reference_path)
+    APP.state.trial_derive_row = APP.agent.create_trial_demand("日本", "travel", "derive").edited(
+        reference_image_path=str(reference_path),
+        subject="樱花大道",
+        subject_description="主体内容：樱花大道；色彩氛围：粉白春日；构图环境：两侧樱花树夹道，道路纵深透视。",
+    )
+
+    handle_action("/generate_trial_derivatives", {"country": ["日本"], "view": ["trial"], "trial_mode": ["derive"]})
+
+    assert len(provider.calls) == 2
+    assert all(call["count"] == 1 for call in provider.calls)
+    assert all("本次只生成一张独立完整图片" in call["prompt"] for call in provider.calls)
+    assert all("衍生2张" not in call["prompt"] for call in provider.calls)
+    assert provider.calls[0]["seed"] != provider.calls[1]["seed"]
+
+
+def test_generate_trial_derivatives_starts_background_job_for_slow_provider(tmp_path):
+    class SlowGenerationProvider(RecordingGenerationProvider):
+        def generate_derivatives(self, **kwargs):
+            import time
+
+            time.sleep(0.2)
+            return super().generate_derivatives(**kwargs)
+
+    APP.state = AppState(country="日本", view="trial", category="travel", trial_mode="derive")
+    APP.derivative_job_foreground_grace_seconds = 0.01
+    provider = SlowGenerationProvider(tmp_path)
+    APP.agent.image_generator = provider
+    APP.agent.trial_uploads = TrialImageUploadService(tmp_path / "review_uploads", vision_client=FakeGeneratedImageVisionClient(_safe_generated_result()))
+    reference_path = tmp_path / "sakura-road.png"
+    Image.new("RGB", (320, 320), (220, 180, 120)).save(reference_path)
+    APP.state.trial_derive_row = APP.agent.create_trial_demand("日本", "travel", "derive").edited(
+        reference_image_path=str(reference_path),
+        subject="樱花大道",
+        subject_description="主体内容：樱花大道；色彩氛围：粉白春日；构图环境：两侧樱花树夹道，道路纵深透视。",
+    )
+
+    handle_action("/generate_trial_derivatives", {"country": ["日本"], "view": ["trial"], "trial_mode": ["derive"]})
+
+    assert APP.state.trial_derivative_job_status in {"pending", "running"}
+    assert APP.state.trial_derivative_job_id
+    assert APP.state.trial_derivative_candidates == []
+    assert "后台生成任务已启动" in APP.state.sync_message
+    assert wait_until(lambda: APP.state.trial_derivative_job_status == "succeeded", timeout=2.0)
+    assert len(APP.state.trial_derivative_candidates) == 2
+    APP.derivative_job_foreground_grace_seconds = 0.05
+
+
+def test_generated_derivative_blocks_subject_drift_from_sakura_avenue_to_house(tmp_path):
+    APP.state = AppState(country="日本", view="trial", category="travel", trial_mode="derive")
+    APP.agent.image_generator = PassingRealGenerationProvider(tmp_path)
+    drift_result = VisionLLMResult(
+        subject="树林里的日式小屋",
+        scene="森林深处的小屋建筑，周围有树木但没有道路纵深",
+        culture_elements=("日式小屋", "森林"),
+        style="日式自然建筑插画",
+        risk_tags=(),
+        prompt_keywords=("小屋", "森林", "建筑"),
+        confidence=0.91,
+        provider="qwen",
+        raw_text="主体为日式小屋，参考图道路结构不明显。",
+    )
+    APP.agent.trial_uploads = TrialImageUploadService(tmp_path / "drift_review_uploads", vision_client=FakeGeneratedImageVisionClient(drift_result))
+    reference_path = tmp_path / "sakura-road.png"
+    Image.new("RGB", (320, 320), (230, 200, 210)).save(reference_path)
+    APP.state.trial_derive_row = APP.agent.create_trial_demand("日本", "travel", "derive").edited(
+        reference_image_path=str(reference_path),
+        subject="樱花大道",
+        subject_description="主体内容：樱花大道；色彩氛围：粉白春日；构图环境：两侧樱花树夹道，道路纵深透视。",
+    )
+
+    handle_action("/generate_trial_derivatives", {"country": ["日本"], "view": ["trial"], "trial_mode": ["derive"]})
+
+    assert len(APP.state.trial_derivative_candidates) == 2
+    assert all(row.generation_review_status == "blocked" for row in APP.state.trial_derivative_candidates)
+    assert all(row.reference_image_syncable is False for row in APP.state.trial_derivative_candidates)
+    assert all("主体偏离参考图" in row.remark for row in APP.state.trial_derivative_candidates)
 
 
 class PassingRealGenerationProvider(ImageGenerationProvider):
@@ -676,6 +1593,25 @@ class PassingRealGenerationProvider(ImageGenerationProvider):
         return tuple(rows)
 
 
+class RecordingGenerationProvider(PassingRealGenerationProvider):
+    def __init__(self, output_dir):
+        super().__init__(output_dir)
+        self.calls = []
+
+    def generate_derivatives(self, reference_image, prompt, negative_prompt, count, seed, style_constraints):
+        self.calls.append(
+            {
+                "reference_image": reference_image,
+                "prompt": prompt,
+                "negative_prompt": negative_prompt,
+                "count": count,
+                "seed": seed,
+                "style_constraints": style_constraints,
+            }
+        )
+        return super().generate_derivatives(reference_image, prompt, negative_prompt, count, seed, style_constraints)
+
+
 class FailingGenerationProvider(ImageGenerationProvider):
     provider_name = "dashscope"
 
@@ -700,8 +1636,10 @@ def test_generate_trial_derivatives_failure_keeps_row_and_shows_message(tmp_path
     APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="derive")
     APP.agent.image_generator = FailingGenerationProvider()
     before = len(APP.agent.generation_events("日本"))
+    reference_path = tmp_path / "good.png"
+    Image.new("RGB", (320, 320), (220, 180, 120)).save(reference_path)
     APP.state.trial_row = APP.agent.simulate_trial_upload("日本", "人物", "derive").edited(
-        reference_image_path=str(tmp_path / "good.png"),
+        reference_image_path=str(reference_path),
         subject="日式塔楼游客",
         subject_description="主体内容：日式塔楼游客；色彩氛围：明亮清透；构图环境：海边步道远景。",
     )
@@ -712,10 +1650,10 @@ def test_generate_trial_derivatives_failure_keeps_row_and_shows_message(tmp_path
     assert APP.state.view == "trial"
     assert APP.state.trial_rows == []
     assert APP.state.trial_uploads == []
-    assert "生成衍生参考图失败：DashScope 图像生成失败：quota exceeded" in APP.state.sync_message
+    assert "生成衍生参考图失败：Qwen 图像生成失败：quota exceeded" in APP.state.sync_message
     assert "错误类型=quota_exceeded" in APP.state.sync_message
     assert APP.state.generation_event["status"] == "failed"
-    assert APP.state.generation_event["provider"] == "dashscope"
+    assert APP.state.generation_event["provider"] == "Qwen 图像生成"
     assert APP.state.generation_event["error_type"] == "quota_exceeded"
     assert APP.state.generation_event["source_operation_tag"] == APP.state.trial_row.operation_tag
     assert APP.state.generation_event["generated_image_paths"] == ""
@@ -727,7 +1665,7 @@ def test_generate_trial_derivatives_failure_keeps_row_and_shows_message(tmp_path
     assert len(events) == before + 1
     assert events[-1]["status"] == "failed"
     assert events[-1]["error_type"] == "quota_exceeded"
-    assert events[-1]["provider"] == "dashscope"
+    assert events[-1]["provider"] == "Qwen 图像生成"
     overview = APP.agent.memory_overview("日本")
     assert overview["短期记忆"]["count"] >= 1
 
@@ -735,8 +1673,10 @@ def test_generate_trial_derivatives_failure_keeps_row_and_shows_message(tmp_path
 def test_generate_trial_derivatives_billing_arrearage_shows_recovery_hint(tmp_path):
     APP.state = AppState(country="法国", view="trial", category="花卉", trial_mode="derive")
     APP.agent.image_generator = BillingArrearageGenerationProvider()
+    reference_path = tmp_path / "good.png"
+    Image.new("RGB", (320, 320), (220, 180, 120)).save(reference_path)
     APP.state.trial_row = APP.agent.simulate_trial_upload("法国", "花卉", "derive").edited(
-        reference_image_path=str(tmp_path / "good.png"),
+        reference_image_path=str(reference_path),
         subject="海滩野餐",
     )
 
@@ -757,8 +1697,8 @@ def test_check_generation_provider_action_reports_diagnostic_status(tmp_path):
 
     assert redirect is None
     assert APP.state.view == "trial"
-    assert "生成 Provider 诊断" in APP.state.sync_message
-    assert "provider=cloud" in APP.state.sync_message
+    assert "Qwen 图像生成诊断" in APP.state.sync_message
+    assert "provider=Qwen 图像生成" in APP.state.sync_message
     assert "configured=True" in APP.state.sync_message
     assert "wanx-test" in APP.state.sync_message
     assert "https://example.test/gen" in APP.state.sync_message
@@ -837,36 +1777,42 @@ def test_real_generation_derivatives_require_vlm_second_review_before_sync(tmp_p
     APP.agent.image_generator = PassingRealGenerationProvider(tmp_path)
     fake_vision = FakeGeneratedImageVisionClient(_safe_generated_result())
     APP.agent.trial_uploads = TrialImageUploadService(tmp_path / "review_uploads", vision_client=fake_vision)
+    reference_path = tmp_path / "good.png"
+    Image.new("RGB", (320, 320), (220, 180, 120)).save(reference_path)
     APP.state.trial_row = APP.agent.simulate_trial_upload("日本", "人物", "derive").edited(
-        reference_image_path=str(tmp_path / "good.png"),
+        reference_image_path=str(reference_path),
         subject="日式塔楼游客",
         subject_description="主体内容：日式塔楼游客；色彩氛围：明亮清透；构图环境：海边步道远景。",
     )
 
     handle_action("/generate_trial_derivatives", {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["derive"]})
 
-    assert len(APP.state.trial_rows) == 2
-    assert all(row.generation_review_status == "passed" for row in APP.state.trial_rows)
-    assert all(row.human_approved is False for row in APP.state.trial_rows)
-    assert all(row.reference_image_syncable is False for row in APP.state.trial_rows)
-    assert all("二次 VLM 解析与审核通过" in row.remark for row in APP.state.trial_rows)
-    assert all(row.subject_description.startswith("主体内容：日式塔楼游客；色彩氛围：明亮清透的日式旅游插画；构图环境：海边步道") for row in APP.state.trial_rows)
-    assert all(row.reference_image_path.endswith(".png") for row in APP.state.trial_rows)
+    assert APP.state.trial_rows == []
+    assert len(APP.state.trial_derivative_candidates) == 2
+    assert all(row.generation_review_status == "passed" for row in APP.state.trial_derivative_candidates)
+    assert all(row.human_approved is False for row in APP.state.trial_derivative_candidates)
+    assert all(row.reference_image_syncable is False for row in APP.state.trial_derivative_candidates)
+    assert all("二次 VLM 解析与审核通过" in row.remark for row in APP.state.trial_derivative_candidates)
+    assert all(row.subject_description.startswith("主体内容：日式塔楼游客；色彩氛围：明亮清透的日式旅游插画；构图环境：海边步道") for row in APP.state.trial_derivative_candidates)
+    assert all(row.reference_image_path.endswith(".png") for row in APP.state.trial_derivative_candidates)
     assert len(fake_vision.calls) == 2
     assert APP.state.generation_event["second_review_status"] == "passed"
     assert APP.state.generation_event["feishu_attachment_status"] == "pending_human_approval"
 
     handle_action("/sync_trial_feishu", {"country": ["日本"], "view": ["trial"]})
 
-    assert len(APP.state.trial_rows) == 2
-    assert "运营确认" in APP.state.sync_message
+    assert APP.state.trial_rows == []
+    assert "请先上传解析图片" in APP.state.sync_message
 
-    handle_action("/approve_generated_derivatives", {"country": ["日本"], "view": ["trial"]})
+    handle_action(
+        "/approve_generated_derivatives",
+        {"country": ["日本"], "view": ["trial"], "selected_derivative_candidates": ["0", "1"]},
+    )
 
     assert all(row.human_approved is True for row in APP.state.trial_rows)
     assert all(row.reference_image_syncable is True for row in APP.state.trial_rows)
     assert APP.state.generation_event["feishu_attachment_status"] == "ready"
-    assert "运营已确认" in APP.state.sync_message
+    assert "加入下方试新提需表" in APP.state.sync_message
 
 
 def test_real_generation_derivatives_with_vlm_risk_stay_unsyncable(tmp_path):
@@ -876,21 +1822,23 @@ def test_real_generation_derivatives_with_vlm_risk_stay_unsyncable(tmp_path):
         tmp_path / "risk_review_uploads",
         vision_client=FakeGeneratedImageVisionClient(_risky_generated_result()),
     )
+    reference_path = tmp_path / "good.png"
+    Image.new("RGB", (320, 320), (220, 180, 120)).save(reference_path)
     APP.state.trial_row = APP.agent.simulate_trial_upload("日本", "人物", "derive").edited(
-        reference_image_path=str(tmp_path / "good.png"),
+        reference_image_path=str(reference_path),
         subject="日式塔楼游客",
         subject_description="主体内容：日式塔楼游客；色彩氛围：明亮清透；构图环境：海边步道远景。",
     )
 
     handle_action("/generate_trial_derivatives", {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["derive"]})
 
-    assert len(APP.state.trial_rows) == 2
-    assert all(row.reference_image_syncable is False for row in APP.state.trial_rows)
-    assert all("二次 VLM 解析未通过" in row.remark for row in APP.state.trial_rows)
-    assert all("版权/IP风险" in row.remark for row in APP.state.trial_rows)
+    assert len(APP.state.trial_derivative_candidates) == 2
+    assert all(row.reference_image_syncable is False for row in APP.state.trial_derivative_candidates)
+    assert all("二次 VLM 解析未通过" in row.remark for row in APP.state.trial_derivative_candidates)
+    assert all("版权/IP风险" in row.remark for row in APP.state.trial_derivative_candidates)
 
 
-def test_sync_trial_to_feishu_creates_guarded_proposal_then_confirmation_resets_trial_row():
+def test_sync_trial_to_feishu_one_click_resets_trial_row():
     APP.state = AppState(country="日本", view="trial", category="人物", trial_mode="parse")
     APP.agent.feishu = MockFeishuClient(APP.agent._runtime_dir / "test_feishu_mock")
     APP.agent.feishu.allow_real_sync = True
@@ -899,28 +1847,10 @@ def test_sync_trial_to_feishu_creates_guarded_proposal_then_confirmation_resets_
     redirect = handle_action("/sync_trial_feishu", {"country": ["日本"], "view": ["trial"], "category": ["人物"], "trial_mode": ["parse"]})
 
     assert APP.state.view == "trial"
-    assert "同步草案已生成" in APP.state.sync_message
-    assert APP.state.sync_url == ""
-    assert len(APP.state.trial_rows) == 1
-    assert redirect is None
-    proposal = next(item for item in APP.agent.guarded_action_proposals("日本") if item.guard_status == "pending_approval")
-
-    handle_action(
-        "/approve_guarded_action",
-        {
-            "country": ["日本"],
-            "view": ["trial"],
-            "category": ["人物"],
-            "trial_mode": ["parse"],
-            "proposal_id": [proposal.proposal_id],
-            "approval_note": ["试新提需确认"],
-            "execute_after_approval": ["1"],
-        },
-    )
-
-    assert "同步成功" in APP.state.sync_message
+    assert "已一键同步试新提需到飞书表格" in APP.state.sync_message
     assert APP.state.sync_url == APP.agent.feishu.web_url()
     assert APP.state.trial_rows == []
+    assert redirect is None
     assert "上传参考图" in APP.state.trial_row.image_name
     assert any(row[2] == "提需同步" and row[4] == "成功" for row in APP.agent.sync_rows())
 
@@ -935,7 +1865,7 @@ def test_sync_trial_rejects_empty_uploaded_rows_before_feishu_call():
 
     assert redirect is None
     assert APP.state.view == "trial"
-    assert APP.state.sync_message == "请先上传解析图片或模拟上传，生成至少一条试新提需记录。"
+    assert APP.state.sync_message == "请先上传解析图片，生成至少一条试新提需记录。"
     assert len(APP.agent.sync_rows()) == before
 
 
@@ -1027,6 +1957,104 @@ def test_approve_value_candidate_action_writes_hitl_memory():
     assert overview["长期记忆"]["count"] >= 1
 
 
+def test_value_candidate_import_and_prediction_actions_update_runtime_state(monkeypatch, tmp_path):
+    previous_agent = APP.agent
+    try:
+        APP.agent = PuzzleOpsAgent()
+        APP.agent._runtime_dir = tmp_path
+        APP.state = AppState(country="日本", view="value")
+
+        def fake_predict(country, *, limit=100):
+            return {"predicted_count": 15, "candidate_count": 15, "country": country}
+
+        monkeypatch.setattr(APP.agent, "predict_undistributed_value_candidates", fake_predict)
+
+        handle_action("/import_value_candidates_excel", {"country": ["日本"], "view": ["value"]})
+        assert APP.state.view == "value"
+        assert "候选图 Excel 已导入" in APP.state.sync_message
+        assert "15 条" in APP.state.sync_message
+
+        handle_action("/predict_value_candidates", {"country": ["日本"], "view": ["value"]})
+        assert "价值观大师预测完成" in APP.state.sync_message
+        assert "新预测 15 条" in APP.state.sync_message
+        assert "候选共 15 条" in APP.state.sync_message
+    finally:
+        APP.agent = previous_agent
+
+
+def test_value_candidate_human_decision_action_writes_working_memory(tmp_path):
+    previous_agent = APP.agent
+    try:
+        APP.agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+        APP.state = AppState(country="日本", view="value")
+
+        handle_action(
+            "/save_value_candidate_decision",
+            {
+                "country": ["日本"],
+                "view": ["value"],
+                "candidate_id": ["JP_CAND_001"],
+                "decision": ["优先排图"],
+                "human_note": ["人工看好樱花庭院"],
+            },
+        )
+
+        rows = APP.agent.memory_debug("日本", query="JP_CAND_001 樱花庭院", limit=50)
+        assert "已加入下周排图池：JP_CAND_001" in APP.state.sync_message
+        assert any(row["memory_type"] == "value_candidate_human_decision" for row in rows)
+    finally:
+        APP.agent = previous_agent
+
+
+def test_value_candidate_revision_note_keeps_value_page(tmp_path):
+    previous_agent = APP.agent
+    try:
+        APP.agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+        APP.state = AppState(country="日本", view="value")
+
+        handle_action(
+            "/save_value_candidate_decision",
+            {
+                "country": ["日本"],
+                "view": ["value"],
+                "candidate_id": ["JP_CAND_002"],
+                "decision": ["人工复核"],
+                "decision_note": ["主体太散，需要重画"],
+            },
+        )
+
+        assert APP.state.view == "value"
+        assert "要求修改已保存：JP_CAND_002" in APP.state.sync_message
+        html = render_page(APP.agent, APP.state)
+        assert "价值观大师" in html
+        assert "主体太散，需要重画" in html
+    finally:
+        APP.agent = previous_agent
+
+
+def test_retry_single_value_candidate_prediction_action(monkeypatch, tmp_path):
+    previous_agent = APP.agent
+    try:
+        APP.agent = PuzzleOpsAgent()
+        APP.agent._runtime_dir = tmp_path
+        APP.state = AppState(country="日本", view="value")
+
+        def fake_predict(country, candidate_id, *, force=False):
+            return {"country": country, "candidate_id": candidate_id, "status": "predicted", "predicted_count": 1, "cached_count": 0}
+
+        monkeypatch.setattr(APP.agent, "predict_single_undistributed_value_candidate", fake_predict)
+
+        handle_action(
+            "/predict_single_value_candidate",
+            {"country": ["日本"], "view": ["value"], "candidate_id": ["JP_CAND_015"]},
+        )
+
+        assert APP.state.view == "value"
+        assert "单张预测完成：JP_CAND_015" in APP.state.sync_message
+    finally:
+        APP.agent = previous_agent
+
+
 def test_save_harness_override_action_writes_hitl_memory():
     APP.state = AppState(country="日本", view="eval")
 
@@ -1071,6 +2099,51 @@ def test_save_value_match_correction_action_writes_memory_and_status():
         assert any(row["memory_type"] == "value_match_human_correction" for row in rows)
         assert any(row["memory_type"] == "verified_value_match_fact" for row in rows)
         assert any(row["memory_type"] == "rag_eval_failure_feedback" for row in rows)
+    finally:
+        APP.agent = previous_agent
+
+
+def test_submit_rag_feedback_batch_records_selected_feedback_score_and_optional_correction(tmp_path):
+    previous_agent = APP.agent
+    try:
+        APP.agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "rag_feedback_batch.db"))
+        APP.state = AppState(country="日本", view="trial", trial_mode="parse")
+        APP.state.trial_row = APP.agent.create_trial_demand("日本", "人物", "parse").edited(
+            subject="寿司",
+            value_match="LLM判断：部分符合；系统RAG召回：JP_SUSHI#chunk-1、AUDIT_001#chunk-1；生成式RAG依据：寿司属于日本本土饮食文化。",
+        )
+
+        handle_action(
+            "/submit_rag_feedback_batch",
+            {
+                "country": ["日本"],
+                "view": ["trial"],
+                "trial_mode": ["parse"],
+                "citation_count": ["2"],
+                "chunk_id_0": ["JP_SUSHI#chunk-1"],
+                "usefulness_0": ["useful"],
+                "note_0": ["解释本土饮食文化"],
+                "chunk_id_1": ["AUDIT_001#chunk-1"],
+                "usefulness_1": [""],
+                "note_1": [""],
+                "satisfaction_score": ["4"],
+                "human_correction": [""],
+            },
+        )
+
+        rows = APP.agent.memory_debug("日本", query="本土饮食文化", limit=80)
+        assert APP.state.view == "trial"
+        assert "RAG 批量反馈已提交" in APP.state.sync_message
+        assert "citation=1" in APP.state.sync_message
+        assert "score=4" in APP.state.sync_message
+        assert any(
+            row["memory_type"] == "rag_citation_feedback"
+            and row["payload"]["chunk_id"] == "JP_SUSHI#chunk-1"
+            and row["payload"]["usefulness"] == "useful"
+            for row in rows
+        )
+        assert any(row["memory_type"] == "value_match_human_score" and row["payload"]["satisfaction_score"] == 4 for row in rows)
+        assert not any(row["memory_type"] == "value_match_human_correction" for row in rows)
     finally:
         APP.agent = previous_agent
 
@@ -1195,17 +2268,98 @@ def test_auto_prelabeled_harness_gold_action_runs_agent(monkeypatch):
     APP.state = AppState(country="法国", view="eval")
     calls = []
 
-    def fake_auto(country):
-        calls.append(country)
+    def fake_auto(country, **kwargs):
+        calls.append((country, kwargs))
         return {"updated_count": 5, "skipped_count": 0, "dataset": "/tmp/harness_gold_samples_法国.csv"}
 
     monkeypatch.setattr(APP.agent, "auto_prelabeled_harness_samples", fake_auto)
 
     handle_action("/auto_prelabeled_harness_gold", {"country": ["法国"], "view": ["eval"]})
 
-    assert calls == ["法国"]
+    assert calls and calls[0][0] == "法国"
+    assert set(calls[0][1]) == {"progress_callback"}
     assert APP.state.view == "eval"
     assert "AI 预标注完成：5 条" in APP.state.sync_message
+
+
+def test_auto_prelabeled_harness_gold_action_passes_selected_sample_ids(monkeypatch):
+    APP.state = AppState(country="法国", view="eval")
+    calls = []
+
+    def fake_auto(country, **kwargs):
+        calls.append((country, kwargs))
+        return {
+            "updated_count": 2,
+            "skipped_count": 0,
+            "remaining_needs_prelabeled": 3,
+            "pending_review_count": 2,
+            "dataset": "/tmp/harness_gold_samples_法国.csv",
+        }
+
+    monkeypatch.setattr(APP.agent, "auto_prelabeled_harness_samples", fake_auto)
+
+    handle_action(
+        "/auto_prelabeled_harness_gold",
+        {
+            "country": ["法国"],
+            "view": ["eval"],
+            "max_count": ["5"],
+            "sample_id": ["fr-real-001", "fr-real-003"],
+        },
+    )
+
+    assert calls and calls[0][0] == "法国"
+    assert calls[0][1]["sample_ids"] == ("fr-real-001", "fr-real-003")
+    assert calls[0][1]["max_count"] == 5
+    assert "progress_callback" in calls[0][1]
+    assert APP.state.view == "eval"
+    assert "AI 预标注完成：2 条" in APP.state.sync_message
+
+
+def test_auto_prelabeled_harness_gold_starts_background_progress_job(monkeypatch):
+    APP.state = AppState(country="法国", view="eval")
+    APP.harness_prelabel_job_foreground_grace_seconds = 0.01
+    calls = []
+
+    def fake_auto(country, **kwargs):
+        import time
+
+        calls.append((country, kwargs))
+        progress = kwargs.get("progress_callback")
+        if progress:
+            progress(1, 2, "fr-real-001")
+        time.sleep(0.05)
+        if progress:
+            progress(2, 2, "fr-real-002")
+        return {
+            "updated_count": 2,
+            "skipped_count": 0,
+            "remaining_needs_prelabeled": 0,
+            "pending_review_count": 2,
+            "dataset": "/tmp/harness_gold_samples_法国.csv",
+        }
+
+    monkeypatch.setattr(APP.agent, "auto_prelabeled_harness_samples", fake_auto)
+
+    handle_action(
+        "/auto_prelabeled_harness_gold",
+        {
+            "country": ["法国"],
+            "view": ["eval"],
+            "sample_id": ["fr-real-001", "fr-real-002"],
+        },
+    )
+
+    assert APP.state.harness_prelabel_job_status in {"pending", "running"}
+    assert APP.state.harness_prelabel_job_id
+    assert "Qwen 预标注任务已启动" in APP.state.sync_message
+    assert wait_until(lambda: APP.state.harness_prelabel_job_status == "succeeded", timeout=1.5)
+    assert calls and calls[0][0] == "法国"
+    assert calls[0][1]["sample_ids"] == ("fr-real-001", "fr-real-002")
+    assert "progress_callback" in calls[0][1]
+    assert APP.state.harness_prelabel_job_progress == 100
+    assert "AI 预标注完成：2 条" in APP.state.harness_prelabel_job_message
+    APP.harness_prelabel_job_foreground_grace_seconds = 0.05
 
 
 def test_register_harness_real_samples_text_action_runs_agent(monkeypatch):
@@ -1308,7 +2462,10 @@ def test_approve_harness_silver_labels_action_runs_agent(monkeypatch):
         {"country": ["法国"], "view": ["eval"], "reviewer_note": ["抽查通过"]},
     )
 
-    assert calls == [("法国", {"reviewer_note": "抽查通过"})]
+    assert wait_until(lambda: APP.state.harness_approval_job_status == "succeeded", timeout=1.5)
+    assert calls and calls[0][0] == "法国"
+    assert calls[0][1]["reviewer_note"] == "抽查通过"
+    assert "progress_callback" in calls[0][1]
     assert APP.state.view == "eval"
     assert "AI Silver 已确认晋升：5 条" in APP.state.sync_message
     assert "Facts 5 条" in APP.state.sync_message
@@ -1335,8 +2492,58 @@ def test_approve_harness_silver_labels_action_passes_selected_sample_ids(monkeyp
         },
     )
 
-    assert calls == [("法国", {"sample_ids": ("fr-real-001",), "reviewer_note": "只确认第1条"})]
+    assert wait_until(lambda: APP.state.harness_approval_job_status == "succeeded", timeout=1.5)
+    assert calls and calls[0][0] == "法国"
+    assert calls[0][1]["sample_ids"] == ("fr-real-001",)
+    assert calls[0][1]["reviewer_note"] == "只确认第1条"
+    assert "progress_callback" in calls[0][1]
     assert "AI Silver 已确认晋升：1 条" in APP.state.sync_message
+
+
+def test_approve_harness_silver_labels_starts_background_progress_job(monkeypatch):
+    APP.state = AppState(country="法国", view="eval")
+    APP.harness_approval_job_foreground_grace_seconds = 0.01
+    calls = []
+
+    def fake_approve(country, **kwargs):
+        calls.append((country, kwargs))
+        progress = kwargs.get("progress_callback")
+        if progress:
+            progress(1, 2, "fr-real-001")
+        time.sleep(0.05)
+        if progress:
+            progress(2, 2, "fr-real-002")
+        return {
+            "approved_count": 2,
+            "skipped_count": 0,
+            "fact_memory_count": 2,
+            "rag_human_gold_count": 2,
+            "dataset": "/tmp/harness_gold_samples_法国.csv",
+        }
+
+    monkeypatch.setattr(APP.agent, "approve_harness_silver_labels", fake_approve)
+
+    handle_action(
+        "/approve_harness_silver_labels",
+        {
+            "country": ["法国"],
+            "view": ["eval"],
+            "reviewer_note": ["批量抽查通过"],
+            "sample_id": ["fr-real-001", "fr-real-002"],
+        },
+    )
+
+    assert APP.state.harness_approval_job_status in {"pending", "running"}
+    assert APP.state.harness_approval_job_id
+    assert "human_gold 批量确认任务已启动" in APP.state.sync_message
+    assert wait_until(lambda: APP.state.harness_approval_job_status == "succeeded", timeout=1.5)
+    assert calls and calls[0][0] == "法国"
+    assert calls[0][1]["sample_ids"] == ("fr-real-001", "fr-real-002")
+    assert calls[0][1]["reviewer_note"] == "批量抽查通过"
+    assert "progress_callback" in calls[0][1]
+    assert APP.state.harness_approval_job_progress == 100
+    assert "AI Silver 已确认晋升：2 条" in APP.state.harness_approval_job_message
+    APP.harness_approval_job_foreground_grace_seconds = 0.05
 
 
 def test_run_harness_action_requires_explicit_generation_opt_in(monkeypatch):
@@ -1359,14 +2566,14 @@ def test_run_harness_action_requires_explicit_generation_opt_in(monkeypatch):
     assert "真实 VLM Harness" in APP.state.sync_message
 
 
-def test_replace_schedule_action_records_slot_replacement():
+def test_replace_schedule_action_is_no_longer_active():
     APP.state = AppState(country="日本", view="schedule", schedule_day="周一")
     original = APP.agent.schedule("日本", "周一")[0]
 
     handle_action("/replace_schedule", {"slot_index": ["0"], "image_name": [original.image_name]})
 
-    assert 0 in APP.state.schedule_replacements
-    assert APP.state.schedule_replacements[0].image_name != original.image_name
+    assert APP.state.view == "value"
+    assert APP.state.schedule_replacements == {}
 
 
 def test_memory_governance_actions_promote_and_retire_memory():
@@ -1875,6 +3082,66 @@ def test_approve_rag_knowledge_patch_draft_action_writes_long_term_memory():
     assert APP.state.view == "runtime"
     assert "RAG 知识补丁已审核通过" in APP.state.sync_message
     assert any(row["memory_type"] == "approved_rag_knowledge_patch" and row["human_verified"] for row in rows)
+
+
+def test_mark_rag_feedback_monthly_and_emergency_actions_write_governance_memory(tmp_path):
+    previous_agent = APP.agent
+    try:
+        APP.agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+        APP.state = AppState(country="日本", view="runtime")
+        feedback_id = APP.agent.record_rag_eval_failure_feedback(
+            "日本",
+            query="日本版权/IP风险漏召回",
+            expected_parent_id="JP_KB_IP_RISK",
+            retrieved_parent_ids=("JP_VALUE_001",),
+            note="版权/IP 风险漏召回",
+        )
+
+        handle_action(
+            "/mark_rag_feedback_monthly",
+            {"country": ["日本"], "view": ["runtime"], "memory_id": [str(feedback_id)], "review_note": ["月度处理"]},
+        )
+        handle_action(
+            "/mark_rag_feedback_emergency",
+            {"country": ["日本"], "view": ["runtime"], "memory_id": [str(feedback_id)], "review_note": ["版权风险紧急处理"]},
+        )
+
+        rows = APP.agent.memory_debug("日本", query="版权风险", limit=80)
+        assert "已标记为紧急补丁" in APP.state.sync_message
+        assert any(row["memory_type"] == "rag_governance_monthly_marker" for row in rows)
+        assert any(row["memory_type"] == "rag_governance_emergency_marker" for row in rows)
+    finally:
+        APP.agent = previous_agent
+
+
+def test_apply_emergency_rag_patch_and_rebuild_action_reports_smoke(monkeypatch, tmp_path):
+    previous_agent = APP.agent
+    try:
+        APP.agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+        APP.state = AppState(country="日本", view="runtime")
+        feedback_id = APP.agent.record_rag_eval_failure_feedback(
+            "日本",
+            query="日本版权/IP风险漏召回",
+            expected_parent_id="JP_KB_IP_RISK",
+            retrieved_parent_ids=("JP_VALUE_001",),
+            note="版权/IP 风险漏召回",
+        )
+
+        def fake_apply(country, memory_id, *, actor="", note=""):
+            return {"status": "emergency_applied", "country": country, "feedback_memory_id": memory_id, "hit@5": 1.0, "patch_id": "patch-日本-emergency"}
+
+        monkeypatch.setattr(APP.agent, "apply_emergency_rag_patch_and_rebuild", fake_apply)
+
+        handle_action(
+            "/apply_emergency_rag_patch_and_rebuild",
+            {"country": ["日本"], "view": ["runtime"], "memory_id": [str(feedback_id)], "review_note": ["负责人确认"]},
+        )
+
+        assert APP.state.view == "runtime"
+        assert "紧急 RAG 补丁已应用" in APP.state.sync_message
+        assert "hit@5=1.0" in APP.state.sync_message
+    finally:
+        APP.agent = previous_agent
 
 
 def test_export_approved_rag_patch_markdown_action_writes_md():

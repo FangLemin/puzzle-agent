@@ -73,6 +73,7 @@ class RagRetrievalCase:
     country: str
     expected_parent_id: str
     relevant_parent_ids: tuple[str, ...] = ()
+    hard_negative_parent_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -233,9 +234,20 @@ def load_retrieval_cases_jsonl(path: Path | str) -> tuple[RagRetrievalCase, ...]
                 query=str(payload["query"]),
                 country=str(payload["country"]),
                 expected_parent_id=str(payload["expected_parent_id"]),
+                relevant_parent_ids=_text_tuple(payload.get("relevant_parent_ids", ())),
+                hard_negative_parent_ids=_text_tuple(payload.get("hard_negative_parent_ids", ())),
             )
         )
     return tuple(cases)
+
+
+def _text_tuple(value: object) -> tuple[str, ...]:
+    if isinstance(value, (list, tuple)):
+        return tuple(str(item).strip() for item in value if str(item).strip())
+    text = str(value or "").strip()
+    if not text:
+        return ()
+    return tuple(part.strip() for part in re.split(r"[,，、\\s]+", text) if part.strip())
 
 
 def build_processed_documents_from_raw(raw_dir: Path | str, output_path: Path | str) -> tuple[RagDocument, ...]:
@@ -2463,7 +2475,7 @@ def _post_json(endpoint: str, payload: dict[str, object], api_key: str) -> dict[
         },
         method="POST",
     )
-    with request.urlopen(req, timeout=20, context=_https_context()) as resp:
+    with request.urlopen(req, timeout=_qwen_chat_timeout_seconds(), context=_https_context()) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -2477,6 +2489,13 @@ def _rag_generation_user_prompt(prompt: RagPrompt) -> str:
         "资料：\n"
         f"{prompt.context}\n"
     )
+
+
+def _qwen_chat_timeout_seconds() -> float:
+    try:
+        return min(max(float(os.getenv("QWEN_TIMEOUT_SECONDS", "90")), 10.0), 300.0)
+    except ValueError:
+        return 90.0
 
 
 def _extract_chat_completion_text(response: dict[str, object]) -> str:

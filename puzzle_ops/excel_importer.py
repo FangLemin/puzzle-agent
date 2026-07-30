@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import shutil
+import hashlib
 from datetime import datetime, timedelta
 from pathlib import Path
 from zipfile import ZipFile
@@ -29,7 +30,7 @@ class ExcelImageExtractor:
         output.mkdir(parents=True, exist_ok=True)
         with ZipFile(self.workbook_path) as archive:
             if "xl/cellimages.xml" not in archive.namelist():
-                return {}
+                return self._extract_local_path_images(output)
             id_to_rid = self._read_cell_image_ids(archive.read("xl/cellimages.xml"))
             rid_to_target = self._read_relationships(archive.read("xl/_rels/cellimages.xml.rels"))
             mapping: dict[str, str] = {}
@@ -43,6 +44,29 @@ class ExcelImageExtractor:
                     shutil.copyfileobj(source, target_file)
                 mapping[image_id] = str(destination)
             return mapping
+
+    def _extract_local_path_images(self, output: Path) -> dict[str, str]:
+        rows = _read_first_sheet(self.workbook_path)
+        if not rows:
+            return {}
+        headers = [str(value).strip() for value in rows[0]]
+        if "图片ID" not in headers or "图片本身" not in headers:
+            return {}
+        id_index = headers.index("图片ID")
+        image_index = headers.index("图片本身")
+        mapping: dict[str, str] = {}
+        for row in rows[1:]:
+            image_id = str(row[id_index] if id_index < len(row) else "").strip()
+            image_path = Path(str(row[image_index] if image_index < len(row) else "").strip())
+            if not image_id or not image_path.exists() or not image_path.is_file():
+                continue
+            suffix = image_path.suffix or ".png"
+            destination = output / f"{image_id}{suffix}"
+            if image_path.resolve() != destination.resolve():
+                shutil.copyfile(image_path, destination)
+            mapping[image_id] = str(destination)
+            mapping[image_path.stem] = str(destination)
+        return mapping
 
     def _read_cell_image_ids(self, xml_bytes: bytes) -> dict[str, str]:
         root = ET.fromstring(xml_bytes)
@@ -82,7 +106,13 @@ def import_history_workbook(workbook_path: Path | str, country: str, image_outpu
             raise ValueError(f"未知 JS分类：{js_category}")
         image_formula = str(values["图片本身"] or "")
         formula_id = _dispimg_id(image_formula)
-        local_image_path = image_map.get(formula_id, "")
+        direct_image_path = Path(image_formula.strip())
+        local_image_path = (
+            image_map.get(formula_id, "")
+            or image_map.get(str(values["图片ID"]), "")
+            or image_map.get(direct_image_path.stem, "")
+            or (str(direct_image_path) if direct_image_path.exists() else "")
+        )
         records.append(
             HistoricalRecord(
                 grade=str(values["图片等级"]),
@@ -109,6 +139,50 @@ def import_history_workbook(workbook_path: Path | str, country: str, image_outpu
     return tuple(records)
 
 
+def import_undistributed_candidate_workbook(workbook_path: Path | str, country: str, image_output_dir: Path | str) -> tuple[dict[str, object], ...]:
+    workbook_path = Path(workbook_path)
+    image_map = ExcelImageExtractor(workbook_path).extract(image_output_dir)
+    rows = _read_first_sheet(workbook_path)
+    headers = [str(value).strip() for value in rows[0]]
+    candidates: list[dict[str, object]] = []
+    for row in rows[1:]:
+        values = dict(zip(headers, row))
+        if not any(str(value or "").strip() for value in values.values()):
+            continue
+        row_country = str(values.get("国家") or "").strip()
+        if row_country != country:
+            continue
+        include = str(values.get("是否纳入价值观大师预测") or "是").strip()
+        if include and include != "是":
+            continue
+        image_formula = str(values.get("图片本地路径或URL") or values.get("图片文件名") or "")
+        formula_id = _dispimg_id(image_formula)
+        local_image_path = image_map.get(formula_id, "")
+        image_hash = _file_sha256(local_image_path) if local_image_path else ""
+        candidates.append(
+            {
+                "candidate_id": str(values.get("候选ID") or "").strip(),
+                "country": row_country,
+                "candidate_index": int(values.get("候选序号") or len(candidates) + 1),
+                "image_formula": image_formula,
+                "local_image_path": local_image_path,
+                "image_hash": image_hash,
+                "js_category": _normalize_js_category(str(values.get("JS分类") or "").strip()),
+                "operation_tag": str(values.get("运营tag") or "").strip(),
+                "candidate_source": str(values.get("候选来源") or "").strip(),
+                "subject": str(values.get("主体/主题") or "").strip(),
+                "scene": str(values.get("场景/构图") or "").strip(),
+                "color_mood": str(values.get("色彩氛围") or "").strip(),
+                "style_keywords": str(values.get("风格关键词") or "").strip(),
+                "focus": str(values.get("希望模型重点判断") or "").strip(),
+                "operator_note": str(values.get("运营备注") or "").strip(),
+                "include_for_prediction": include == "是",
+                "image_status": "ready" if local_image_path else "missing_image",
+            }
+        )
+    return tuple(candidates)
+
+
 def _normalize_js_category(value: str) -> str:
     normalized = value.strip()
     return JS_CATEGORY_ALIASES.get(normalized, normalized)
@@ -127,6 +201,14 @@ def _as_text(value: object) -> str:
     if hasattr(value, "isoformat"):
         return value.isoformat()
     return str(value or "")
+
+
+def _file_sha256(path: str) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _read_first_sheet(workbook_path: Path) -> list[list[object]]:
@@ -172,7 +254,8 @@ def _first_sheet_path(archive: ZipFile) -> str:
     rel_id = first_sheet.attrib[f"{{{ns['r']}}}id"]
     for rel in rels:
         if rel.attrib["Id"] == rel_id:
-            return "xl/" + rel.attrib["Target"]
+            target = rel.attrib["Target"].lstrip("/")
+            return target if target.startswith("xl/") else "xl/" + target
     raise ValueError("无法定位第一个工作表")
 
 
@@ -180,6 +263,8 @@ def _cell_value(cell: ET.Element, shared_strings: list[str], ns: dict[str, str])
     cell_type = cell.attrib.get("t")
     value_node = cell.find("x:v", ns)
     formula_node = cell.find("x:f", ns)
+    if cell_type == "inlineStr":
+        return "".join(node.text or "" for node in cell.findall(".//x:t", ns))
     if cell_type == "str" and formula_node is not None:
         return "=" + (formula_node.text or "")
     if value_node is None:

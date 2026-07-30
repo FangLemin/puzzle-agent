@@ -1,4 +1,5 @@
-from puzzle_ops.agents import PuzzleOpsAgent
+from puzzle_ops.agents import PuzzleOpsAgent, _business_grade_from_metric_levels, _metric_level, _metric_levels_from_prediction_ranges, _strong_rag_citations_from_trace, _value_candidate_prediction_from_evidence, _default_repository_path
+from puzzle_ops.models import HistoricalRecord
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.vision_llm import MissingVisionLLMConfig, OpenAIVisionLLMClient
 from puzzle_ops.storage import PuzzleRepository
@@ -10,18 +11,110 @@ from datetime import date
 from pathlib import Path
 import json
 from PIL import Image
+import pytest
+import sys
+
+
+def test_default_repository_path_is_stable_for_local_server(monkeypatch, tmp_path):
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.setattr(sys, "argv", ["server.py"])
+
+    assert _default_repository_path(tmp_path) == tmp_path / "puzzle_ops.db"
+
+
+def test_default_repository_path_is_process_scoped_for_pytest(monkeypatch, tmp_path):
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "tests/test_agents.py::test_name (call)")
+
+    path = _default_repository_path(tmp_path)
+
+    assert path.name.startswith("puzzle_ops_")
+    assert path.name.endswith(".db")
+    assert path != tmp_path / "puzzle_ops.db"
+
+
+def test_agent_uses_configured_production_runtime_dir(monkeypatch, tmp_path):
+    runtime_dir = tmp_path / "prod_runtime"
+    monkeypatch.setenv("PUZZLEOPS_RUNTIME_DIR", str(runtime_dir))
+
+    agent = PuzzleOpsAgent()
+
+    assert agent._runtime_dir == runtime_dir
+    assert agent.repository.db_path == runtime_dir / "puzzle_ops.db"
+    assert (runtime_dir / "trial_uploads").exists()
+
+
+def test_production_mode_rejects_temp_runtime_dir(monkeypatch, tmp_path):
+    monkeypatch.setenv("PUZZLEOPS_PRODUCTION_MODE", "true")
+    monkeypatch.setenv("PUZZLEOPS_RUNTIME_DIR", str(tmp_path))
+
+    with pytest.raises(RuntimeError, match="生产模式不能使用临时运行目录"):
+        PuzzleOpsAgent()
+
+
+def test_create_production_backup_copies_runtime_state(monkeypatch, tmp_path):
+    runtime_dir = tmp_path / "prod_runtime"
+    monkeypatch.setenv("PUZZLEOPS_RUNTIME_DIR", str(runtime_dir))
+    agent = PuzzleOpsAgent()
+    agent.repository.add_sync_event("日本", "提需同步", "飞书在线表格", "成功")
+
+    result = agent.create_production_backup(label="smoke")
+
+    backup_dir = Path(str(result["backup_dir"]))
+    assert result["status"] == "created"
+    assert (backup_dir / "puzzle_ops.db").exists()
+    assert (backup_dir / "manifest.json").exists()
+
+
+def test_production_mode_starts_one_daily_backup_without_blocking(monkeypatch, tmp_path):
+    import puzzle_ops.production as production
+
+    runtime_dir = tmp_path / "prod_runtime"
+    monkeypatch.setenv("PUZZLEOPS_PRODUCTION_MODE", "true")
+    monkeypatch.setenv("PUZZLEOPS_RUNTIME_DIR", str(runtime_dir))
+    monkeypatch.setattr(production, "_is_under_temp", lambda path: False)
+
+    first = PuzzleOpsAgent()
+    first_markers = tuple((runtime_dir / "backups").glob("daily_*.json"))
+    second = PuzzleOpsAgent()
+    second_markers = tuple((runtime_dir / "backups").glob("daily_*.json"))
+
+    assert first._runtime_dir == runtime_dir.resolve()
+    assert second._runtime_dir == runtime_dir.resolve()
+    assert first_markers
+    assert len(second_markers) == len(first_markers)
 
 
 def test_country_data_is_isolated_between_japan_and_france():
-    agent = PuzzleOpsAgent(today=date(2026, 6, 9))
+    agent = PuzzleOpsAgent(today=date(2026, 7, 13))
 
     japan = agent.dashboard("日本")
     france = agent.dashboard("法国")
 
     assert japan["country_label"] == "🇯🇵 日本"
     assert france["country_label"] == "🇫🇷 法国"
-    assert "常规_日本_传统浴袍美女0604" in japan["tasks"][0]["body"]
-    assert "常规_法国_薰衣草0604" in france["tasks"][0]["body"]
+    assert "试新_日本_儿童节鲤鱼旗0527" in japan["tasks"][0]["body"]
+    assert "试新_法国_乡村女性0531" in france["tasks"][0]["body"]
+    assert japan["sa"] == "32% / 35%"
+    assert france["sa"] == "28% / 30%"
+
+
+def test_dashboard_tasks_are_generated_from_low_stock_and_upcoming_holiday():
+    agent = PuzzleOpsAgent(today=date(2026, 7, 13))
+
+    japan = agent.dashboard("日本")
+    france = agent.dashboard("法国")
+
+    japan_tasks = "\n".join(task["body"] for task in japan["tasks"])
+    france_tasks = "\n".join(task["body"] for task in france["tasks"])
+    assert "海の日" in japan_tasks
+    assert "7月20日" in japan_tasks
+    assert "黄金周" not in japan_tasks
+    assert "法国国庆日" in france_tasks
+    assert "7月14日" in france_tasks
+    assert "薰衣草季临近" not in france_tasks
+    assert "历史好图" in japan["tasks"][0]["title"]
+    assert "历史好图" in france["tasks"][0]["title"]
+    assert "未接入真实库存数量" in japan["tasks"][0]["body"]
 
 
 def test_memory_debug_exposes_layer_source_and_query_match(tmp_path):
@@ -173,6 +266,79 @@ def test_agent_chunk_eval_dataset_summary_tracks_business_metrics(tmp_path):
     assert "citation_precision@5" in summary["metrics"]
     assert "risk_miss_rate@5" in summary["metrics"]
     assert summary["hybrid_search"]["bm25_dense_rerank"] is True
+
+
+def test_agent_exports_rag_hard_negative_report_with_retrieval_metrics(monkeypatch, tmp_path):
+    knowledge_dir = tmp_path / "knowledge"
+    processed = knowledge_dir / "processed"
+    eval_dir = knowledge_dir / "eval"
+    processed.mkdir(parents=True)
+    eval_dir.mkdir(parents=True)
+    docs = (
+        {
+            "document_id": "JP_KB_SUSHI",
+            "country": "日本",
+            "source_type": "value_rule",
+            "title": "日本寿司饮食文化",
+            "text": "寿司、握寿司、刺身拼盘属于日本本土饮食文化，适合主体明确、食物治愈、桌面近景的拼图内容。",
+            "metadata": {"subject": "寿司", "value_dimension": "本土饮食文化"},
+        },
+        {
+            "document_id": "JP_KB_ONSEN",
+            "country": "日本",
+            "source_type": "value_rule",
+            "title": "日本温泉治愈场景",
+            "text": "温泉旅馆、浴衣、山景烟雾属于日本旅行治愈场景，但不能作为寿司料理图的主要依据。",
+            "metadata": {"subject": "温泉", "value_dimension": "旅行治愈"},
+        },
+        {
+            "document_id": "FR_KB_LAVENDER",
+            "country": "法国",
+            "source_type": "value_rule",
+            "title": "法国薰衣草庄园",
+            "text": "薰衣草田、庄园、生活艺术适合法国市场，不应被日本寿司 query 召回。",
+            "metadata": {"subject": "薰衣草", "value_dimension": "生活艺术"},
+        },
+    )
+    (processed / "value_audit_documents.jsonl").write_text(
+        "\n".join(json.dumps(item, ensure_ascii=False) for item in docs) + "\n",
+        encoding="utf-8",
+    )
+    cases = (
+        {
+            "query": "日本寿司料理桌面近景是否符合本土饮食文化",
+            "country": "日本",
+            "expected_parent_id": "JP_KB_SUSHI",
+            "relevant_parent_ids": ["JP_KB_SUSHI"],
+            "hard_negative_parent_ids": ["JP_KB_ONSEN", "FR_KB_LAVENDER"],
+        },
+    )
+    (eval_dir / "value_audit_cases.jsonl").write_text(
+        "\n".join(json.dumps(item, ensure_ascii=False) for item in cases) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+
+    report = agent.export_rag_hard_negative_report(("日本",), output_dir=tmp_path / "rag_report")
+
+    assert report["mode"] == "rag_hard_negative_eval"
+    assert report["main_prediction_change_allowed"] is False
+    assert report["metrics"]["hit@5"] == 1.0
+    assert report["metrics"]["mrr@5"] == 1.0
+    assert report["metrics"]["ndcg@5"] == 1.0
+    assert report["metrics"]["precision@5"] > 0
+    assert report["metrics"]["recall@5"] == 1.0
+    assert report["metrics"]["hard_negative_top1_rate"] == 0.0
+    assert report["metrics"]["hard_negative_topk_rate"] == 1.0
+    assert report["country_metrics"]["日本"]["hit@5"] == 1.0
+    assert report["cases"][0]["retrieved_parent_ids"][0] == "JP_KB_SUSHI"
+    assert report["cases"][0]["failure_type"] == "passed_with_hard_negative_noise"
+    assert report["decision"]["status"] == "keep_shadow_repair"
+    assert Path(report["json_report"]).exists()
+    markdown = Path(report["markdown_report"]).read_text(encoding="utf-8")
+    assert "RAG Citation Hard-Negative Report" in markdown
+    assert "不改价值观大师主预测" in markdown
 
 
 def test_agent_normalizes_file_knowledge_to_business_metadata(monkeypatch, tmp_path):
@@ -367,22 +533,23 @@ def test_audit_review_falls_back_when_manual_is_not_readable(monkeypatch):
 def test_regular_demand_row_has_real_business_fields_and_empty_delivery_date():
     agent = PuzzleOpsAgent(today=date(2026, 6, 9))
 
-    row = agent.add_regular_demand("日本", "人物", "常规_日本_传统浴袍美女0604", 0)
+    row = agent.add_regular_demand("日本", "drawing", "常规_日本_传统浴袍美女0510", 0)
 
     assert row.need_type == "常规"
     assert row.country == "日本"
-    assert row.js_category == "人物"
+    assert row.js_category == "drawing"
     assert row.operation_tag == "常规_日本_传统浴袍美女0609"
     assert row.count == 7
     assert row.priority == "P1"
     assert row.delivery_date == ""
-    assert row.method == "限素材网"
+    assert row.method == "纯AI"
     assert row.remark == ""
+    assert row.reference_image_path
 
 
 def test_demand_editing_only_changes_requested_editable_fields():
     agent = PuzzleOpsAgent(today=date(2026, 6, 9))
-    row = agent.add_regular_demand("法国", "花卉", "常规_法国_薰衣草0604", 0)
+    row = agent.add_regular_demand("法国", "home", "常规_法国_阳台沙发0425", 0)
 
     edited = agent.edit_demand_row(
         row,
@@ -398,7 +565,7 @@ def test_demand_editing_only_changes_requested_editable_fields():
     assert edited.method == "先照片后AI"
     assert edited.delivery_date == "06-20"
     assert edited.remark == "过图会要求提前交付"
-    assert edited.operation_tag == "常规_法国_薰衣草0609"
+    assert edited.operation_tag == "常规_法国_阳台沙发0609"
 
 
 def test_trial_demand_parse_and_derive_have_matching_core_fields():
@@ -414,10 +581,61 @@ def test_trial_demand_parse_and_derive_have_matching_core_fields():
     assert parse_row.priority == "P1"
     assert parse_row.delivery_date == ""
     assert derive_row.delivery_date == ""
+    assert parse_row.js_category == ""
+    assert derive_row.js_category == ""
     assert "上传参考图" in parse_row.image_name
     assert "衍生方向" in derive_row.image_name
     assert "自动衍生" not in derive_row.image_name
     assert parse_row.value_match == ""
+
+
+def test_derivative_generation_prompt_uses_japan_business_template():
+    agent = PuzzleOpsAgent()
+    row = agent.create_trial_demand("日本", "animal", "derive").edited(
+        subject="猫咪鲤鱼",
+        subject_description="主体内容：猫咪鲤鱼；色彩氛围：浅粉、湖蓝；构图环境：日式庭院锦鲤池。",
+    )
+
+    prompt, negative_prompt = agent.derivative_generation_prompts(row)
+
+    assert "日本市场" in prompt
+    assert "猫咪鲤鱼" in prompt
+    assert "日式庭院" in prompt
+    assert "和室" in prompt
+    assert "樱花" in prompt
+    assert "治愈" in prompt
+    assert "中老年用户拼图" in prompt
+    assert "本次只生成一张独立完整图片" in prompt
+    assert "衍生2张" not in prompt
+    assert "宫崎骏" in negative_prompt
+    assert "中日韩文化混淆" in negative_prompt
+    assert "小屋" in negative_prompt
+    assert "主体替换" in negative_prompt
+    assert "四季同图" in negative_prompt
+
+
+def test_derivative_generation_prompt_uses_france_business_template():
+    agent = PuzzleOpsAgent()
+    row = agent.create_trial_demand("法国", "flowers", "derive").edited(
+        subject="铃兰花",
+        subject_description="主体内容：铃兰花；色彩氛围：明亮白绿；构图环境：法式窗台和乡村庭院。",
+    )
+
+    prompt, negative_prompt = agent.derivative_generation_prompts(row)
+
+    assert "法国市场" in prompt
+    assert "铃兰花" in prompt
+    assert "普罗旺斯" in prompt
+    assert "法式窗台" in prompt
+    assert "石屋花园" in prompt
+    assert "生活艺术" in prompt
+    assert "中老年用户拼图" in prompt
+    assert "本次只生成一张独立完整图片" in prompt
+    assert "衍生2张" not in prompt
+    assert "美式谷仓" in negative_prompt
+    assert "英式乡村" in negative_prompt
+    assert "主体替换" in negative_prompt
+    assert "四季同图" in negative_prompt
 
 
 def test_simulate_trial_upload_updates_parse_and_derive_rows():
@@ -435,7 +653,7 @@ def test_simulate_trial_upload_updates_parse_and_derive_rows():
 
 def test_generated_subject_description_uses_business_three_part_standard():
     agent = PuzzleOpsAgent()
-    row = agent.add_regular_demand("日本", "人物", "常规_日本_传统浴袍美女0604", 0)
+    row = agent.add_regular_demand("日本", "drawing", "常规_日本_传统浴袍美女0510", 0)
 
     described = agent.generate_subject_description(row)
 
@@ -444,6 +662,85 @@ def test_generated_subject_description_uses_business_three_part_standard():
     assert described.subject_description.count("构图环境：") == 1
     assert "主体：" not in described.subject_description
     assert "语义主体" not in described.subject_description
+
+
+def test_generated_subject_description_marks_local_mode_in_remark():
+    agent = PuzzleOpsAgent()
+    row = agent.add_regular_demand("日本", "animal", "常规_日本_猫咪鲤鱼0605", 0)
+
+    described = agent.generate_subject_description(row)
+
+    assert described.remark == "描述来源：本地视觉解析；未调用远程视觉模型"
+
+
+def test_prompt_baseline_description_exports_prompt_and_keeps_json_contract(monkeypatch):
+    captured = {}
+
+    def transport(payload, api_key, endpoint):
+        captured["payload"] = payload
+        captured["api_key"] = api_key
+        captured["endpoint"] = endpoint
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            '{"subject_description":"主体内容：猫咪与锦鲤池；色彩氛围：浅粉、湖蓝、明亮治愈；构图环境：日式庭院近景，主体清晰有层次。",'
+                            '"remark":"保留猫与锦鲤互动，避免动漫IP感。"}'
+                        )
+                    }
+                }
+            ]
+        }
+
+    monkeypatch.setenv("QWEN_API_KEY", "qwen-key")
+    agent = PuzzleOpsAgent(description_prompt_transport=transport)
+    row = agent.add_regular_demand("日本", "animal", "常规_日本_猫咪鲤鱼0605", 0)
+
+    result = agent.generate_subject_description_prompt_baseline(row)
+
+    assert result["status"] == "ok"
+    assert result["provider"] == "qwen"
+    assert result["subject_description"].startswith("主体内容：猫咪与锦鲤池")
+    assert result["remark"] == "保留猫与锦鲤互动，避免动漫IP感。"
+    prompt_text = captured["payload"]["messages"][0]["content"]
+    assert "只输出 JSON" in prompt_text
+    assert "Prompt baseline v3" in prompt_text
+    assert "生产详细版" in prompt_text
+    assert "subject_description 控制在 80-120 个中文字符" in prompt_text
+    assert "保留可执行画面细节" in prompt_text
+    assert "备注必须是生产约束" in prompt_text
+    assert "不要编造图片里没有的主体" in prompt_text
+    assert "国家：日本" in prompt_text
+
+
+def test_generated_subject_description_appends_remote_model_source_without_overwriting_human_note(tmp_path):
+    class FakeVisionClient:
+        provider = "qwen"
+
+        def config_status(self):
+            return {"provider": "qwen", "mode": "real", "model": "qwen3-vl-plus"}
+
+        def analyze(self, images, country, category, local_summary):
+            return VisionLLMResult(
+                subject="猫咪鲤鱼",
+                scene="日式庭院里的猫和锦鲤池",
+                culture_elements=("日式庭院", "锦鲤"),
+                style="清爽暖色",
+                risk_tags=(),
+                prompt_keywords=("猫", "锦鲤", "日式庭院"),
+                confidence=0.87,
+                provider="qwen",
+                raw_text="fake regular vision result",
+            )
+
+    agent = PuzzleOpsAgent(enable_regular_vision=True)
+    agent.trial_uploads = TrialImageUploadService(tmp_path / "uploads", vision_client=FakeVisionClient())
+    row = agent.add_regular_demand("日本", "animal", "常规_日本_猫咪鲤鱼0605", 0).edited(remark="运营备注：保留治愈感")
+
+    described = agent.generate_subject_description(row)
+
+    assert described.remark == "运营备注：保留治愈感；描述来源：Qwen qwen3-vl-plus；视觉置信度 0.87"
 
 
 def test_value_master_writes_value_match_to_trial_row():
@@ -669,16 +966,77 @@ def test_value_master_requires_real_llm_instead_of_rule_fallback():
 
 
 def test_holiday_recommendation_is_ai_subject_planning_not_tag_copying():
-    agent = PuzzleOpsAgent()
+    agent = PuzzleOpsAgent(today=date(2026, 7, 13))
 
     holiday = agent.holiday_recommendation("日本")
 
-    assert holiday.name == "黄金周"
-    assert "旅游踏青" in holiday.ai_themes
-    assert "家庭团聚" in holiday.ai_themes
-    assert "新干线" in holiday.elements
+    assert holiday.name == "海の日"
+    assert "海边小旅行" in holiday.ai_themes
+    assert "家庭出游" in holiday.ai_themes
+    assert "海岸线" in holiday.elements
     assert all(not theme.startswith(("常规_", "试新_")) for theme in holiday.ai_themes)
-    assert len(holiday.history_good_images) >= 3
+    assert not any(image.title.startswith("海の日历史好图") for image in holiday.history_good_images)
+    assert "真实历史样本" in holiday.evidence_note
+    assert holiday.value_rule_citations
+    assert holiday.llm_planning_note
+
+
+def test_holiday_recommendation_only_surfaces_half_month_window():
+    agent = PuzzleOpsAgent(today=date(2026, 8, 20))
+
+    assert agent.upcoming_holiday("日本") is None
+
+
+def test_holiday_recommendation_marks_missing_direct_history_without_fake_images(monkeypatch):
+    monkeypatch.setenv("HOLIDAY_LLM_ENABLE_REMOTE_CALLS", "0")
+    agent = PuzzleOpsAgent(today=date(2026, 7, 31))
+
+    holiday = agent.holiday_recommendation("日本")
+
+    assert holiday.name == "山の日"
+    assert holiday.direct_history_count == 0
+    assert holiday.history_good_images
+    assert not any(image.title.startswith("山の日历史好图") for image in holiday.history_good_images)
+    assert "暂无该节日直接历史样本" in holiday.evidence_note
+    assert "历史好图规律" in holiday.llm_planning_note
+    assert "历史坏图避雷" in holiday.llm_planning_note
+
+
+def test_holiday_recommendation_uses_remote_qwen_planner_when_enabled(monkeypatch):
+    captured = {}
+
+    def transport(payload, api_key, endpoint):
+        captured["payload"] = payload
+        captured["api_key"] = api_key
+        captured["endpoint"] = endpoint
+        return {"choices": [{"message": {"content": "远程节日策划：主推海边家庭出游，避开泛亚洲混搭。"}}]}
+
+    monkeypatch.setenv("HOLIDAY_LLM_ENABLE_REMOTE_CALLS", "1")
+    monkeypatch.setenv("HOLIDAY_LLM_PROVIDER", "qwen")
+    monkeypatch.setenv("HOLIDAY_LLM_MODEL", "qwen3.7-plus")
+    monkeypatch.setenv("HOLIDAY_LLM_API_KEY", "holiday-key")
+
+    agent = PuzzleOpsAgent(today=date(2026, 7, 13), holiday_llm_transport=transport)
+
+    holiday = agent.holiday_recommendation("日本")
+
+    assert holiday.llm_planning_note == "远程节日策划：主推海边家庭出游，避开泛亚洲混搭。"
+    assert holiday.llm_source == "Qwen qwen3.7-plus"
+    assert captured["api_key"] == "holiday-key"
+    assert captured["payload"]["model"] == "qwen3.7-plus"
+    user_content = captured["payload"]["messages"][1]["content"]
+    assert "海の日" in user_content
+    assert "真实历史好图参考" in user_content
+    assert "价值观规则依据" in user_content
+
+
+def test_holiday_recommendation_marks_local_fallback_source(monkeypatch):
+    monkeypatch.setenv("HOLIDAY_LLM_ENABLE_REMOTE_CALLS", "0")
+
+    holiday = PuzzleOpsAgent(today=date(2026, 7, 13)).holiday_recommendation("日本")
+
+    assert holiday.llm_source == "本地规则 fallback"
+    assert "LLM策划建议（待人工确认）" in holiday.llm_planning_note
 
 
 def test_analysis_marks_positions_5_and_10_and_keeps_editable_remarks():
@@ -725,6 +1083,255 @@ def test_analysis_report_uses_new_real_business_workbook_metrics():
     assert any(row.source == "AI" and row.grade == "D" for row in france.rows)
 
 
+def test_analysis_report_generates_structured_business_recap_from_records():
+    agent = PuzzleOpsAgent()
+    agent._history_cache["法国"] = (
+        HistoricalRecord(
+            grade="S",
+            image_formula="",
+            image_id="fr-lavender",
+            image_url="",
+            local_image_path="",
+            thumbnail_path="",
+            position=5,
+            dimension_grade="高高高",
+            open_rate=0.19,
+            completion_rate=0.94,
+            avg_finish_time=22,
+            operation_tag="常规_法国_薰衣草田园0702",
+            subject_tag="薰衣草田园",
+            js_category="travel",
+            source="AI",
+            remark="普罗旺斯薰衣草田园表现强，适合补库存",
+            distribution_date="2026-07-02",
+            distribution_cycle="",
+            country="法国",
+        ),
+        HistoricalRecord(
+            grade="A",
+            image_formula="",
+            image_id="fr-bakery",
+            image_url="",
+            local_image_path="",
+            thumbnail_path="",
+            position=10,
+            dimension_grade="高高中",
+            open_rate=0.15,
+            completion_rate=0.92,
+            avg_finish_time=19,
+            operation_tag="常规_法国_巴黎面包店0703",
+            subject_tag="巴黎面包店",
+            js_category="food",
+            source="素材网",
+            remark="法式面包店与甜点橱窗有生活气息",
+            distribution_date="2026-07-03",
+            distribution_cycle="",
+            country="法国",
+        ),
+        HistoricalRecord(
+            grade="D",
+            image_formula="",
+            image_id="fr-gray-building",
+            image_url="",
+            local_image_path="",
+            thumbnail_path="",
+            position=3,
+            dimension_grade="低低低",
+            open_rate=0.02,
+            completion_rate=0.81,
+            avg_finish_time=12,
+            operation_tag="常规_法国_灰调建筑0704",
+            subject_tag="灰调建筑",
+            js_category="travel",
+            source="AI",
+            remark="灰调建筑偏美式，主体弱且过暗",
+            distribution_date="2026-07-04",
+            distribution_cycle="",
+            country="法国",
+        ),
+    )
+
+    report = agent.analysis_report("法国")
+
+    assert "异常点归因：" in report.cycle_summary
+    assert "市场题材趋势：" in report.cycle_summary
+    assert "常规_法国_灰调建筑0704" in report.cycle_summary
+    assert "常规_法国_薰衣草田园0702" in report.cycle_summary
+    assert "需要补库存主题：" in report.next_todo
+    assert "应暂停低质方向：" in report.next_todo
+    assert "下一周期试新假设：" in report.next_todo
+    assert "灰调建筑" in report.next_todo
+
+
+def test_analysis_report_can_use_qwen_llm_to_rewrite_structured_recap(monkeypatch):
+    captured = {}
+
+    def transport(payload, api_key, endpoint):
+        captured["payload"] = payload
+        captured["api_key"] = api_key
+        captured["endpoint"] = endpoint
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "cycle_summary": "LLM复盘：灰调建筑是本周期异常，薰衣草田园和巴黎面包店可继续放大。",
+                                "next_todo": "LLM建议：补普罗旺斯生活场景，暂停灰调弱主体建筑。",
+                            },
+                            ensure_ascii=False,
+                        )
+                    }
+                }
+            ]
+        }
+
+    monkeypatch.setenv("ANALYSIS_LLM_ENABLE_REMOTE_CALLS", "1")
+    monkeypatch.setenv("ANALYSIS_LLM_PROVIDER", "qwen")
+    monkeypatch.setenv("ANALYSIS_LLM_MODEL", "qwen3.7-plus")
+    monkeypatch.setenv("ANALYSIS_LLM_API_KEY", "analysis-key")
+    agent = PuzzleOpsAgent(analysis_llm_transport=transport)
+    agent._history_cache["法国"] = (
+        HistoricalRecord(
+            grade="S",
+            image_formula="",
+            image_id="fr-lavender",
+            image_url="",
+            local_image_path="",
+            thumbnail_path="",
+            position=5,
+            dimension_grade="高高高",
+            open_rate=0.19,
+            completion_rate=0.94,
+            avg_finish_time=22,
+            operation_tag="常规_法国_薰衣草田园0702",
+            subject_tag="薰衣草田园",
+            js_category="travel",
+            source="AI",
+            remark="普罗旺斯薰衣草田园表现强",
+            distribution_date="2026-07-02",
+            distribution_cycle="",
+            country="法国",
+        ),
+        HistoricalRecord(
+            grade="D",
+            image_formula="",
+            image_id="fr-gray-building",
+            image_url="",
+            local_image_path="",
+            thumbnail_path="",
+            position=3,
+            dimension_grade="低低低",
+            open_rate=0.02,
+            completion_rate=0.81,
+            avg_finish_time=12,
+            operation_tag="常规_法国_灰调建筑0704",
+            subject_tag="灰调建筑",
+            js_category="travel",
+            source="AI",
+            remark="灰调建筑偏美式，主体弱且过暗",
+            distribution_date="2026-07-04",
+            distribution_cycle="",
+            country="法国",
+        ),
+    )
+
+    report = agent.analysis_report("法国")
+
+    assert report.cycle_summary == "LLM复盘：灰调建筑是本周期异常，薰衣草田园和巴黎面包店可继续放大。"
+    assert report.next_todo == "LLM建议：补普罗旺斯生活场景，暂停灰调弱主体建筑。"
+    assert captured["api_key"] == "analysis-key"
+    assert captured["payload"]["model"] == "qwen3.7-plus"
+    user_content = captured["payload"]["messages"][1]["content"]
+    assert "结构化分析" in user_content
+    assert "异常点归因" in user_content
+    assert "市场题材趋势" in user_content
+    assert "需要补库存主题" in user_content
+    assert "应暂停低质方向" in user_content
+    assert "下一周期试新假设" in user_content
+    assert "常规_法国_灰调建筑0704" in user_content
+    assert "不要编造" in user_content
+
+
+def test_analysis_report_does_not_call_llm_when_remote_disabled(monkeypatch):
+    called = False
+
+    def transport(payload, api_key, endpoint):
+        nonlocal called
+        called = True
+        return {}
+
+    monkeypatch.setenv("ANALYSIS_LLM_ENABLE_REMOTE_CALLS", "0")
+    agent = PuzzleOpsAgent(analysis_llm_transport=transport)
+    agent._history_cache["法国"] = (
+        HistoricalRecord(
+            grade="D",
+            image_formula="",
+            image_id="fr-gray-building",
+            image_url="",
+            local_image_path="",
+            thumbnail_path="",
+            position=3,
+            dimension_grade="低低低",
+            open_rate=0.02,
+            completion_rate=0.81,
+            avg_finish_time=12,
+            operation_tag="常规_法国_灰调建筑0704",
+            subject_tag="灰调建筑",
+            js_category="travel",
+            source="AI",
+            remark="灰调建筑偏美式，主体弱且过暗",
+            distribution_date="2026-07-04",
+            distribution_cycle="",
+            country="法国",
+        ),
+    )
+
+    report = agent.analysis_report("法国")
+
+    assert called is False
+    assert "异常点归因：" in report.cycle_summary
+    assert "需要补库存主题：" in report.next_todo
+
+
+def test_analysis_report_falls_back_when_llm_output_is_unusable(monkeypatch):
+    def transport(payload, api_key, endpoint):
+        return {"choices": [{"message": {"content": ""}}]}
+
+    monkeypatch.setenv("ANALYSIS_LLM_ENABLE_REMOTE_CALLS", "1")
+    monkeypatch.setenv("ANALYSIS_LLM_API_KEY", "analysis-key")
+    agent = PuzzleOpsAgent(analysis_llm_transport=transport)
+    agent._history_cache["法国"] = (
+        HistoricalRecord(
+            grade="D",
+            image_formula="",
+            image_id="fr-gray-building",
+            image_url="",
+            local_image_path="",
+            thumbnail_path="",
+            position=3,
+            dimension_grade="低低低",
+            open_rate=0.02,
+            completion_rate=0.81,
+            avg_finish_time=12,
+            operation_tag="常规_法国_灰调建筑0704",
+            subject_tag="灰调建筑",
+            js_category="travel",
+            source="AI",
+            remark="灰调建筑偏美式，主体弱且过暗",
+            distribution_date="2026-07-04",
+            distribution_cycle="",
+            country="法国",
+        ),
+    )
+
+    report = agent.analysis_report("法国")
+
+    assert "异常点归因：" in report.cycle_summary
+    assert "常规_法国_灰调建筑0704" in report.cycle_summary
+    assert "下一周期试新假设：" in report.next_todo
+
+
 def test_weekly_review_workbench_closes_recycle_analysis_to_need_suggestions():
     agent = PuzzleOpsAgent()
 
@@ -754,7 +1361,373 @@ def test_value_prediction_filters_by_grade():
     assert a_cards
     assert all(card.image.grade == "S" for card in s_cards)
     assert all(card.image.grade == "A" for card in a_cards)
-    assert "常规_日本_" in s_cards[0].operation_tag or "试新_日本_" in s_cards[0].operation_tag
+
+
+def test_metric_level_uses_country_specific_business_thresholds():
+    assert _metric_level("日本", "open_rate", 0.1379) == "高"
+    assert _metric_level("日本", "open_rate", 0.0788) == "低"
+    assert _metric_level("日本", "completion_rate", 0.9199) == "高"
+    assert _metric_level("日本", "completion_rate", 0.8672) == "低"
+    assert _metric_level("日本", "avg_finish_time", 19.74) == "高"
+    assert _metric_level("日本", "avg_finish_time", 15.05) == "低"
+
+    assert _metric_level("法国", "open_rate", 0.1079) == "高"
+    assert _metric_level("法国", "open_rate", 0.0588) == "低"
+    assert _metric_level("法国", "completion_rate", 0.9190) == "高"
+    assert _metric_level("法国", "completion_rate", 0.8572) == "低"
+    assert _metric_level("法国", "avg_finish_time", 18.74) == "高"
+    assert _metric_level("法国", "avg_finish_time", 14.99) == "低"
+
+
+def test_business_grade_is_derived_from_metric_levels():
+    assert _business_grade_from_metric_levels(("高", "高", "高")) == "S"
+    assert _business_grade_from_metric_levels(("高", "高", "中")) == "A"
+    assert _business_grade_from_metric_levels(("中", "中", "中")) == "B"
+    assert _business_grade_from_metric_levels(("高", "高", "低")) == "B"
+    assert _business_grade_from_metric_levels(("低", "中", "中")) == "C"
+    assert _business_grade_from_metric_levels(("低", "高", "中")) == "C"
+    assert _business_grade_from_metric_levels(("低", "低", "低")) == "D"
+    assert _business_grade_from_metric_levels(("低", "低", "中")) == "D"
+
+
+def test_value_candidate_prediction_keeps_visual_grade_and_calibrates_metric_levels():
+    semantic = VisionLLMResult(
+        subject="法式餐桌",
+        scene="花园餐桌",
+        culture_elements=("法式餐点",),
+        style="明亮写实",
+        risk_tags=(),
+        prompt_keywords=("餐桌",),
+        confidence=0.95,
+        provider="qwen",
+        raw_text="视觉主体清晰。",
+    )
+    low_metric_positive = (
+        {"grade": "S", "operation_tag": "历史_法国_弱开图", "open_rate": 0.05, "completion_rate": 0.80, "avg_finish_time": 14.0},
+        {"grade": "A", "operation_tag": "历史_法国_低完成", "open_rate": 0.052, "completion_rate": 0.82, "avg_finish_time": 13.8},
+    )
+
+    prediction = _value_candidate_prediction_from_evidence(
+        {"country": "法国", "subject": "法式餐桌"},
+        semantic,
+        low_metric_positive,
+        (),
+    )
+
+    assert prediction["predicted_grade"] == "S"
+    assert prediction["metric_levels"] == {"open_rate": "高", "completion_rate": "高", "avg_finish_time": "高"}
+    assert "等级预测=S" in prediction["evidence"]
+    assert "指标校准=高高高" in prediction["evidence"]
+
+
+def test_value_candidate_prediction_uses_legacy_count_grade_formula():
+    semantic = VisionLLMResult(
+        subject="法式甜品橱窗",
+        scene="巴黎甜品店",
+        culture_elements=("马卡龙", "甜品橱窗"),
+        style="暖色水彩插画",
+        risk_tags=("low_copyright_risk", "no_ip_infringement", "no_cultural_confusion"),
+        prompt_keywords=("马卡龙", "甜品"),
+        confidence=0.9,
+        provider="qwen",
+        raw_text="",
+    )
+    weak_positive = (
+        {"grade": "S", "operation_tag": "常规_法国_石头城堡0221", "open_rate": 0.18, "completion_rate": 0.94, "avg_finish_time": 21.0, "reason": "偏爱石头建筑（相似得分=4，主体/视觉重合=1）"},
+        {"grade": "A", "operation_tag": "常规_法国_阳台沙发0425", "open_rate": 0.16, "completion_rate": 0.92, "avg_finish_time": 20.0, "reason": "生活气息（相似得分=4，主体/视觉重合=1）"},
+        {"grade": "A", "operation_tag": "常规_法国_店铺0421", "open_rate": 0.15, "completion_rate": 0.91, "avg_finish_time": 19.0, "reason": "店铺（相似得分=4，主体/视觉重合=1）"},
+    )
+    strong_negative = (
+        {"grade": "D", "operation_tag": "常规_法国_马卡龙0423", "open_rate": 0.03, "completion_rate": 0.84, "avg_finish_time": 13.0, "reason": "马卡龙呈现方式问题（相似得分=38，主体/视觉重合=5）"},
+    )
+
+    prediction = _value_candidate_prediction_from_evidence({"country": "法国", "subject": "甜品橱窗"}, semantic, weak_positive, strong_negative)
+
+    assert prediction["predicted_grade"] == "B"
+    assert 0.48 <= prediction["sa_probability"] <= 0.50
+
+
+def test_similar_history_filters_zero_relevance_records():
+    agent = PuzzleOpsAgent()
+    agent._history_cache["日本"] = (
+        HistoricalRecord(
+            grade="S",
+            image_formula="",
+            image_id="irrelevant",
+            image_url="",
+            local_image_path="",
+            thumbnail_path="",
+            position=1,
+            dimension_grade="高高高",
+            open_rate=0.20,
+            completion_rate=0.95,
+            avg_finish_time=22,
+            operation_tag="常规_日本_寿司0521",
+            subject_tag="寿司",
+            js_category="food",
+            source="真实历史",
+            remark="日式料理桌面",
+            distribution_date="2026-06-01",
+            distribution_cycle="",
+            country="日本",
+        ),
+    )
+    semantic = VisionLLMResult(
+        subject="雪山列车",
+        scene="冬季铁路线",
+        culture_elements=(),
+        style="冷色风景",
+        risk_tags=(),
+        prompt_keywords=("雪山",),
+        confidence=0.8,
+        provider="qwen",
+        raw_text="",
+    )
+
+    evidence = agent._similar_history_for_candidate({"country": "日本", "js_category": "travel", "operation_tag": "候选_日本_雪山列车"}, semantic, positive=True)
+
+    assert evidence == ()
+
+
+def test_similar_history_shadow_rerank_is_optional_and_prioritizes_subject_match():
+    agent = PuzzleOpsAgent()
+    agent._history_cache["日本"] = (
+        HistoricalRecord(
+            grade="S",
+            image_formula="",
+            image_id="irrelevant-flower",
+            image_url="",
+            local_image_path="",
+            thumbnail_path="",
+            position=1,
+            dimension_grade="高高高",
+            open_rate=0.21,
+            completion_rate=0.94,
+            avg_finish_time=22,
+            operation_tag="常规_日本_红玫瑰花束0701",
+            subject_tag="红玫瑰花束",
+            js_category="food",
+            source="真实历史",
+            remark="红色花束静物，与寿司饮食文化无关",
+            distribution_date="2026-06-01",
+            distribution_cycle="",
+            country="日本",
+        ),
+        HistoricalRecord(
+            grade="A",
+            image_formula="",
+            image_id="related-sushi",
+            image_url="",
+            local_image_path="",
+            thumbnail_path="",
+            position=2,
+            dimension_grade="高高中",
+            open_rate=0.18,
+            completion_rate=0.93,
+            avg_finish_time=20,
+            operation_tag="常规_日本_寿司拼盘0702",
+            subject_tag="寿司拼盘",
+            js_category="objects",
+            source="真实历史",
+            remark="日式料理桌面近景，本土饮食文化，米白与鲑鱼橙",
+            distribution_date="2026-06-02",
+            distribution_cycle="",
+            country="日本",
+        ),
+    )
+    semantic = VisionLLMResult(
+        subject="寿司拼盘",
+        scene="日式料理桌面近景",
+        culture_elements=("本土饮食文化",),
+        style="米白与鲑鱼橙",
+        risk_tags=(),
+        prompt_keywords=("寿司", "料理", "桌面"),
+        confidence=0.9,
+        provider="qwen",
+        raw_text="",
+    )
+
+    legacy = agent._similar_history_for_candidate({"country": "日本", "js_category": "food", "operation_tag": "候选_日本_寿司"}, semantic, positive=True)
+    shadow = agent._similar_history_for_candidate(
+        {"country": "日本", "js_category": "food", "operation_tag": "候选_日本_寿司"},
+        semantic,
+        positive=True,
+        ranking_mode="shadow_rerank",
+    )
+
+    assert legacy[0]["image_id"] == "irrelevant-flower"
+    assert shadow[0]["image_id"] == "related-sushi"
+    assert "shadow_rerank" in shadow[0]["reason"]
+
+
+def test_strong_rag_citations_filter_low_relevance_hits():
+    trace = {
+        "final_hits": (
+            {"chunk_id": "weak#chunk-1", "bm25_score": 0.0, "rerank_score": 0.12},
+            {"chunk_id": "keyword#chunk-1", "bm25_score": 1.0, "rerank_score": 0.2},
+            {"chunk_id": "rerank#chunk-1", "bm25_score": 0.0, "rerank_score": 0.72},
+        )
+    }
+
+    citations = _strong_rag_citations_from_trace(trace, ("weak#chunk-1", "keyword#chunk-1", "rerank#chunk-1"))
+
+    assert citations == ("keyword#chunk-1", "rerank#chunk-1")
+
+
+def test_strong_rag_citations_filters_hard_negative_noise_and_caps_output():
+    trace = {
+        "final_hits": (
+            {"chunk_id": "JP_SUSHI#chunk-1", "parent_id": "JP_SUSHI", "bm25_score": 2.0, "rerank_score": 0.88},
+            {"chunk_id": "JP_ONSEN#chunk-1", "parent_id": "JP_ONSEN", "bm25_score": 1.9, "rerank_score": 0.86},
+            {"chunk_id": "AUDIT_001#chunk-1", "parent_id": "AUDIT_001", "bm25_score": 1.1, "rerank_score": 0.7},
+            {"chunk_id": "JP_WEAK#chunk-1", "parent_id": "JP_WEAK", "bm25_score": 0.0, "rerank_score": 0.12},
+        )
+    }
+
+    citations = _strong_rag_citations_from_trace(
+        trace,
+        ("JP_SUSHI#chunk-1", "JP_ONSEN#chunk-1", "AUDIT_001#chunk-1", "JP_WEAK#chunk-1"),
+        blocked_parent_ids=("JP_ONSEN",),
+        max_citations=2,
+    )
+
+    assert citations == ("JP_SUSHI#chunk-1", "AUDIT_001#chunk-1")
+
+
+def test_metric_levels_can_be_backfilled_from_cached_prediction_ranges():
+    levels = _metric_levels_from_prediction_ranges("日本", "14%-17%", "88%-91%", "20-23")
+
+    assert levels == {"open_rate": "高", "completion_rate": "中", "avg_finish_time": "高"}
+    assert _business_grade_from_metric_levels(tuple(levels[field] for field in ("open_rate", "completion_rate", "avg_finish_time"))) == "A"
+
+
+def test_cached_value_candidate_keeps_grade_and_recalibrates_stale_metric_levels(tmp_path):
+    agent = PuzzleOpsAgent()
+    agent._runtime_dir = tmp_path
+    candidate = {
+        "candidate_id": "FR_CAND_CACHE",
+        "country": "法国",
+        "image_hash": "hash-1",
+        "local_image_path": "/tmp/fr.png",
+        "candidate_source": "test",
+        "subject": "法式餐桌",
+    }
+    cache_path = agent._value_candidate_cache_path(candidate)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(
+        json.dumps(
+            {
+                "image_hash": "hash-1",
+                "prediction_status": "predicted",
+                "predicted_grade": "A",
+                "open_rate_range": "1%-4%",
+                "completion_rate_range": "75%-80%",
+                "finish_time_range": "10-13",
+                "metric_levels": {"open_rate": "低", "completion_rate": "低", "avg_finish_time": "低"},
+                "evidence": "旧缓存",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    enriched = agent._with_value_candidate_prediction(candidate)
+
+    assert enriched["predicted_grade"] == "A"
+    assert enriched["metric_levels"] == {"open_rate": "高", "completion_rate": "高", "avg_finish_time": "中"}
+    assert enriched["metric_calibration_version"] == "v0.7.33"
+    assert "指标校准=高高中" in enriched["evidence"]
+
+
+def test_batch_value_candidate_prediction_refreshes_stale_cache(tmp_path, monkeypatch):
+    agent = PuzzleOpsAgent()
+    agent._runtime_dir = tmp_path
+    agent.trial_uploads.vision_client = object()
+    candidate = {
+        "candidate_id": "FR_CAND_STALE",
+        "country": "法国",
+        "image_hash": "hash-2",
+        "local_image_path": "/tmp/fr.png",
+    }
+    cache_path = agent._value_candidate_cache_path(candidate)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps({"image_hash": "hash-2", "predicted_grade": "A", "evidence": "旧缓存"}, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(agent, "import_value_candidate_excel", lambda country: (candidate,))
+    monkeypatch.setattr(
+        agent,
+        "_predict_value_candidate",
+        lambda item: {
+            "candidate_id": item["candidate_id"],
+            "country": item["country"],
+            "image_hash": item["image_hash"],
+            "prediction_status": "predicted",
+            "predicted_grade": "A",
+            "rag_filter_version": "v0.7.32",
+            "metric_calibration_version": "v0.7.33",
+        },
+    )
+
+    result = agent.predict_undistributed_value_candidates("法国")
+
+    assert result["predicted_count"] == 1
+    assert result["cached_count"] == 0
+    assert json.loads(cache_path.read_text(encoding="utf-8"))["rag_filter_version"] == "v0.7.32"
+
+
+def test_value_master_loads_real_undistributed_candidates_from_excel(tmp_path):
+    agent = PuzzleOpsAgent()
+    agent._runtime_dir = tmp_path
+    candidates = agent.undistributed_value_candidates("日本")
+
+    assert len(candidates) == 15
+    assert candidates[0]["candidate_id"].startswith("JP_CAND_")
+    assert candidates[0]["image"].source == "自制未分发候选图"
+    assert "demo 未分发候选图" not in candidates[0]["image"].source
+    assert Path(str(candidates[0]["local_image_path"])).exists()
+    assert candidates[0]["prediction_status"] in {"pending", "missing_vision_model"}
+    assert candidates[0]["predicted_grade"] == "待预测"
+
+
+def test_value_candidate_prediction_uses_mock_qwen_result_and_cache(tmp_path):
+    class FakeVisionClient:
+        provider = "qwen"
+        calls = 0
+
+        def config_status(self):
+            return {"provider": "qwen", "mode": "real", "model": "qwen3-vl-plus"}
+
+        def analyze(self, images, country, category, local_summary):
+            self.calls += 1
+            return VisionLLMResult(
+                subject="樱花庭院",
+                scene="日式庭院与樱花步道",
+                culture_elements=("樱花", "日式庭院"),
+                style="柔和插画",
+                risk_tags=(),
+                prompt_keywords=("樱花", "庭院"),
+                confidence=0.92,
+                provider="qwen",
+                raw_text="主体清晰，日式季节感强。",
+            )
+
+    agent = PuzzleOpsAgent()
+    agent._runtime_dir = tmp_path
+    agent.trial_uploads.vision_client = FakeVisionClient()
+    candidates = agent.undistributed_value_candidates("日本")
+    predicted = agent.predict_undistributed_value_candidates("日本", limit=1)
+    cached = agent.undistributed_value_candidates("日本")
+    repeated = agent.predict_undistributed_value_candidates("日本", limit=1)
+
+    assert predicted["predicted_count"] == 1
+    assert predicted["cached_count"] == 0
+    assert repeated["predicted_count"] == 0
+    assert repeated["cached_count"] == 1
+    assert agent.trial_uploads.vision_client.calls == 1
+    assert cached[0]["prediction_status"] == "predicted"
+    assert cached[0]["predicted_grade"] in {"S", "A", "B", "C", "D"}
+    assert cached[0]["sa_probability"] > 0
+    assert "预测值" in cached[0]["evidence"]
+    assert cached[0]["visual_subject"] == "樱花庭院"
 
 
 def test_schedule_uses_allowed_distribution_positions():
@@ -1052,6 +2025,29 @@ def test_agent_rag_eval_cases_include_human_gold_harness_samples(monkeypatch, tm
     assert any("海滩野餐" in case.query and "生活艺术" in case.query for case in cases)
 
 
+def test_agent_harness_gold_rag_eval_cases_include_same_country_hard_negatives(monkeypatch, tmp_path):
+    for filename in ("france-picnic.png", "france-lavender.png"):
+        (tmp_path / filename).write_bytes(b"fake-png")
+    dataset = tmp_path / "gold_samples.csv"
+    dataset.write_text(
+        "\n".join(
+            (
+                "sample_id,country,local_image_path,operation_tag,subject,js_category,source,position,open_rate,completion_rate,avg_finish_time,gold_grade,gold_subject,gold_color_mood,gold_composition,gold_value_labels,gold_risk_labels,human_note,label_source,label_status",
+                "fr-real-001,法国,france-picnic.png,试新_法国_海滩野餐0624,海滩野餐,lifestyle,real,7,0.42,0.91,38,A,海滩野餐,暖色,海滩场景,生活艺术,,人工确认,human_gold,reviewed",
+                "fr-real-002,法国,france-lavender.png,试新_法国_薰衣草田0624,薰衣草田,scenery,real,8,0.12,0.93,22,S,薰衣草田,紫色明亮,风车田野远景,季节感;生活艺术,,人工确认,human_gold,reviewed",
+            )
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PUZZLEOPS_HARNESS_DATASET", str(dataset))
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+
+    cases = agent._harness_gold_rag_eval_cases("法国")
+
+    picnic = next(case for case in cases if case.expected_parent_id == "FR_HARNESS_GOLD_fr-real-001")
+    assert picnic.hard_negative_parent_ids == ("FR_HARNESS_GOLD_fr-real-002",)
+
+
 def test_agent_rag_eval_case_evidence_marks_failed_expected_citation(monkeypatch, tmp_path):
     knowledge_dir = tmp_path / "knowledge"
     processed = knowledge_dir / "processed"
@@ -1193,6 +2189,37 @@ def test_agent_builds_and_exports_rag_knowledge_patch_drafts(tmp_path):
     content = export_path.read_text(encoding="utf-8")
     assert '"source_type": "value_rule_patch"' in content
     assert '"review_status": "needs_human_review"' in content
+
+
+def test_agent_builds_rag_quality_governance_workbench(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent.record_rag_citation_feedback("日本", chunk_id="JP_VALUE_001#chunk-1", usefulness="not_useful", note="召回不相关")
+    agent.record_working_memory(
+        "日本",
+        "value_match_human_score",
+        {"subject": "寿司", "operation_tag": "试新_日本_寿司", "satisfaction_score": 2},
+        actor="jp_ops",
+    )
+    agent.record_rag_eval_failure_feedback(
+        "日本",
+        query="日本寿司图是否符合本土饮食价值观",
+        expected_parent_id="JP_KB_SUSHI",
+        retrieved_parent_ids=("JP_KB_ONSEN",),
+        note="版权/IP 风险规则漏召回",
+        diagnosis="knowledge_missing_or_query_mismatch",
+        gold_grade="S",
+        label_source="human_gold",
+    )
+
+    workbench = agent.rag_quality_governance_workbench("日本")
+
+    assert workbench["cadence"] == "monthly_with_emergency"
+    assert workbench["feedback_pool"]["citation_feedback_count"] == 1
+    assert workbench["feedback_pool"]["low_score_count"] == 1
+    assert workbench["weekly_anomalies"]["emergency_candidate_count"] == 1
+    assert workbench["monthly_patch_plan"]["draft_count"] == 1
+    assert workbench["monthly_patch_plan"]["recommended_action"] == "monthly_review"
+    assert workbench["emergency_patch_flow"]["items"][0]["reason"] == "risk_keyword_or_p0"
 
 
 def test_agent_prioritizes_rag_knowledge_patch_drafts_by_business_impact(tmp_path):
@@ -2100,6 +3127,386 @@ def test_agent_harness_gold_coverage_reports_business_metric_coverage(tmp_path):
     assert "avg_finish_time:1" in coverage["缺失业务指标摘要"]
 
 
+def test_agent_exports_resume_gold_dataset_evidence_package(tmp_path):
+    japan_image = tmp_path / "jp-sushi.png"
+    france_image = tmp_path / "fr-lavender.png"
+    Image.new("RGB", (80, 60), (220, 180, 120)).save(japan_image)
+    Image.new("RGB", (80, 60), (120, 90, 200)).save(france_image)
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent._runtime_dir = tmp_path
+    agent.register_harness_real_samples(
+        "日本",
+        [
+            {
+                "sample_id": "jp-real-001",
+                "local_image_path": str(japan_image),
+                "gold_grade": "S",
+                "js_category": "food",
+                "position": 5,
+                "open_rate": 0.28,
+                "completion_rate": 0.94,
+                "avg_finish_time": 22,
+                "operation_tag": "试新_日本_寿司0624",
+                "subject": "寿司",
+            }
+        ],
+    )
+    agent.update_harness_gold_label(
+        "日本",
+        "jp-real-001",
+        gold_grade="S",
+        gold_subject="寿司",
+        gold_color_mood="清爽米白",
+        gold_composition="日式餐桌近景",
+        gold_value_labels="本土饮食文化",
+        gold_risk_labels="",
+        human_note="人工确认 gold",
+        position="5",
+        open_rate="0.28",
+        completion_rate="0.94",
+        avg_finish_time="22",
+    )
+    agent.register_harness_real_samples(
+        "法国",
+        [
+            {
+                "sample_id": "fr-real-001",
+                "local_image_path": str(france_image),
+                "gold_grade": "A",
+                "js_category": "landscape",
+                "position": 4,
+                "open_rate": 0.18,
+                "completion_rate": 0.92,
+                "avg_finish_time": 20,
+                "operation_tag": "试新_法国_薰衣草风车0624",
+                "subject": "薰衣草风车",
+            }
+        ],
+    )
+    agent.update_harness_gold_label(
+        "法国",
+        "fr-real-001",
+        gold_grade="A",
+        gold_subject="薰衣草风车",
+        gold_color_mood="紫色花田",
+        gold_composition="风车远景与花田前景",
+        gold_value_labels="法式乡村;自然治愈",
+        gold_risk_labels="",
+        human_note="人工确认 gold",
+        position="4",
+        open_rate="0.18",
+        completion_rate="0.92",
+        avg_finish_time="20",
+    )
+
+    package = agent.export_resume_gold_dataset_evidence(("日本", "法国"), output_dir=tmp_path / "resume_evidence", target_total=3)
+
+    csv_text = Path(package["combined_csv"]).read_text(encoding="utf-8")
+    markdown = Path(package["summary_markdown"]).read_text(encoding="utf-8")
+    assert package["real_sample_count"] == 2
+    assert package["target_total"] == 3
+    assert package["gap_count"] == 1
+    assert "jp-real-001,日本" in csv_text
+    assert "fr-real-001,法国" in csv_text
+    assert "真实样本总数：2/3" in markdown
+    assert "距离 50 张简历目标缺口：1" in markdown
+    assert "日本：1" in markdown
+    assert "法国：1" in markdown
+    assert "S：1" in markdown
+    assert "A：1" in markdown
+    assert "human_gold 覆盖率：100%" in markdown
+    assert "人工确认备注待清理：0" in markdown
+    assert "业务指标完成率：100%" in markdown
+
+
+def test_agent_exports_value_master_eval_report_from_gold_dataset_and_benchmark_scores(tmp_path):
+    japan_image = tmp_path / "jp-sushi.png"
+    france_image = tmp_path / "fr-lavender.png"
+    Image.new("RGB", (80, 60), (220, 180, 120)).save(japan_image)
+    Image.new("RGB", (80, 60), (120, 90, 200)).save(france_image)
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent._runtime_dir = tmp_path
+    agent.register_harness_real_samples(
+        "日本",
+        [
+            {
+                "sample_id": "jp-real-001",
+                "local_image_path": str(japan_image),
+                "gold_grade": "S",
+                "js_category": "food",
+                "position": 5,
+                "open_rate": 0.31,
+                "completion_rate": 0.94,
+                "avg_finish_time": 22,
+                "operation_tag": "试新_日本_寿司0624",
+                "subject": "寿司",
+            }
+        ],
+    )
+    agent.update_harness_gold_label(
+        "日本",
+        "jp-real-001",
+        gold_grade="S",
+        gold_subject="寿司",
+        gold_color_mood="清爽米白",
+        gold_composition="日式餐桌近景",
+        gold_value_labels="本土饮食文化",
+        gold_risk_labels="",
+        human_note="人工确认 gold",
+        position="5",
+        open_rate="0.31",
+        completion_rate="0.94",
+        avg_finish_time="22",
+    )
+    agent.register_harness_real_samples(
+        "法国",
+        [
+            {
+                "sample_id": "fr-real-001",
+                "local_image_path": str(france_image),
+                "gold_grade": "D",
+                "js_category": "landscape",
+                "position": 4,
+                "open_rate": 0.04,
+                "completion_rate": 0.82,
+                "avg_finish_time": 12,
+                "operation_tag": "试新_法国_灰调建筑0624",
+                "subject": "灰调建筑",
+            }
+        ],
+    )
+    agent.update_harness_gold_label(
+        "法国",
+        "fr-real-001",
+        gold_grade="D",
+        gold_subject="灰调建筑",
+        gold_color_mood="低明度灰调",
+        gold_composition="建筑主体弱",
+        gold_value_labels="低质方向",
+        gold_risk_labels="主体弱",
+        human_note="人工确认 gold",
+        position="4",
+        open_rate="0.04",
+        completion_rate="0.82",
+        avg_finish_time="12",
+    )
+    agent.repository.add_value_prediction_benchmark_score(
+        {
+            "country": "日本",
+            "actor": "tester",
+            "candidate_id": "JP_CAND_001",
+            "operation_tag": "试新_日本_寿司0624",
+            "baseline_scores": {
+                "visual_accuracy": 5,
+                "country_value_fit": 4,
+                "history_evidence_fit": 3,
+                "rag_citation_usefulness": 4,
+                "risk_detection": 4,
+                "grade_credibility": 5,
+                "metric_range_credibility": 3,
+                "actionability": 4,
+            },
+            "candidate_scores": {
+                "visual_accuracy": 5,
+                "country_value_fit": 4,
+                "history_evidence_fit": 3,
+                "rag_citation_usefulness": 4,
+                "risk_detection": 4,
+                "grade_credibility": 5,
+                "metric_range_credibility": 3,
+                "actionability": 4,
+            },
+            "candidate_label": "可直接用",
+            "candidate_output": "寿司符合日本本土饮食文化。",
+        }
+    )
+
+    report = agent.export_value_master_eval_report(("日本", "法国"), output_dir=tmp_path / "resume_evidence", target_total=3)
+
+    data = json.loads(Path(report["json_report"]).read_text(encoding="utf-8"))
+    markdown = Path(report["markdown_report"]).read_text(encoding="utf-8")
+    assert data["sample_count"] == 2
+    assert data["target_total"] == 3
+    assert data["gap_count"] == 1
+    assert data["metrics"]["metric_baseline_grade_accuracy"] == 1.0
+    assert data["metrics"]["sa_binary_accuracy"] == 1.0
+    assert data["metrics"]["three_part_format_rate"] == 1.0
+    assert data["human_benchmark"]["benchmark_count"] == 1
+    assert data["human_benchmark"]["history_evidence_fit_avg"] == 3.0
+    assert data["human_benchmark"]["rag_citation_usefulness_avg"] == 4.0
+    assert "指标反推等级基线准确率：100%" in markdown
+    assert "SA 二分类准确率：100%" in markdown
+    assert "历史依据合理性人工均分：3.00/5" in markdown
+    assert "RAG citation 有用性人工均分：4.00/5" in markdown
+    assert "三项指标目前是按等级口径校准" in markdown
+
+
+def test_agent_exports_value_master_repair_diagnostics_from_eval_report(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    report = {
+        "sample_count": 45,
+        "target_total": 50,
+        "gap_count": 5,
+        "metrics": {
+            "metric_baseline_grade_accuracy": 0.18,
+            "sa_binary_accuracy": 0.60,
+            "rag_citation_precision": 0.84,
+            "feishu_field_completeness": 1.0,
+            "tool_call_success_rate": 1.0,
+        },
+        "human_benchmark": {
+            "benchmark_count": 35,
+            "history_evidence_fit_avg": 1.9,
+            "rag_citation_usefulness_avg": 1.6,
+            "grade_credibility_avg": 1.9,
+            "actionability_avg": 2.2,
+        },
+    }
+
+    result = agent.export_value_master_repair_diagnostics(report, output_dir=tmp_path / "resume_evidence")
+
+    data = json.loads(Path(result["json_report"]).read_text(encoding="utf-8"))
+    markdown = Path(result["markdown_report"]).read_text(encoding="utf-8")
+    assert data["mode"] == "shadow_diagnostics"
+    assert data["main_prediction_change_allowed"] is False
+    assert data["blockers"]["metric_baseline_grade_accuracy"]["status"] == "failed"
+    assert data["blockers"]["history_evidence_fit_avg"]["status"] == "failed"
+    assert data["blockers"]["rag_citation_usefulness_avg"]["status"] == "failed"
+    assert data["safe_experiments"][0]["name"] == "历史依据排序影子评测"
+    assert "不直接改线上预测等级" in markdown
+    assert "历史依据排序影子评测" in markdown
+    assert "RAG citation hard-negative 修复" in markdown
+    assert "等级预测 Prompt Benchmark v2" in markdown
+
+
+def test_agent_exports_history_evidence_shadow_report_without_changing_main_prediction(tmp_path):
+    image_path = tmp_path / "jp-sushi.png"
+    Image.new("RGB", (80, 60), (220, 180, 120)).save(image_path)
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent._runtime_dir = tmp_path
+    agent.register_harness_real_samples(
+        "日本",
+        [
+            {
+                "sample_id": "jp-real-001",
+                "local_image_path": str(image_path),
+                "gold_grade": "S",
+                "js_category": "food",
+                "position": 5,
+                "open_rate": 0.31,
+                "completion_rate": 0.94,
+                "avg_finish_time": 22,
+                "operation_tag": "试新_日本_寿司0624",
+                "subject": "寿司",
+            }
+        ],
+    )
+    agent.update_harness_gold_label(
+        "日本",
+        "jp-real-001",
+        gold_grade="S",
+        gold_subject="寿司",
+        gold_color_mood="米白与鲑鱼橙",
+        gold_composition="日式料理桌面近景",
+        gold_value_labels="本土饮食文化;治愈食物",
+        gold_risk_labels="",
+        human_note="人工确认 gold",
+        position="5",
+        open_rate="0.31",
+        completion_rate="0.94",
+        avg_finish_time="22",
+    )
+    agent._history_cache["日本"] = (
+        HistoricalRecord(
+            grade="S",
+            image_formula="",
+            image_id="irrelevant-flower",
+            image_url="",
+            local_image_path="",
+            thumbnail_path="",
+            position=2,
+            dimension_grade="高高高",
+            open_rate=0.28,
+            completion_rate=0.93,
+            avg_finish_time=21,
+            operation_tag="常规_日本_红玫瑰花束0701",
+            subject_tag="红玫瑰花束",
+            js_category="food",
+            source="AI",
+            remark="红色花束静物，与寿司饮食文化无关",
+            distribution_date="2026-07-01",
+            distribution_cycle="",
+            country="日本",
+        ),
+        HistoricalRecord(
+            grade="A",
+            image_formula="",
+            image_id="related-sushi",
+            image_url="",
+            local_image_path="",
+            thumbnail_path="",
+            position=4,
+            dimension_grade="高高中",
+            open_rate=0.24,
+            completion_rate=0.91,
+            avg_finish_time=20,
+            operation_tag="常规_日本_寿司拼盘0702",
+            subject_tag="寿司拼盘",
+            js_category="objects",
+            source="素材网",
+            remark="日式料理桌面近景，本土饮食文化，米白与鲑鱼橙",
+            distribution_date="2026-07-02",
+            distribution_cycle="",
+            country="日本",
+        ),
+    )
+
+    result = agent.export_history_evidence_shadow_report(("日本",), output_dir=tmp_path / "resume_evidence")
+
+    data = json.loads(Path(result["json_report"]).read_text(encoding="utf-8"))
+    markdown = Path(result["markdown_report"]).read_text(encoding="utf-8")
+    case = data["cases"][0]
+    assert data["mode"] == "shadow_history_rerank"
+    assert data["main_prediction_change_allowed"] is False
+    assert case["legacy_top"]["operation_tag"] == "常规_日本_红玫瑰花束0701"
+    assert case["shadow_top"]["operation_tag"] == "常规_日本_寿司拼盘0702"
+    assert case["top_changed"] is True
+    assert data["metrics"]["top1_changed_rate"] == 1.0
+    assert data["metrics"]["shadow_top1_subject_overlap_rate"] == 1.0
+    assert "不改主预测缓存" in markdown
+    assert "常规_日本_寿司拼盘0702" in markdown
+
+
+def test_agent_exports_value_master_prompt_benchmark_v2_without_changing_grade_model(tmp_path):
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent.repository.add_value_prediction_benchmark_score(
+        {
+            "country": "日本",
+            "actor": "tester",
+            "candidate_id": "JP_CAND_001",
+            "operation_tag": "试新_日本_寿司0624",
+            "baseline_scores": {"visual_accuracy": 3, "rag_citation_usefulness": 2, "history_evidence_fit": 2, "grade_credibility": 4},
+            "candidate_scores": {"visual_accuracy": 4, "rag_citation_usefulness": 3, "history_evidence_fit": 3, "grade_credibility": 4},
+            "candidate_label": "轻改可用",
+            "candidate_output": "主体内容：寿司；色彩氛围：清爽暖色；构图环境：日式料理桌面近景。RAG依据较弱，需人工复核。",
+        }
+    )
+
+    result = agent.export_value_master_prompt_benchmark_v2_report(("日本",), output_dir=tmp_path / "resume_evidence")
+
+    data = json.loads(Path(result["json_report"]).read_text(encoding="utf-8"))
+    markdown = Path(result["markdown_report"]).read_text(encoding="utf-8")
+    assert data["mode"] == "value_master_prompt_benchmark_v2"
+    assert data["main_prediction_change_allowed"] is False
+    assert data["grade_model_version"] == "v0.7.39-legacy"
+    assert data["prompt_contract"]["must_keep_grade_model"] is True
+    assert "视觉解析" in data["prompt_contract"]["focus"]
+    assert data["benchmark_summary"]["benchmark_count"] == 1
+    assert data["benchmark_summary"]["candidate_grade_credibility_avg"] == 4.0
+    assert "不改等级预测主链路" in markdown
+    assert "RAG依据较弱" in markdown
+
+
 def test_agent_harness_readiness_guides_next_steps_for_silver_and_missing_metrics(tmp_path):
     picnic = tmp_path / "france-picnic.png"
     lace = tmp_path / "france-lace.png"
@@ -2421,6 +3828,8 @@ def test_agent_promotes_ai_silver_labels_to_human_gold_facts(tmp_path):
     assert sample.label_source == "human_gold"
     assert sample.label_status == "reviewed"
     assert "人工抽查通过" in sample.human_note
+    assert "AI silver" not in sample.human_note
+    assert "待人工抽查" not in sample.human_note
     facts = agent.memory_debug("法国", query="法式海滩野餐")
     assert any(row["layer"] == "facts" and "法式海滩野餐" in row["summary"] for row in facts)
     rag_answer = agent.value_audit_rag_answer("法国", "法式海滩野餐 生活艺术", top_k=3)
@@ -2463,6 +3872,46 @@ def test_agent_approves_only_selected_ai_silver_samples(tmp_path):
     assert samples["fr-real-001"].label_status == "reviewed"
     assert samples["fr-real-002"].label_source == "ai_silver"
     assert samples["fr-real-002"].label_status == "pending_review"
+
+
+def test_agent_approve_harness_silver_labels_reports_progress(tmp_path):
+    image_path = tmp_path / "france-picnic.png"
+    second_image_path = tmp_path / "france-lavender.png"
+    Image.new("RGB", (80, 60), (220, 180, 120)).save(image_path)
+    Image.new("RGB", (80, 60), (120, 90, 200)).save(second_image_path)
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent._runtime_dir = tmp_path
+    dataset = agent.register_harness_real_samples(
+        "法国",
+        [
+            {"sample_id": "fr-real-001", "local_image_path": str(image_path), "gold_grade": "A", "js_category": "lifestyle"},
+            {"sample_id": "fr-real-002", "local_image_path": str(second_image_path), "gold_grade": "S", "js_category": "landscape"},
+        ],
+    )
+    rows = agent._read_harness_gold_rows(dataset)
+    for row, subject in zip(rows, ("法式海滩野餐", "薰衣草风车")):
+        row.update(
+            {
+                "gold_subject": subject,
+                "gold_color_mood": "暖色",
+                "gold_composition": "清晰构图",
+                "gold_value_labels": "自然治愈",
+                "label_source": "ai_silver",
+                "label_status": "pending_review",
+            }
+        )
+    agent._write_harness_gold_rows(dataset, rows)
+    progress_events = []
+
+    result = agent.approve_harness_silver_labels(
+        "法国",
+        sample_ids=("fr-real-001", "fr-real-002"),
+        reviewer_note="批量确认",
+        progress_callback=lambda done, total, sample_id: progress_events.append((done, total, sample_id)),
+    )
+
+    assert result["approved_count"] == 2
+    assert progress_events == [(1, 2, "fr-real-001"), (2, 2, "fr-real-002")]
 
 
 def test_agent_persists_generation_events_for_replay():

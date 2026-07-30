@@ -16,7 +16,6 @@ JS_CATEGORIES = {
     "patterns",
     "handcrafted",
     "streetview",
-    "human",
 }
 
 
@@ -56,6 +55,12 @@ class HolidayRecommendation:
     ai_themes: tuple[str, ...]
     elements: tuple[str, ...]
     history_good_images: tuple[ImageAsset, ...]
+    history_bad_images: tuple[ImageAsset, ...] = ()
+    direct_history_count: int = 0
+    evidence_note: str = ""
+    value_rule_citations: tuple[str, ...] = ()
+    llm_planning_note: str = ""
+    llm_source: str = ""
 
 
 @dataclass(frozen=True)

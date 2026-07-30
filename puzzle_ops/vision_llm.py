@@ -254,9 +254,9 @@ def _https_context() -> ssl.SSLContext:
 
 def _qwen_timeout_seconds() -> float:
     try:
-        return min(max(float(os.getenv("QWEN_TIMEOUT_SECONDS", "90")), 10.0), 300.0)
+        return min(max(float(os.getenv("QWEN_TIMEOUT_SECONDS", "60")), 5.0), 120.0)
     except ValueError:
-        return 90.0
+        return 60.0
 
 
 def _extract_chat_completion_text(raw: dict[str, object]) -> str:

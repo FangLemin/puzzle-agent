@@ -1,0 +1,142 @@
+{
+  "mode": "value_master_prompt_benchmark_v2",
+  "countries": [
+    "日本",
+    "法国"
+  ],
+  "main_prediction_change_allowed": false,
+  "grade_model_version": "v0.7.39-legacy",
+  "prompt_contract": {
+    "version": "prompt_benchmark_v2",
+    "focus": "视觉解析 / RAG citation / 历史依据 / 指标校准 / 运营可执行建议",
+    "must_keep_grade_model": true,
+    "must_not_change": [
+      "不改等级预测主链路 value_grade_model_version=v0.7.39-legacy。",
+      "不根据三项指标反推主等级，三项指标只做解释性区间。",
+      "不把 shadow history rerank 直接写入线上预测缓存。"
+    ],
+    "output_rules": [
+      "图片解析必须围绕主体内容、色彩氛围、构图环境三段。",
+      "价值观判断必须引用当前图像证据、RAG citation 和历史依据，不足时明确标注需人工复核。",
+      "RAG citation 只保留强相关 Top3，弱相关和 hard-negative 噪声不得进入最终理由。"
+    ]
+  },
+  "benchmark_summary": {
+    "benchmark_count": 35,
+    "candidate_visual_accuracy_avg": 4.0,
+    "candidate_country_value_fit_avg": 2.8,
+    "candidate_history_evidence_fit_avg": 1.9,
+    "candidate_rag_citation_usefulness_avg": 1.6,
+    "candidate_risk_detection_avg": 3.3,
+    "candidate_grade_credibility_avg": 1.9,
+    "candidate_metric_range_credibility_avg": 2.0,
+    "candidate_actionability_avg": 2.2
+  },
+  "review_examples": [
+    {
+      "country": "日本",
+      "candidate_id": "JP_CAND_009",
+      "operation_tag": "常规_日本_孩童田野0720",
+      "label": "轻微修改",
+      "grade_credibility": 1,
+      "rag_citation_usefulness": 1,
+      "history_evidence_fit": 1,
+      "candidate_output": "视觉主体=一群日本中小学生（男女混合）背书包沿乡间小路行走，背对镜头走向夕阳下的稻田；场景=日本乡村秋日黄昏稻田景观，含水渠、远山、传统民居（切妻造屋顶）、金黄稻穗与小径，构图呈纵深引导线；风格=新海诚式动画电影美学：高饱和暖调光影、细腻空气透视、柔和边缘过渡、电影级景深层次；方形构图，主体清晰边界保留完整；预测等级=D；SA概率=26%；开图率=4%-8%；完成率=83%-87%；完成时长=12.1-15.0；建议=暂不使用；风险=low_copyright_risk,no_ip_infringement,no_cultural_confusion,no_france_element_misattribution；RAG依据=历史样本：Harness Gold 样本 常规_日本_樱花大道0625（主体=樱花树下的传统日；运营tag=常规_日本_樱花大道0625；JS分类=tra…）；历史样本：Harness Gold 样本 常规_日本_街道0622（主体=游客；运营tag=常规_日本_街道0622；JS分类=travel；等级=C…）；审核规则：文化混淆与 AI 质量风险（审核时需检"
+    },
+    {
+      "country": "日本",
+      "candidate_id": "JP_CAND_013",
+      "operation_tag": "常规_日本_风铃0708",
+      "label": "轻微修改",
+      "grade_credibility": 3,
+      "rag_citation_usefulness": 2,
+      "history_evidence_fit": 2,
+      "candidate_output": "视觉主体=日式风铃（furin）悬挂于传统木构檐下；场景=日本庭院廊道夜景，木质结构屋檐、纸灯笼、绿植背景，前中后景层次分明；风格=写实插画风，冷调夜景氛围，清透蓝主色调，中饱和度，方形构图，强调光影对比与通透质感；预测等级=B；SA概率=49%；开图率=8%-14%；完成率=87%-92%；完成时长=15.1-19.7；建议=谨慎排图；风险=低版权风险（无明确IP角色）,无文化混淆（纯日本元素）,过暗风险（整体曝光偏低，可能影响拼图辨识度）；RAG依据=历史样本：Harness Gold 样本 常规_日本_街道0622（主体=游客；运营tag=常规_日本_街道0622；JS分类=travel；等级=C…）；历史样本：Harness Gold 样本 常规_日本_抹茶0405（主体=抹茶；运营tag=常规_日本_抹茶0405；JS分类=food；等级=D；位…）；审核规则：文化混淆与 AI 质量风险（审核时需检查国家文化混淆、宗教政治敏感、文字乱码、畸形肢体、多手指、错误服饰结构、…）；相似好图=常规_日本_传统浴袍美女0510、常规_日本_禅意茶具0503；相似风险图=试新_日本_黄金"
+    },
+    {
+      "country": "日本",
+      "candidate_id": "JP_CAND_005",
+      "operation_tag": "常规_日本_红叶建筑0721",
+      "label": "轻微修改",
+      "grade_credibility": 2,
+      "rag_citation_usefulness": 2,
+      "history_evidence_fit": 3,
+      "candidate_output": "视觉主体=红枫林中的传统日式拱桥与石阶小径；场景=日本秋季山林溪谷景观，含流水、石阶、苔石、红叶覆盖路径及小型瀑布；风格=高饱和暖色调插画风，偏写实渲染，方形构图，强调前中后景层次与光影对比；预测等级=B；SA概率=50%；开图率=8%-14%；完成率=87%-92%；完成时长=15.1-19.7；建议=谨慎排图；风险=无版权风险（非真实摄影/非明确IP）,无文化混淆（纯日本元素，无法国符号）,无敏感符号；RAG依据=历史样本：Harness Gold 样本 常规_日本_招财猫0429（主体=招财猫Manek；运营tag=常规_日本_招财猫0429；JS分类=obje…）；历史样本：Harness Gold 样本 常规_日本_金阁寺0623（主体=金阁寺鹿苑寺舍利；运营tag=常规_日本_金阁寺0623；JS分类=trav…）；审核规则：文化混淆与 AI 质量风险（审核时需检查国家文化混淆、宗教政治敏感、文字乱码、畸形肢体、多手指、错误服饰结构、…）；相似好图=常规_日本_天桥立0421、常规_日本_传统浴袍美女0510；相似风险图=试新_日本_怀旧场景0408；证据=预测值：Qwen"
+    },
+    {
+      "country": "日本",
+      "candidate_id": "JP_CAND_006",
+      "operation_tag": "常规_日本_花见灯夜0721",
+      "label": "轻微修改",
+      "grade_credibility": 3,
+      "rag_citation_usefulness": 1,
+      "history_evidence_fit": 2,
+      "candidate_output": "视觉主体=身着和服的日本女性游客在夏夜祭典摊位前驻足；场景=日本夏季花火大会（烟花大会）期间的屋台（路边摊）市集，夜晚户外街道场景，有悬挂纸灯笼、烟火升空、人群熙攘；风格=日式插画风（类似《你的名字》《千与千寻》氛围），暖色调渲染，柔和光影过渡，中等明度与饱和度，方形构图强调前中后景层次（前景人物→中景摊位→远景烟花）；预测等级=S；SA概率=79%；开图率=14%-17%；完成率=92%-95%；完成时长=19.8-22.7；建议=优先排图；风险=未发现明确风险；RAG依据=历史样本：Harness Gold 样本 试新_日本_儿童节鲤鱼旗0527（主体=日本小女孩；运营tag=试新_日本_儿童节鲤鱼旗0527；JS分类=draw…）；历史样本：Harness Gold 样本 常规_日本_街道0622（主体=游客；运营tag=常规_日本_街道0622；JS分类=travel；等级=C…）；审核规则：文化混淆与 AI 质量风险（审核时需检查国家文化混淆、宗教政治敏感、文字乱码、畸形肢体、多手指、错误服饰结构、…）；相似好图=常规_日本_传统浴袍美女0510、常规_日本_二次元动漫少女0"
+    },
+    {
+      "country": "日本",
+      "candidate_id": "JP_CAND_015",
+      "operation_tag": "常规_日本_和风少女与美食0701",
+      "label": "轻微修改",
+      "grade_credibility": 1,
+      "rag_citation_usefulness": 3,
+      "history_evidence_fit": 3,
+      "candidate_output": "视觉主体=身着和服的日本女性背影，坐于窗边咖啡桌前；场景=春日京都或类似传统町屋风格街道的室内咖啡馆窗边，窗外可见樱花树、行人、红灯笼与木质町屋建筑；风格=新日系插画风（Neo-Japanese Illustration），柔和光影、细腻笔触、暖色调渲染，具吉卜力式氛围感与现代数字绘画质感；方形构图，清晰主体边界，前中后景层次分明；预测等级=C；SA概率=36%；开图率=4%-8%；完成率=87%-92%；完成时长=15.1-19.7；建议=人工复核；风险=低风险：无明显版权IP元素（未见具体动漫角色/品牌标识）,低风险：文化元素准确且非挪用（和服、樱花、和菓子均为典型日本符号，无混杂法国元素）,无混淆：场景与服饰严格限定于日本语境，未出现法式建筑/服饰/符号；RAG依据=历史样本：Harness Gold 样本 常规_日本_街道0622（主体=游客；运营tag=常规_日本_街道0622；JS分类=travel；等级=C…）；历史样本：Harness Gold 样本 常规_日本_传统浴袍美女0510（主体=日本女性身着樱花；运营tag=常规_日本_传统浴袍美女0510；JS分类=d…）"
+    },
+    {
+      "country": "日本",
+      "candidate_id": "JP_CAND_013",
+      "operation_tag": "常规_日本_风铃0708",
+      "label": "轻微修改",
+      "grade_credibility": 0,
+      "rag_citation_usefulness": 0,
+      "history_evidence_fit": 0,
+      "candidate_output": "视觉主体=风铃（風鈴／furin）；场景=日式传统建筑檐下庭院夜景，木质廊道与纸灯笼照明；风格=写实插画风格，低饱和冷色调夜景渲染，景深层次分明，光影柔和，具东方静谧美学；预测等级=D；SA概率=24%；开图率=4%-8%；完成率=83%-87%；完成时长=12.1-15.0；建议=暂不使用；风险=无版权风险（通用文化符号）,无IP混淆（非特定动漫/品牌形象）,无法国元素混入,文化表达准确；RAG依据=历史样本：Harness Gold 样本 常规_日本_街道0622（主体=游客；运营tag=常规_日本_街道0622；JS分类=travel；等级=C…）；历史样本：Harness Gold 样本 常规_日本_二木屐0510（主体=黑色漆面高台草履；运营tag=常规_日本_二木屐0510；JS分类=obje…）；历史样本：Harness Gold 样本 常规_日本_抹茶0405（主体=抹茶；运营tag=常规_日本_抹茶0405；JS分类=food；等级=D；位…）；相似好图=常规_日本_禅意茶具0503、常规_日本_猫咪鲤鱼0605；相似风险图=试新_日本_门球0509、常规_日本_抹茶"
+    },
+    {
+      "country": "日本",
+      "candidate_id": "JP_CAND_005",
+      "operation_tag": "常规_日本_红叶建筑0721",
+      "label": "轻微修改",
+      "grade_credibility": 0,
+      "rag_citation_usefulness": 0,
+      "history_evidence_fit": 0,
+      "candidate_output": "视觉主体=红叶溪谷中的传统日式拱桥与石阶；场景=秋季日本山林溪流景观，含石阶、瀑布、溪水、枫树、石灯笼；风格=高饱和暖色调数字插画风格，方形构图，前中后景层次分明，主体边界清晰，光影柔和带金色逆光；预测等级=A；SA概率=72%；开图率=14%-17%；完成率=92%-95%；完成时长=15.1-19.7；建议=优先排图；风险=未发现明确风险；RAG依据=历史样本：Harness Gold 样本 常规_日本_招财猫0429（主体=招财猫Manek；运营tag=常规_日本_招财猫0429；JS分类=obje…）；历史样本：Harness Gold 样本 常规_日本_二木屐0510（主体=黑色漆面高台草履；运营tag=常规_日本_二木屐0510；JS分类=obje…）；历史样本：Harness Gold 样本 常规_日本_街道0622（主体=游客；运营tag=常规_日本_街道0622；JS分类=travel；等级=C…）；相似好图=常规_日本_天桥立0421、常规_日本_樱花列车0605；相似风险图=常规_日本_街道0622、试新_日本_怀旧场景0408；证据=预测值：Qwen视觉解析主体"
+    },
+    {
+      "country": "日本",
+      "candidate_id": "JP_CAND_006",
+      "operation_tag": "常规_日本_花见灯夜0721",
+      "label": "轻微修改",
+      "grade_credibility": 0,
+      "rag_citation_usefulness": 0,
+      "history_evidence_fit": 0,
+      "candidate_output": "视觉主体=身着和服的女性游客与摊贩在夏夜祭典市集；场景=日本夏季花火大会期间的屋台（路边摊）夜市，背景为绽放的烟花与悬挂的提灯；风格=日式插画风（新海诚×吉卜力混合感），暖色调渲染，中等明度与饱和度, 方形构图，强调前中后景层次与主体轮廓清晰度；预测等级=A；SA概率=72%；开图率=14%-17%；完成率=92%-95%；完成时长=15.1-19.7；建议=优先排图；风险=未发现明确风险；RAG依据=价值观规则：日本治愈旅行与季节感（温泉街、浴衣、旅馆灯笼、樱花、红叶、夏祭、海边小镇等题材符合日本市场治愈、宁静、季…）；历史样本：Harness Gold 样本 常规_日本_街道0622（主体=游客；运营tag=常规_日本_街道0622；JS分类=travel；等级=C…）；历史样本：Harness Gold 样本 常规_日本_传统浴袍美女0510（主体=日本女性身着樱花；运营tag=常规_日本_传统浴袍美女0510；JS分类=d…）；相似好图=常规_日本_天桥立0421、常规_日本_樱花列车0605；相似风险图=常规_日本_街道0622、试新_日本_怀旧场景0408；证据=预测值：Q"
+    },
+    {
+      "country": "日本",
+      "candidate_id": "JP_CAND_009",
+      "operation_tag": "常规_日本_孩童田野0720",
+      "label": "轻微修改",
+      "grade_credibility": 0,
+      "rag_citation_usefulness": 0,
+      "history_evidence_fit": 0,
+      "candidate_output": "视觉主体=一群日本中小学生（5人）背对镜头沿乡间小路行走，身着典型日式校服（白衬衫+深色短裙/短裤+及膝袜+皮鞋），携带彩色双肩包；场景=日本乡村稻田景观，夕阳西下，金黄色稻田与灌溉水渠并行，远处可见低矮山丘与传统日式民居（坡屋顶、白墙灰瓦），小径为土路，两侧有野花与绿植；风格=新海诚式动画电影美学：柔和暖光渲染、细腻光影过渡、高细节自然纹理、景深层次分明、略带梦幻感的写实插画风；预测等级=D；SA概率=24%；开图率=4%-8%；完成率=83%-87%；完成时长=12.1-15.0；建议=暂不使用；风险=low_copyright_risk,no_france_confusion,no_ip_infringement,no_cultural_misrepresentation；RAG依据=历史样本：Harness Gold 样本 常规_日本_樱花大道0625（主体=樱花树下的传统日；运营tag=常规_日本_樱花大道0625；JS分类=tra…）；历史样本：Harness Gold 样本 试新_日本_儿童节鲤鱼旗0527（主体=日本小女孩；运营tag=试新_日本_儿童节鲤鱼旗0527；"
+    },
+    {
+      "country": "日本",
+      "candidate_id": "JP_CAND_015",
+      "operation_tag": "常规_日本_和风少女与美食0701",
+      "label": "轻微修改",
+      "grade_credibility": 0,
+      "rag_citation_usefulness": 0,
+      "history_evidence_fit": 0,
+      "candidate_output": "视觉主体=身穿樱花纹样和服的日本女性，背对观者坐于窗边；场景=春日京都或镰仓风格街景咖啡馆内，窗外樱花纷飞，传统町屋建筑与行人构成日常市井氛围；风格=新国风插画（Neo-Japanese Illustration），柔和光影渲染，细腻笔触，暖调写实主义，略带治愈系绘本感；预测等级=A；SA概率=72%；开图率=14%-17%；完成率=92%-95%；完成时长=15.1-19.7；建议=优先排图；风险=未发现明确风险；RAG依据=历史样本：Harness Gold 样本 常规_日本_樱花大道0625（主体=樱花树下的传统日；运营tag=常规_日本_樱花大道0625；JS分类=tra…）；历史样本：Harness Gold 样本 常规_日本_传统浴袍美女0510（主体=日本女性身着樱花；运营tag=常规_日本_传统浴袍美女0510；JS分类=d…）；历史样本：Harness Gold 样本 常规_日本_茶艺美女0417（主体=抹茶；运营tag=常规_日本_茶艺美女0417；JS分类=drawing；等…）；相似好图=常规_日本_二次元动漫少女0607、常规_日本_传统浴袍美女0510；相似"
+    }
+  ],
+  "next_actions": [
+    "继续用固定 10-20 张候选图做 Prompt v1/v2 对比。",
+    "优先修视觉解析 prompt、RAG citation 使用方式、历史依据解释和指标区间表述。",
+    "只有当人工评分仍低于阈值时，再讨论后训练，不把数据问题误判为模型问题。"
+  ]
+}

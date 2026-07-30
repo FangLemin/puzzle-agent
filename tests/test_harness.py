@@ -11,6 +11,7 @@ from puzzle_ops.image_generation import (
     DashScopeImageGenerationProvider,
     ComfyUIImageGenerationProvider,
     _dashscope_images_from_response,
+    _dashscope_sdk_generate,
     _download_image,
 )
 from puzzle_ops import image_generation
@@ -598,6 +599,41 @@ def test_dashscope_generation_provider_uses_reference_image_and_downloads_sdk_re
     assert images[0].provider == "dashscope"
     assert images[0].source_sample_id == "sample-1"
     assert Path(images[0].local_image_path).exists()
+
+
+def test_dashscope_sdk_generate_normalizes_http_base_url(monkeypatch, tmp_path):
+    import dashscope
+    from dashscope.aigc.image_generation import ImageGeneration
+
+    reference = tmp_path / "reference.png"
+    Image.new("RGB", (320, 320), (220, 180, 120)).save(reference)
+    dashscope.base_http_api_url = "https://Qwen.aliyuncs.com/api/v1"
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+        output = {"results": [{"url": "https://example.test/generated.png"}]}
+
+    def fake_call(**kwargs):
+        captured["base_http_api_url"] = dashscope.base_http_api_url
+        captured["kwargs"] = kwargs
+        return FakeResponse()
+
+    monkeypatch.setattr(ImageGeneration, "call", fake_call)
+
+    result = _dashscope_sdk_generate(
+        model="wan2.6-image",
+        api_key="gen-test",
+        reference_image=str(reference),
+        prompt="本次只生成一张独立完整图片",
+        negative_prompt="避免拼贴",
+        count=1,
+        seed=720,
+        style_constraints={},
+    )
+
+    assert captured["base_http_api_url"] == "https://dashscope.aliyuncs.com/api/v1"
+    assert result["images"][0]["url"] == "https://example.test/generated.png"
 
 
 def test_image_download_uses_https_certificate_context(monkeypatch):

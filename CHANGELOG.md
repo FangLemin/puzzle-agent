@@ -2,6 +2,703 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.48 - Value Master Third-Layer Repair Closure
+
+日期：2026-07-30
+
+阶段目标：
+
+- 完成第三层专项修复：RAG citation 降噪、历史依据排序可选开关、价值观大师 Prompt Benchmark v2。
+- 保持你认可的旧等级预测主链路不变，继续使用 `value_grade_model_version=v0.7.39-legacy`。
+
+已完成：
+
+- RAG citation 降噪：
+  - `_strong_rag_citations_from_trace` 支持 hard-negative parent 屏蔽。
+  - 支持 `max_citations` 截断，价值观大师最终依据默认只保留强相关 Top3。
+  - 弱相关 citation 不再进入价值观大师最终规则列表。
+- 历史依据排序可选开关：
+  - `_similar_history_for_candidate(..., ranking_mode="shadow_rerank")` 支持按主体、场景、风格、文化元素做影子排序。
+  - 默认仍是 `legacy`，不改页面主预测、不改缓存、不改线上等级。
+- Prompt Benchmark v2：
+  - 新增 `export_value_master_prompt_benchmark_v2_report`。
+  - 导出：
+    - `docs/eval/value_master_prompt_benchmark_v2_report.json`。
+    - `docs/eval/value_master_prompt_benchmark_v2_report.md`。
+  - 报告明确“不改等级预测主链路”，只约束视觉解析、RAG citation、历史依据解释、指标区间表述和运营建议。
+- 重新生成第三层证据：
+  - `docs/eval/value_master_prompt_benchmark_v2_report.*`。
+  - `docs/eval/rag_hard_negative_report.*`。
+  - `docs/eval/history_evidence_shadow_report.*`。
+
+当前评估结果：
+
+- Prompt Benchmark v2：
+  - 人工评分样本数：35。
+  - 视觉解析均分：4.00/5。
+  - RAG citation 有用性均分：1.60/5。
+  - 历史依据合理性均分：1.90/5。
+  - 预测等级可信度均分：1.90/5。
+  - 指标区间可信度均分：2.00/5。
+- RAG hard-negative：
+  - Hit@5：100%。
+  - MRR@5：97%。
+  - NDCG@5：98%。
+  - Precision@5：20%。
+  - Recall@5：100%。
+  - Hard-negative TopK 率：22%。
+- 历史依据 shadow：
+  - Case 数：45。
+  - Top1 改变率：69%。
+  - 旧排序 Top1 主体重合率：0%。
+  - 影子排序 Top1 主体重合率：11%。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_agents.py::test_strong_rag_citations_filters_hard_negative_noise_and_caps_output tests/test_agents.py::test_similar_history_shadow_rerank_is_optional_and_prioritizes_subject_match tests/test_agents.py::test_agent_exports_value_master_prompt_benchmark_v2_without_changing_grade_model -q`：3 passed。
+- `PYTHONPATH=. pytest tests/test_agents.py::test_strong_rag_citations_filter_low_relevance_hits tests/test_agents.py::test_value_master_passes_rag_citations_to_llm_prompt tests/test_agents.py::test_value_master_appends_system_rag_citations_when_llm_omits_them tests/test_agents.py::test_agent_exports_rag_hard_negative_report_with_retrieval_metrics tests/test_agents.py::test_agent_exports_history_evidence_shadow_report_without_changing_main_prediction -q`：5 passed。
+- `ANALYSIS_LLM_ENABLE_REMOTE_CALLS=0 RAG_ENABLE_REMOTE_CALLS=false RAG_EMBEDDING_PROVIDER=local RAG_RERANK_PROVIDER=local VISION_LLM_PROVIDER=qwen QWEN_API_KEY= IMAGE_GENERATION_PROVIDER=mock PYTHONPATH=. pytest tests -q`：581 passed。
+
+当前限制：
+
+- 本版完成第三层工程闭环，但评估结果显示 RAG citation 和历史依据仍偏弱，暂不进入主预测链路。
+- 本版不改三项指标预测，不用指标反推等级。
+- 第四层 README/架构图/最终简历报告仍等待用户完成页面功能测试后再生成。
+
+## v0.7.47 - Restore Business Workbook Fixture
+
+日期：2026-07-30
+
+阶段目标：
+
+- 恢复误删/丢失的 `/Users/fanglemin/Desktop/数据示例.xlsx`。
+- 确保项目仍能从真实业务数据和图片缓存读取 25 条日本、20 条法国真实样本。
+
+已完成：
+
+- 从保留数据恢复 Excel：
+  - `/Users/fanglemin/Desktop/数据示例_恢复版_20260730.xlsx`。
+  - `/Users/fanglemin/Desktop/数据示例.xlsx`。
+- 恢复数据规模：
+  - 日本 25 条。
+  - 法国 20 条。
+  - 合计 45 条真实样本。
+  - 45 张图片路径全部存在。
+- 保留业务字段：
+  - 图片等级、图片ID、分发位置、多维度等级、开图率、完成率、平均完成时长、运营tag、主体tag、JS分类、图片来源、备注、分发日期、分发周期。
+  - 追加保留 gold label 字段，便于后续 Harness/RAG 复用。
+- 导入器兼容增强：
+  - 原 WPS `DISPIMG` 图片仍支持。
+  - 新增本地图片路径 fallback：当“图片本身”为本地路径时，也能复制图片并建立 `图片ID -> local_image_path` 映射。
+  - 兼容 openpyxl 生成的 worksheet 路径与 inline string。
+
+验证：
+
+- `PYTHONPATH=. python` 手动导入恢复文件：日本 25/25 图片可读，法国 20/20 图片可读。
+- `PYTHONPATH=. pytest tests/test_importer_multimodal.py::test_import_history_workbook_preserves_real_business_columns_and_images tests/test_importer_multimodal.py::test_excel_image_extractor_maps_dispimg_ids_to_media_files tests/test_importer_multimodal.py::test_import_history_workbook_filters_mixed_country_sheet_and_extracts_real_images tests/test_importer_multimodal.py::test_import_history_workbook_normalizes_real_business_js_category_aliases tests/test_agents.py::test_analysis_report_uses_new_real_business_workbook_metrics tests/test_agents.py::test_agent_uses_new_mixed_business_workbook_for_japan_and_france_history tests/test_agents.py::test_agent_harness_uses_all_real_business_workbook_samples_when_no_gold_csv -q`：7 passed。
+- `ANALYSIS_LLM_ENABLE_REMOTE_CALLS=0 RAG_ENABLE_REMOTE_CALLS=false RAG_EMBEDDING_PROVIDER=local RAG_RERANK_PROVIDER=local VISION_LLM_PROVIDER=qwen QWEN_API_KEY= IMAGE_GENERATION_PROVIDER=mock PYTHONPATH=. pytest tests -q`：578 passed。
+
+当前限制：
+
+- 恢复版不是原始 WPS `DISPIMG` 内嵌格式，而是“可见缩略图 + 本地图片路径”格式。
+- 业务数据和图片没有丢，但原始 Excel 文件的编辑历史无法恢复。
+
+## v0.7.46 - RAG Citation Hard-Negative Eval
+
+日期：2026-07-30
+
+阶段目标：
+
+- 完成价值观大师修复阶段的第二个安全实验：RAG citation hard-negative 评测报告。
+- 继续保持不改价值观大师主预测、不改线上等级预测，只评估 RAG citation 是否真正相关。
+
+已完成：
+
+- 新增 `export_rag_hard_negative_report`：
+  - 导出 `docs/eval/rag_hard_negative_report.json`。
+  - 导出 `docs/eval/rag_hard_negative_report.md`。
+  - 模式标记为 `rag_hard_negative_eval`。
+  - 明确 `main_prediction_change_allowed=false`。
+- 扩展 `RagRetrievalCase`：
+  - 支持 `relevant_parent_ids`。
+  - 支持 `hard_negative_parent_ids`。
+- human_gold RAG eval case 自动生成同国异主体 hard-negative：
+  - 例如法国海滨餐桌样本会把薰衣草、马卡龙、乡村车等同国异主体样本作为干扰项。
+  - 用于识别“虽然 expected 命中，但 Top5 里混入不该作为依据的样本”的噪声问题。
+- 报告指标覆盖：
+  - Hit@5。
+  - MRR@5。
+  - NDCG@5。
+  - Precision@5。
+  - Recall@5。
+  - Hard-negative Top1 率。
+  - Hard-negative TopK 率。
+  - 失败类型统计与失败样例。
+
+当前真实样本报告：
+
+- Case 数：57。
+- Hit@5：100%。
+- MRR@5：97%。
+- NDCG@5：98%。
+- Precision@5：20%。
+- Recall@5：100%。
+- Hard-negative Top1 率：0%。
+- Hard-negative TopK 率：22%。
+- 失败类型：
+  - `passed`：47。
+  - `passed_with_hard_negative_noise`：10。
+
+决策结论：
+
+- 当前不是“RAG 已完全稳定”，而是“能召回 expected，但 Top5 citation 仍有 22% 同国异主体噪声”。
+- 状态保持 `keep_shadow_repair`。
+- 下一步应人工复核 noisy cases，将确认的不相关依据沉淀为 RAG feedback / approved_rag_patch，再重建索引。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_rag_hard_negative_report_with_retrieval_metrics tests/test_agents.py::test_agent_harness_gold_rag_eval_cases_include_same_country_hard_negatives tests/test_agents.py::test_agent_chunk_eval_dataset_summary_tracks_business_metrics tests/test_agents.py::test_agent_exports_history_evidence_shadow_report_without_changing_main_prediction -q`：4 passed。
+- `python -m py_compile puzzle_ops/agents.py puzzle_ops/rag.py`：通过。
+- `ANALYSIS_LLM_ENABLE_REMOTE_CALLS=0 RAG_ENABLE_REMOTE_CALLS=false RAG_EMBEDDING_PROVIDER=local RAG_RERANK_PROVIDER=local VISION_LLM_PROVIDER=qwen QWEN_API_KEY= IMAGE_GENERATION_PROVIDER=mock PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_rag_hard_negative_report_with_retrieval_metrics tests/test_agents.py::test_agent_harness_gold_rag_eval_cases_include_same_country_hard_negatives tests/test_agents.py::test_agent_chunk_eval_dataset_summary_tracks_business_metrics tests/test_agents.py::test_agent_exports_history_evidence_shadow_report_without_changing_main_prediction tests/test_harness.py tests/test_trulens_eval.py -q`：33 passed。
+- 全量 `pytest tests -q` 当前被外部 fixture 缺失阻塞：`/Users/fanglemin/Desktop/数据示例.xlsx` 不存在，导致依赖真实 Excel 工作簿的旧回归回落到 demo 数据并失败；本版 RAG 相关测试已通过。
+
+当前限制：
+
+- 本版没有改变价值观大师主预测。
+- 本版没有改变三项指标预测。
+- 本版没有把 hard-negative penalty 接入线上 rerank，只完成 shadow 评测与失败定位。
+- Precision@5 偏低，说明 citation 列表需要继续压缩和精排。
+
+## v0.7.45 - History Evidence Shadow Rerank
+
+日期：2026-07-30
+
+阶段目标：
+
+- 完成价值观大师修复阶段的第一个安全实验：历史依据排序影子评测。
+- 只对比旧历史依据排序和影子排序，不改价值观大师主预测、不改页面预测缓存，避免再次破坏用户认为相对稳定的等级预测。
+
+已完成：
+
+- 新增 `export_history_evidence_shadow_report`：
+  - 导出 `docs/eval/history_evidence_shadow_report.json`。
+  - 导出 `docs/eval/history_evidence_shadow_report.md`。
+  - 模式标记为 `shadow_history_rerank`。
+  - 明确 `main_prediction_change_allowed=false`。
+- 影子排序对比：
+  - 旧排序：更偏 JS 分类、简单文本重合和等级桶。
+  - 影子排序：提高主体、视觉 gold label、价值观标签的权重，降低 JS 分类误导。
+- 当前真实样本报告：
+  - Case 数：45。
+  - Top1 改变率：71%。
+  - 旧排序 Top1 主体重合率：0%。
+  - 影子排序 Top1 主体重合率：11%。
+- 决策结论：
+  - 影子排序方向有改善，但绝对效果仍不够好。
+  - 暂不进入主链路，继续保持“影子评测”。
+  - 后续需要结合人工历史依据评分与更强 RAG/图像语义特征，再考虑替换线上历史依据排序。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_history_evidence_shadow_report_without_changing_main_prediction -q`：1 passed。
+- `PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_history_evidence_shadow_report_without_changing_main_prediction tests/test_agents.py::test_agent_exports_value_master_repair_diagnostics_from_eval_report tests/test_agents.py::test_agent_exports_value_master_eval_report_from_gold_dataset_and_benchmark_scores -q`：3 passed。
+- `ANALYSIS_LLM_ENABLE_REMOTE_CALLS=0 RAG_ENABLE_REMOTE_CALLS=false RAG_EMBEDDING_PROVIDER=local RAG_RERANK_PROVIDER=local VISION_LLM_PROVIDER=qwen QWEN_API_KEY= IMAGE_GENERATION_PROVIDER=mock PYTHONPATH=. pytest tests -q`：576 passed。
+
+当前限制：
+
+- 本版没有改变价值观大师最终等级预测。
+- 本版没有改变 RAG citation 召回。
+- 历史依据主体重合率仍偏低，下一步应进入 RAG citation hard-negative 修复或历史图像语义索引增强。
+
+## v0.7.44 - Value Master Repair Diagnostics
+
+日期：2026-07-30
+
+阶段目标：
+
+- 开始价值观大师修复阶段，但不直接改线上预测等级。
+- 基于 v0.7.43 的评测报告生成影子诊断，明确哪些问题阻塞简历效果指标，下一步用哪些安全实验修复。
+
+已完成：
+
+- 新增 `export_value_master_repair_diagnostics`：
+  - 导出 `docs/eval/value_master_repair_diagnostics.json`。
+  - 导出 `docs/eval/value_master_repair_diagnostics.md`。
+  - 模式标记为 `shadow_diagnostics`。
+  - 明确 `main_prediction_change_allowed=false`，避免再次破坏用户认为相对稳定的预测版本。
+- 诊断阻塞项：
+  - `metric_baseline_grade_accuracy=0.1778`，低于 0.55，说明三项指标不能反推价值观主等级。
+  - `history_evidence_fit_avg=1.90/5`，低于 3.5，说明历史依据排序需要影子评测。
+  - `rag_citation_usefulness_avg=1.60/5`，低于 3.5，说明 RAG citation 需要 hard-negative 修复。
+  - `grade_credibility_avg=1.90/5`，低于 3.5，说明等级预测需要 Prompt Benchmark v2。
+- 安全实验清单：
+  - 历史依据排序影子评测。
+  - RAG citation hard-negative 修复。
+  - 等级预测 Prompt Benchmark v2。
+- 简历口径约束：
+  - 当前可以写工程闭环、Harness、RAG/Memory/HITL。
+  - 不能写“价值观预测高准确率”。
+  - 价值观效果应写成“通过 Benchmark 暴露问题并进入修复阶段”。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_value_master_repair_diagnostics_from_eval_report -q`：1 passed。
+- `ANALYSIS_LLM_ENABLE_REMOTE_CALLS=0 RAG_ENABLE_REMOTE_CALLS=false RAG_EMBEDDING_PROVIDER=local RAG_RERANK_PROVIDER=local VISION_LLM_PROVIDER=qwen QWEN_API_KEY= IMAGE_GENERATION_PROVIDER=mock PYTHONPATH=. pytest tests -q`：575 passed。
+
+当前限制：
+
+- 本版只生成修复诊断和安全实验清单，还没有改变 RAG 排序、历史依据排序或等级预测 Prompt。
+- 下一步应优先实现“历史依据排序影子评测”，验证通过后再决定是否进入主链路。
+
+## v0.7.43 - Value Master Eval Evidence Report
+
+日期：2026-07-30
+
+阶段目标：
+
+- 完成“简历可量化证明”第二阶段：生成价值观大师最终指标报告。
+- 把价值观大师当前表现拆成可自动复跑的 Harness 指标与人工 Benchmark 指标，避免只凭主观感觉判断项目是否能写进简历。
+
+已完成：
+
+- 新增 `export_value_master_eval_report`：
+  - 基于日本/法国真实 `human_gold` 样本运行离线 Harness。
+  - 导出 `docs/eval/value_master_eval_report.json`。
+  - 导出 `docs/eval/value_master_eval_report.md`。
+- 自动指标覆盖：
+  - 指标反推等级基线准确率。
+  - SA 二分类准确率。
+  - 三段式描述合规率。
+  - 主体解析准确率。
+  - 审核风险召回率。
+  - RAG citation precision。
+  - 飞书字段完整率。
+  - 工具调用成功率。
+- 人工 Benchmark 指标覆盖：
+  - 视觉解析人工均分。
+  - 国家价值观适配人工均分。
+  - 历史依据合理性人工均分。
+  - RAG citation 有用性人工均分。
+  - 风险识别人工均分。
+  - 预测等级可信度人工均分。
+  - 指标区间可信度人工均分。
+  - 排图建议可执行性人工均分。
+- 修正评测口径：
+  - 不再把三项业务指标反推等级称为“价值观大师等级准确率”。
+  - 报告中明确写为“指标反推等级基线准确率”，因为用户此前已确认三项指标不稳定，不能反过来代表价值观模型等级能力。
+  - 人工 Benchmark 评分只统计 1-5 的有效分，过滤旧表中的 0 分占位。
+
+当前真实报告结果：
+
+- 真实样本：45/50。
+- 指标反推等级基线准确率：18%。
+- SA 二分类准确率：60%。
+- 三段式描述合规率：100%。
+- RAG citation precision：84%。
+- 飞书字段完整率：100%。
+- 工具调用成功率：100%。
+- 人工 Benchmark 35 条：
+  - 历史依据合理性：1.90/5。
+  - RAG citation 有用性：1.60/5。
+  - 预测等级可信度：1.90/5。
+  - 排图建议可执行性：2.20/5。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_value_master_eval_report_from_gold_dataset_and_benchmark_scores -q`：1 passed。
+- `ANALYSIS_LLM_ENABLE_REMOTE_CALLS=0 RAG_ENABLE_REMOTE_CALLS=false RAG_EMBEDDING_PROVIDER=local RAG_RERANK_PROVIDER=local VISION_LLM_PROVIDER=qwen QWEN_API_KEY= IMAGE_GENERATION_PROVIDER=mock PYTHONPATH=. pytest tests -q`：574 passed。
+
+当前限制：
+
+- 本版暴露出价值观大师尚未达到“可在简历上写高准确率”的程度。
+- 主体/色彩/构图准确率在离线模式下为 `not_evaluable`，需要运行真实 VLM Harness 后才能作为正式指标。
+- 下一阶段应优先修复价值观大师的真实等级预测评测口径、RAG citation 有用性和历史依据排序，而不是继续堆新功能。
+
+## v0.7.42 - Resume Gold Dataset Evidence Package
+
+日期：2026-07-30
+
+阶段目标：
+
+- 启动“简历可量化证明”第一阶段：固定真实 gold 评测集，并生成可引用的证据包。
+- 把当前真实样本状态从口头描述变成 CSV + Markdown 报告，后续价值观大师和 RAG 指标都基于这份固定样本集继续收口。
+
+已完成：
+
+- 新增 `export_resume_gold_dataset_evidence`：
+  - 合并日本/法国 Harness real samples，导出 `docs/eval/puzzleops_gold_real_samples.csv`。
+  - 生成 `docs/eval/gold_dataset_summary.md`。
+  - 统计真实样本数、50 张目标缺口、国家分布、等级分布、JS 分类分布、gold label 覆盖率、业务指标覆盖率。
+- 当前真实 gold 数据状态：
+  - 真实样本总数：45/50。
+  - 日本：25 张；法国：20 张。
+  - 等级分布：S 6、A 17、B 12、C 6、D 4。
+  - 完整 gold label：45/45，覆盖率 100%。
+  - human_gold：45/45，覆盖率 100%。
+  - 业务指标：45/45，覆盖率 100%。
+  - 距离简历目标仍缺 5 张真实样本。
+- 清理 Harness gold 备注：
+  - silver label 晋升 human_gold 时，不再保留“AI silver label / 待人工抽查”的旧提示。
+  - 已清理当前 runtime 中 45 条 human_gold 的旧备注，证据包显示 `人工确认备注待清理：0`。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_agents.py::test_agent_promotes_ai_silver_labels_to_human_gold_facts tests/test_agents.py::test_agent_exports_resume_gold_dataset_evidence_package -q`：2 passed。
+- `ANALYSIS_LLM_ENABLE_REMOTE_CALLS=0 RAG_ENABLE_REMOTE_CALLS=false RAG_EMBEDDING_PROVIDER=local RAG_RERANK_PROVIDER=local VISION_LLM_PROVIDER=qwen QWEN_API_KEY= IMAGE_GENERATION_PROVIDER=mock PYTHONPATH=. pytest tests -q`：573 passed。
+
+当前限制：
+
+- 样本数目前是 45 张，还不能在简历中写“50 张完整真实评测集”；应表述为“45 张真实小样本 gold eval set”，或继续补 5 张法国/日本真实图后再升级口径。
+- 本版只完成真实评测集证据固定；价值观大师最终指标和 RAG 正式评测报告仍需下一阶段继续生成。
+
+## v0.7.41 - Analysis Qwen Rewrite Layer
+
+日期：2026-07-30
+
+阶段目标：
+
+- 在 `v0.7.40` 结构化动态分析层之上，增加可选 Qwen LLM 改写能力。
+- 让数据分析大师的周期复盘和下一步建议更像资深运营总结，同时保留本地规则兜底，避免模型胡编指标。
+
+已完成：
+
+- 新增数据分析 LLM 改写链路：
+  - `ANALYSIS_LLM_ENABLE_REMOTE_CALLS=1` 时才会调用远程模型。
+  - Provider 支持 `qwen` / `dashscope`。
+  - API Key 优先读取 `ANALYSIS_LLM_API_KEY`，其次复用 `QWEN_API_KEY` / `DASHSCOPE_API_KEY`。
+  - 默认模型为 `qwen3.7-plus`，可通过 `ANALYSIS_LLM_MODEL` 覆盖。
+  - 默认 endpoint 为 DashScope OpenAI 兼容接口，可通过 `ANALYSIS_LLM_ENDPOINT` 覆盖。
+- Prompt 约束：
+  - 只允许基于结构化分析、真实历史记录和视觉复盘改写。
+  - 明确要求不要编造图片、指标、来源、价值观规则或业务结论。
+  - 输出 JSON：`cycle_summary` / `next_todo`，方便页面稳定消费。
+- 工程兜底：
+  - 未开启远程调用、缺少 key、模型调用失败、空输出或无法解析时，自动回退到 `v0.7.40` 的本地结构化复盘。
+  - 支持解析 JSON 输出，也兼容中文标题格式的模型输出。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_agents.py::test_analysis_report_can_use_qwen_llm_to_rewrite_structured_recap tests/test_agents.py::test_analysis_report_does_not_call_llm_when_remote_disabled tests/test_agents.py::test_analysis_report_falls_back_when_llm_output_is_unusable tests/test_agents.py::test_analysis_report_generates_structured_business_recap_from_records -q`：4 passed。
+- `ANALYSIS_LLM_ENABLE_REMOTE_CALLS=0 RAG_ENABLE_REMOTE_CALLS=false RAG_EMBEDDING_PROVIDER=local RAG_RERANK_PROVIDER=local VISION_LLM_PROVIDER=qwen QWEN_API_KEY= IMAGE_GENERATION_PROVIDER=mock PYTHONPATH=. pytest tests -q`：572 passed。
+
+当前限制：
+
+- 默认仍不开启远程 LLM，避免页面加载数据分析时产生不必要费用。
+- 本版只做数据分析复盘改写，不改变价值观大师预测等级逻辑，也不重新引入已回退的 RAG/历史依据排序实验。
+
+## v0.7.40 - Dynamic Analysis Business Recap
+
+日期：2026-07-29
+
+阶段目标：
+
+- 修复数据分析大师“周期总结 / 下一步建议主体文案依赖固定底稿”的问题。
+- 先完成结构化动态分析层，为后续接 Qwen 生成自然语言复盘做数据底座。
+
+已完成：
+
+- 数据分析大师在有真实历史记录时，不再直接使用 `puzzle_ops/data.py` 里的固定 `cycle_summary` / `next_todo` 作为主体文案。
+- 新增规则版结构化分析：
+  - 异常点归因：从 C/D、低开图、低完成率、低时长和备注中提取风险样本。
+  - 市场题材趋势：从 S/A 历史好图和可复用 tag 中识别表现较好的主题、JS分类和开图表现。
+  - 来源结构：统计 AI / 素材网等来源占比。
+  - 需要补库存主题：优先列出 S/A 表现稳定的 subject/tag。
+  - 应暂停低质方向：列出 C/D 集中的 subject/tag。
+  - 下一周期试新假设：基于好图主题和坏图避坑方向生成小批量试新建议。
+- 保留页面人工编辑入口：
+  - `周期内容分析` 和 `下一步 todo 和建议` 仍可在页面 textarea 中人工修改并保存。
+- 空数据 / demo 数据兼容：
+  - 没有真实历史记录时，继续使用原 demo 固定文案，避免空页面无内容。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_agents.py::test_analysis_report_generates_structured_business_recap_from_records -q`：1 passed。
+- `PYTHONPATH=. pytest tests/test_agents.py::test_analysis_marks_positions_5_and_10_and_keeps_editable_remarks tests/test_agents.py::test_analysis_report_uses_updated_country_okr_from_business_background tests/test_agents.py::test_analysis_report_uses_new_real_business_workbook_metrics tests/test_agents.py::test_analysis_report_generates_structured_business_recap_from_records tests/test_renderer.py::test_analysis_page_places_chart_before_detail_and_summary_at_bottom tests/test_server.py::test_save_analysis_persists_editable_rows_summary_and_todo -q`：6 passed。
+
+当前限制：
+
+- 本版还没有把结构化报表交给 LLM 生成更自然的运营复盘文案。
+- 下一步可接 Qwen：输入结构化分析 JSON + RAG 价值观规则，输出可溯源的自然语言复盘和试新假设。
+
+## v0.7.39 - Rollback To Pre-RAG-Ranking Baseline
+
+日期：2026-07-29
+
+阶段目标：
+
+- 按用户反馈回退到“下午开始实现 RAG/历史依据排序优化计划之前”的价值观预测行为。
+- 保留用户认可的单模型评分 UI 和指标校准，撤回导致等级不稳定的 RAG/历史依据排序实验。
+
+已完成：
+
+- 回退预测链路到 v0.7.34 后的基线：
+  - 价值观候选 RAG query 恢复为旧口径：`主体 + 场景 + 运营tag`。
+  - 历史依据排序恢复为旧口径：JS 分类加分 + 简单 token 重合，不再使用结构化视觉字段、相似得分和主体/视觉重合加权。
+  - Benchmark 保存不再自动把 RAG citation 评分写入 `rag_citation_feedback`。
+  - 页面不再提交隐藏的 `rag_citations_*` 字段。
+- 保留能力：
+  - `v0.7.34` 单模型 Benchmark 评分表继续保留，不恢复“候选版本评分”假双列。
+  - `v0.7.33` 等级优先的三项指标校准继续保留。
+  - `v0.7.32` RAG 强引用过滤仍保留，避免明显弱引用展示。
+- 缓存刷新：
+  - 新预测写入 `value_grade_model_version=v0.7.39-legacy`。
+  - v0.7.35-v0.7.38 期间生成的缓存会在生成评测时自动刷新，避免继续复用错误等级。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_agents.py::test_value_candidate_prediction_uses_legacy_count_grade_formula tests/test_agents.py::test_value_candidate_prediction_keeps_visual_grade_and_calibrates_metric_levels tests/test_agents.py::test_similar_history_filters_zero_relevance_records tests/test_agents.py::test_batch_value_candidate_prediction_refreshes_stale_cache tests/test_server.py::test_generate_value_prediction_benchmark_refreshes_stale_rag_cache tests/test_server.py::test_save_value_prediction_benchmark_uses_single_model_scores tests/test_renderer.py::test_value_prediction_benchmark_uses_single_model_scoring_ui -q`：7 passed。
+
+当前限制：
+
+- 本版优先恢复“等级较准”的旧口径；RAG 和历史依据相关性暂时不继续用 v0.7.35 的方案优化。
+- 后续如果还要优化 RAG/历史依据，需要先单独做影子评测，不再直接影响主预测等级。
+
+## v0.7.38 - Restore Legacy Value Grade Formula
+
+日期：2026-07-29
+
+阶段目标：
+
+- 根据用户 Benchmark 反馈，把价值观候选的预测等级口径恢复到第一次测评时相对更准的 legacy 公式。
+- 保留后续已经修好的单模型评分 UI、指标等级校准、RAG/历史依据展示增强，但不再使用 v0.7.36/v0.7.37 的新等级权重公式。
+
+已完成：
+
+- 等级预测回退：
+  - 恢复 legacy 计数型公式：视觉置信度 + 相似 S/A 好图条数 - 相似 C/D 坏图条数 - 风险标签数量。
+  - 撤回 v0.7.36 的“只统计实质风险”对等级的影响。
+  - 撤回 v0.7.37 的“按相似得分加权好图/坏图”对等级的影响。
+- 保留未回退能力：
+  - `v0.7.34` 单模型 Benchmark 评分表继续保留。
+  - `v0.7.33` 等级优先的三项指标校准继续保留。
+  - `v0.7.35` 结构化 RAG query、RAG citation feedback、历史依据展示相似得分继续保留。
+- 缓存刷新：
+  - 新预测写入 `value_grade_model_version=v0.7.38`。
+  - 旧 v0.7.36/v0.7.37 缓存会在生成评测时自动重新预测。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_agents.py::test_value_candidate_prediction_uses_legacy_count_grade_formula tests/test_agents.py::test_value_candidate_prediction_keeps_visual_grade_and_calibrates_metric_levels tests/test_agents.py::test_batch_value_candidate_prediction_refreshes_stale_cache tests/test_server.py::test_generate_value_prediction_benchmark_refreshes_stale_rag_cache -q`：4 passed。
+
+当前限制：
+
+- 本版按用户反馈优先恢复“等级准”的旧口径；RAG/历史依据是否更相关仍需继续单独用 Benchmark 低分维度优化。
+- 三项指标仍是按预测等级校准的业务预期区间，不是独立回归预测。
+
+## v0.7.37 - Weighted History Grade Calibration
+
+日期：2026-07-29
+
+阶段目标：
+
+- 修复 v0.7.36 后法国候选图出现 `1S+4A`、坏图被明显高估的问题。
+- 让预测等级同时尊重历史好图和坏图，但不允许弱相关好图堆叠把候选硬抬到 A/S。
+
+已完成：
+
+- 根因定位：
+  - v0.7.36 修掉了“低风险/无风险误扣分”后，历史好图数量的正向加分暴露得过强。
+  - 旧公式按好图条数加分、坏图条数轻扣分，导致 3 个弱相关好图可以压过 1 个强相关坏图。
+  - 法国甜品橱窗、海边建筑、夜景等候选因此被过度抬高。
+- 历史证据加权：
+  - 从历史依据 `相似得分`、`主体/视觉重合` 中提取相似强度。
+  - 强相关历史图权重大，弱相关历史图权重小。
+  - 正向历史证据设置上限，避免堆叠泛泛好图。
+  - 负向历史证据扣分权重提高，强相关坏图可以有效压低等级。
+- 风险与等级继续解耦：
+  - 保留 v0.7.36 的良性风险过滤。
+  - `过暗风险`、`文字水印`、疑似品牌/IP 等实质风险仍会压低 SA 概率。
+- 缓存刷新：
+  - 新预测写入 `value_grade_model_version=v0.7.37`。
+  - 旧 v0.7.36 的 `1S+4A` 缓存会在生成评测时自动重跑。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_agents.py::test_value_candidate_prediction_does_not_promote_weak_positive_history_over_strong_bad_history tests/test_agents.py::test_value_candidate_prediction_caps_material_quality_risk_below_a tests/test_agents.py::test_value_candidate_prediction_ignores_low_and_no_risk_tags_for_grade tests/test_agents.py::test_value_candidate_prediction_keeps_material_risk_downgrade tests/test_agents.py::test_value_candidate_prediction_keeps_visual_grade_and_calibrates_metric_levels tests/test_agents.py::test_batch_value_candidate_prediction_refreshes_stale_cache tests/test_server.py::test_generate_value_prediction_benchmark_refreshes_stale_rag_cache -q`：7 passed。
+
+当前限制：
+
+- 本版是规则化权重校准，不是训练模型；仍需要用固定法国/日本 10 张 Benchmark 判断是否进入 Prompt v2。
+- 历史相似图本身仍依赖已有真实样本质量，后续可以继续把“历史依据合理性”人工分数转为历史图排序反馈。
+
+## v0.7.36 - Material Risk Grade Guard
+
+日期：2026-07-29
+
+阶段目标：
+
+- 修复 v0.7.35 后用户新一轮 Benchmark 中“预测等级明显变差”的回归。
+- 保留 RAG/历史依据降噪，但避免把无风险、低风险标签误算成等级扣分。
+
+已完成：
+
+- 定位回归原因：
+  - Qwen3-VL 会输出 `low_copyright_risk`、`no_ip_infringement`、`无文化混淆`、`低风险：无真实IP` 等安全描述。
+  - 旧公式把所有 `risk_tags` 都按风险数量扣分，每条扣 `0.12`，导致法国薰衣草、海边建筑、甜品橱窗等本身安全的图被压到 C/D。
+- 新增实质风险过滤：
+  - `low_`、`no_`、`无`、`低风险`、`未见`、`未发现`、`safe` 等良性风险描述不再参与等级扣分。
+  - `过暗风险`、`文字水印`、`疑似真实品牌商标` 等实质风险仍会降低 SA 概率和预测等级。
+- 缓存刷新：
+  - 新预测写入 `value_grade_model_version=v0.7.36`。
+  - 旧缓存缺少该版本号时，生成价值观预测评测会自动重新预测，避免继续复用 v0.7.35 的错误等级。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_agents.py::test_value_candidate_prediction_ignores_low_and_no_risk_tags_for_grade tests/test_agents.py::test_value_candidate_prediction_keeps_material_risk_downgrade tests/test_agents.py::test_batch_value_candidate_prediction_refreshes_stale_cache tests/test_server.py::test_generate_value_prediction_benchmark_refreshes_stale_rag_cache -q`：4 passed。
+
+当前限制：
+
+- 本版修的是“安全标签误扣分”的明显回归；预测等级仍需要继续通过 10-20 张 Benchmark 判断是否要进入 Prompt v2/v3。
+- 已经保存的 v0.7.35 低分 Benchmark 记录会保留作为回归证据，不会自动改写历史评分。
+
+## v0.7.35 - RAG Evidence Ranking Feedback
+
+日期：2026-07-29
+
+阶段目标：
+
+- 针对用户新测评反馈中“RAG 召回不相关、历史依据图片不相关”的问题做第一轮定向优化。
+- 让人工 Benchmark 低分能进入下一轮 RAG rerank，而不是只停留在评分记录里。
+
+已完成：
+
+- 价值观候选 RAG query 结构化：
+  - 召回问题从短文本升级为 `国家 / JS分类 / 运营tag / 主体 / 场景 / 风格 / 文化元素 / 关键词 / 风险` 的结构化 query。
+  - 目标是让向量召回和 BM25 都能拿到更完整的业务语义，减少只因国家或泛主题相同导致的弱召回。
+- 历史依据排序降噪：
+  - JS 分类相同只作为加分，不再单独构成“相似历史图”依据。
+  - 历史好图/风险图必须与当前图在主体、场景、文化元素、风格或关键词上有实质重合，才会展示。
+  - 排序加入主体重合、视觉元素重合、分类一致和历史开图表现。
+  - 页面证据中补充 `相似得分` 和 `主体/视觉重合`，方便运营判断依据是否靠谱。
+- 人工评分反馈闭环：
+  - 价值观预测 Benchmark 保存时会携带 RAG citation id。
+  - 如果“RAG citation 有用性”打 1-2 分，系统自动写入 `not_useful` feedback。
+  - 如果打 4-5 分，系统自动写入 `useful` feedback。
+  - 现有 `FeedbackAwareRerankProvider` 会读取这些反馈分，下一轮离线/local rerank 会对低分 citation 降权、对高分 citation 加权。
+- 缓存刷新：
+  - 新预测缓存写入 `value_evidence_rank_version=v0.7.35`。
+  - 旧缓存缺少该版本号时，生成价值观预测评测会自动重跑，避免继续展示旧的 RAG/历史依据。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_agents.py::test_value_candidate_rag_query_includes_structured_visual_fields tests/test_agents.py::test_similar_history_filters_same_category_but_unrelated_records tests/test_agents.py::test_similar_history_ranks_subject_and_visual_overlap_first tests/test_agents.py::test_similar_history_filters_zero_relevance_records tests/test_agents.py::test_batch_value_candidate_prediction_refreshes_stale_cache tests/test_server.py::test_generate_value_prediction_benchmark_refreshes_stale_rag_cache tests/test_server.py::test_save_value_prediction_benchmark_records_rag_feedback_from_low_scores -q`：7 passed。
+
+当前限制：
+
+- 本轮是排序和反馈闭环增强，不是重新训练 embedding/rerank 模型。
+- 已经保存过的旧 Benchmark 评分不会自动反向补写 citation feedback；从 v0.7.35 页面重新生成并保存后才会进入反馈闭环。
+- 三项业务指标仍是等级优先后的业务区间校准，不是独立回归模型。
+
+## v0.7.34 - Single-Model Value Benchmark
+
+日期：2026-07-29
+
+阶段目标：
+
+- 修复价值观预测评测页的“当前线上 vs 候选版本”假双列问题。
+- 避免人工评分保存后候选列全为 0，导致评测汇总失真。
+
+已完成：
+
+- 价值观预测评测表改为单模型评分：
+  - 页面只展示“模型预测输出”和“模型预测评分”。
+  - 不再展示“候选版本预测/候选版本评分”的占位列。
+  - 入口说明改为“生成单模型预测评分表”。
+- 保存逻辑兼容旧表结构：
+  - 新表单只需要提交一组 8 维评分。
+  - 后端会把同一组评分同步写入现有 `baseline_scores` 与 `candidate_scores`，避免汇总中的候选均分变成 0。
+  - `candidate_label`、`candidate_output` 缺省时自动复用模型人工标签和模型输出。
+  - 新记录写入 `benchmark_mode=single_model`。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_server.py::test_save_value_prediction_benchmark_uses_single_model_scores tests/test_renderer.py::test_value_prediction_benchmark_uses_single_model_scoring_ui -q`：2 passed。
+- `PYTHONPATH=. pytest tests/test_server.py::test_save_value_prediction_benchmark_persists_batch_scores tests/test_server.py::test_save_value_prediction_benchmark_uses_single_model_scores tests/test_server.py::test_generate_value_prediction_benchmark_uses_selected_candidates tests/test_server.py::test_generate_value_prediction_benchmark_refreshes_stale_rag_cache tests/test_renderer.py::test_value_page_shows_value_prediction_benchmark_when_expanded tests/test_renderer.py::test_value_prediction_benchmark_uses_single_model_scoring_ui tests/test_renderer.py::test_eval_page_shows_value_prediction_benchmark_summary -q`：7 passed。
+
+当前限制：
+
+- 旧历史评分中已经保存为 0 的候选列不会自动改写；页面后续新保存的数据会正常进入单模型评分口径。
+- RAG citation 和历史依据排序仍需下一轮基于人工低分样本做定向优化。
+
+## v0.7.33 - Grade-First Metric Calibration
+
+日期：2026-07-28
+
+阶段目标：
+
+- 修正 v0.7.32 中“用指标分档反推预测等级”的错误方向。
+- 保留用户测评中较准的预测等级，把三个业务指标改成按等级口径校准。
+
+已完成：
+
+- 价值观候选预测改为等级优先：
+  - 预测等级仍由视觉解析、历史好/坏图、风险信号和综合置信度决定。
+  - 开图率、完成率、完成时长不再覆盖预测等级。
+  - 三项指标按预测等级校准到合理的高/中/低组合。
+- 指标校准规则：
+  - S 默认校准为高高高。
+  - A 默认校准为高高中。
+  - B 默认校准为中中中。
+  - C 默认校准为低中中。
+  - D 默认校准为低低低。
+- 旧缓存兼容：
+  - 旧缓存如果已经有预测等级，但指标分档来自旧逻辑，会保留预测等级并重算指标分档和区间。
+  - 新缓存写入 `metric_calibration_version=v0.7.33`，避免重复校准。
+  - 生成价值观预测评测时，如果勾选的是旧缓存候选，会自动强制重新预测，补齐新的 RAG 强相关引用和指标校准信息。
+  - 批量预测当前国家时也会刷新旧缓存，不再把缺少 `rag_filter_version` 或 `metric_calibration_version` 的旧结果计入可复用缓存。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_agents.py::test_value_candidate_prediction_keeps_visual_grade_and_calibrates_metric_levels tests/test_agents.py::test_cached_value_candidate_keeps_grade_and_recalibrates_stale_metric_levels tests/test_agents.py::test_metric_level_uses_country_specific_business_thresholds tests/test_agents.py::test_business_grade_is_derived_from_metric_levels tests/test_agents.py::test_similar_history_filters_zero_relevance_records tests/test_agents.py::test_strong_rag_citations_filter_low_relevance_hits tests/test_renderer.py::test_value_candidate_card_shows_metric_level_reasoning -q`：7 passed。
+- `PYTHONPATH=. pytest tests/test_server.py::test_generate_value_prediction_benchmark_refreshes_stale_rag_cache tests/test_agents.py::test_batch_value_candidate_prediction_refreshes_stale_cache -q`：2 passed。
+
+当前限制：
+
+- 指标目前是“按等级校准的业务预期区间”，不是单独预测真实开图率/完成率/完成时长的回归模型。
+- 后续若要提升三个指标本身的准确度，需要基于更多真实样本训练或拟合独立指标预测器。
+
+## v0.7.32 - Business Metric Grade Rules
+
+日期：2026-07-28
+
+阶段目标：
+
+- 修复价值观候选预测中“预测等级”和“开图率/完成率/完成时长”不匹配的问题。
+- 降低不相关 RAG 依据和历史依据图片对候选预测的误导。
+
+已完成：
+
+- 新增国家级业务指标分档：
+  - 日本：开图率 >13.78% 为高，<7.89% 为低；完成率 >91.98% 为高，<86.73% 为低；完成时长 >19.73 为高，<15.06 为低。
+  - 法国：开图率 >10.78% 为高，<5.89% 为低；完成率 >91.89% 为高，<85.73% 为低；完成时长 >18.73 为高，<15.00 为低。
+- 新增等级硬规则：
+  - S=高高高。
+  - A=2高1中。
+  - B=3中/2高1低。
+  - C=1低2中/1低1高1中。
+  - D=3低/2低1中。
+- 价值观候选预测改为：
+  - 先由相似历史样本估计三项指标区间。
+  - 再把三项指标转为高/中/低。
+  - 最后按业务规则推导 S/A/B/C/D。
+  - 页面展示“指标分档 开图/完成/时长”，让运营能直接审预测等级依据。
+  - 旧缓存预测如果只有指标区间，会自动回填分档并按业务规则重算等级。
+- 历史依据降噪：
+  - 相似历史图必须达到最低相关得分才作为依据，避免只因国家名相同就展示不相关图片。
+- RAG 依据降噪：
+  - 价值观候选卡片只展示 BM25 有命中或 rerank 分数达标的强引用。
+  - 弱召回不再作为候选预测的显性依据。
+  - 旧缓存中未经过强相关过滤的 RAG 引用会自动隐藏，重新预测后才写入新版本强引用。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_agents.py::test_metric_level_uses_country_specific_business_thresholds tests/test_agents.py::test_business_grade_is_derived_from_metric_levels tests/test_agents.py::test_value_candidate_prediction_grade_follows_metric_levels_even_when_visual_confidence_is_high tests/test_agents.py::test_similar_history_filters_zero_relevance_records tests/test_agents.py::test_strong_rag_citations_filter_low_relevance_hits tests/test_agents.py::test_metric_levels_can_be_backfilled_from_cached_prediction_ranges tests/test_renderer.py::test_value_candidate_card_shows_metric_level_reasoning -q`：7 passed。
+
+当前限制：
+
+- 三项指标的数值预测仍来自相似历史样本均值，并不是一个单独训练的回归模型；本版重点是保证等级推导和指标分档一致。
+- 如果历史样本本身标注或业务指标噪声较大，仍需要后续用人工测评样本继续校准相似检索和指标估计。
+
 ## v0.7.31 - Wednesday Review Operations Loop
 
 日期：2026-07-12

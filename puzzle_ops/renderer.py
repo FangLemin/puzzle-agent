@@ -1,10 +1,12 @@
 from dataclasses import dataclass, field
 from html import escape
+import json
 from pathlib import Path
 from urllib.parse import urlencode
 
 from puzzle_ops.agents import PuzzleOpsAgent
 from puzzle_ops.models import DemandRow
+from puzzle_ops.production import is_production_write_country, production_write_countries
 from puzzle_ops.visual_assets import image_data_uri
 
 
@@ -32,11 +34,11 @@ class AppState:
     user_id: str = DEFAULT_USER_ID
     country: str = "日本"
     view: str = "dashboard"
-    category: str = "人物"
-    tag: str = "常规_日本_传统浴袍美女0604"
+    category: str = "animal"
+    tag: str = "常规_日本_猫咪鲤鱼0605"
     trial_mode: str = "parse"
     schedule_day: str = "周一"
-    value_grade: str = "S"
+    value_grade: str = "all"
     memory_layer: str = ""
     memory_review_status: str = ""
     memory_approved_for_rag: str = ""
@@ -45,6 +47,8 @@ class AppState:
     memory_subject: str = ""
     memory_operation_tag: str = ""
     show_holiday: bool = False
+    show_prompt_benchmark: bool = False
+    show_value_benchmark: bool = False
     need_rows: list[DemandRow] = field(default_factory=list)
     trial_row: DemandRow | None = None
     workflow_notes: list[str] = field(default_factory=list)
@@ -55,7 +59,36 @@ class AppState:
     analysis_edits: dict[str, object] = field(default_factory=dict)
     trial_uploads: list[dict[str, str]] = field(default_factory=list)
     trial_rows: list[DemandRow] = field(default_factory=list)
+    trial_parse_row: DemandRow | None = None
+    trial_parse_uploads: list[dict[str, str]] = field(default_factory=list)
+    trial_parse_rows: list[DemandRow] = field(default_factory=list)
+    trial_derive_row: DemandRow | None = None
+    trial_derive_uploads: list[dict[str, str]] = field(default_factory=list)
+    trial_derive_rows: list[DemandRow] = field(default_factory=list)
+    trial_derivative_candidates: list[DemandRow] = field(default_factory=list)
+    trial_derivative_candidate_uploads: list[dict[str, str]] = field(default_factory=list)
+    trial_derivative_prompt: str = ""
+    trial_derivative_negative_prompt: str = ""
+    trial_derivative_prompt_touched: bool = False
+    trial_derivative_job_id: str = ""
+    trial_derivative_job_status: str = ""
+    trial_derivative_job_progress: int = 0
+    trial_derivative_job_message: str = ""
+    value_prediction_job_id: str = ""
+    value_prediction_job_status: str = ""
+    value_prediction_job_progress: int = 0
+    value_prediction_job_message: str = ""
+    harness_prelabel_job_id: str = ""
+    harness_prelabel_job_status: str = ""
+    harness_prelabel_job_progress: int = 0
+    harness_prelabel_job_message: str = ""
+    harness_approval_job_id: str = ""
+    harness_approval_job_status: str = ""
+    harness_approval_job_progress: int = 0
+    harness_approval_job_message: str = ""
     generation_event: dict[str, str] = field(default_factory=dict)
+    description_benchmarks: list[dict[str, str]] = field(default_factory=list)
+    value_prediction_benchmarks: list[dict[str, str]] = field(default_factory=list)
 
 
 def render_page(agent: PuzzleOpsAgent, state: AppState) -> str:
@@ -72,7 +105,6 @@ def render_page(agent: PuzzleOpsAgent, state: AppState) -> str:
         "value": render_value,
         "runtime": render_runtime,
         "eval": render_eval,
-        "schedule": render_schedule,
         "sync": render_sync,
     }[state.view](agent, state)
     return f"""<!doctype html>
@@ -81,6 +113,7 @@ def render_page(agent: PuzzleOpsAgent, state: AppState) -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>拼图运营智能后台 Python版</title>
+  {render_auto_refresh(state)}
   <style>{CSS}</style>
 </head>
 <body>
@@ -94,12 +127,23 @@ def render_page(agent: PuzzleOpsAgent, state: AppState) -> str:
   <main>
     <header>
       <div><p>{escape(state.country)}市场</p><h1><span class="page-icon">{view_icon(state.view)}</span>{page_title(state.view)}</h1>{render_permission_strip(state)}</div>
-      <div class="header-actions"><a class="button" href="{href(state, view='sync')}">同步记录</a></div>
+      <div class="header-actions"><a class="button" href="{href(state, view='runtime')}">系统治理中心</a></div>
     </header>
     {body}
   </main>
 </body>
 </html>"""
+
+
+def render_auto_refresh(state: AppState) -> str:
+    if (
+        state.trial_derivative_job_status in {"pending", "running"}
+        or state.value_prediction_job_status in {"pending", "running"}
+        or state.harness_prelabel_job_status in {"pending", "running"}
+        or state.harness_approval_job_status in {"pending", "running"}
+    ):
+        return '<meta http-equiv="refresh" content="3">'
+    return ""
 
 
 def normalize_session(state: AppState) -> None:
@@ -111,13 +155,18 @@ def normalize_session(state: AppState) -> None:
 
 
 def normalize_state(agent: PuzzleOpsAgent, state: AppState) -> None:
+    valid_views = {"dashboard", "regular", "trial", "analysis", "weekly_review", "value", "runtime", "eval", "sync"}
+    if state.view not in valid_views:
+        state.view = "value"
     if state.country not in agent.countries():
         state.country = "日本"
     categories = agent.categories(state.country)
     if state.category not in categories:
         state.category = next(iter(categories))
     tags = agent.sorted_tags(state.country, state.category)
-    if state.tag not in {tag.tag for tag in tags}:
+    if not tags:
+        state.tag = ""
+    elif state.tag not in {tag.tag for tag in tags}:
         state.tag = tags[0].tag
     if state.trial_row is None or state.trial_row.country != state.country:
         state.trial_row = agent.create_trial_demand(state.country, state.category, state.trial_mode)
@@ -142,6 +191,8 @@ def user_label(user_id: str) -> str:
 
 
 def can_write_country(user_id: str, country: str) -> bool:
+    if not is_production_write_country(country):
+        return False
     for user in OPERATOR_USERS:
         if user["user_id"] == user_id:
             return country in tuple(user["writable_countries"])
@@ -218,7 +269,7 @@ def render_login_country_row(state: AppState, country: str, flag: str, supported
     badge_class = "edit" if writable else "readonly"
     copy = "可创建、晋升、停用 Memory，可同步飞书" if writable else "可查看，不可操作"
     if not supported:
-        copy = "权限已配置，业务数据待接入"
+        copy = "权限已配置，明日生产先只读，业务数据待接入"
     return (
         f'<a class="login-row country-row{selected}" href="{href(state, country=country, view="login")}">'
         f'<span>{escape(flag)}</span><strong>{escape(country)}</strong><em class="perm {badge_class}">{badge}</em><small>{escape(copy)}</small></a>'
@@ -269,10 +320,8 @@ def render_nav(state: AppState) -> str:
         ("analysis", "📈", "数据分析大师"),
         ("weekly_review", "🔎", "周三复盘"),
         ("value", "🔮", "价值观大师"),
-        ("runtime", "🧠", "多模态底座"),
-        ("eval", "🧪", "Agent 评测"),
-        ("schedule", "🗓️", "排图工作台"),
-        ("sync", "🔁", "同步记录"),
+        ("runtime", "🧠", "系统治理中心"),
+        ("eval", "🧪", "上线验收中心"),
     )
     links = [f'<a class="nav {"active" if key == state.view else ""}" href="{href(state, view=key)}">{icon} {label}</a>' for key, icon, label in items]
     return "<nav>" + "".join(links) + "</nav>"
@@ -280,13 +329,40 @@ def render_nav(state: AppState) -> str:
 
 def render_dashboard(agent: PuzzleOpsAgent, state: AppState) -> str:
     dashboard = agent.dashboard(state.country)
-    holiday = agent.holiday_recommendation(state.country)
+    next_holiday = agent.next_holiday(state.country)
+    holiday_days = next_holiday[0] if next_holiday else None
+    holiday = next_holiday[1] if next_holiday else None
     tasks = "".join(
-        f'<article><strong>{escape(task["title"])}</strong><textarea name="task_{index}">{escape(state.task_notes[index])}</textarea></article>'
+        f'<article><strong>{escape(task["title"])}</strong><textarea name="task_{index}">{escape(state.task_notes[index] if index < len(state.task_notes) else str(task["body"]))}</textarea></article>'
         for index, task in enumerate(dashboard["tasks"])
     )
-    images = "".join(render_image_card(image) for image in holiday.history_good_images)
-    holiday_panel = render_holiday_panel(holiday, images) if state.show_holiday else ""
+    holiday_panel = render_holiday_panel(holiday) if holiday and state.show_holiday else ""
+    holiday_status = ""
+    holiday_body = ""
+    if holiday and holiday_days is not None:
+        if holiday_days <= 15:
+            holiday_status = "已进入提前提需窗口"
+            holiday_body = f"{holiday.name}：{holiday.date_range}，距离节日 {holiday_days} 天，建议现在准备节日营销提需。"
+        else:
+            holiday_status = "下一个节日预告"
+            holiday_body = f"{holiday.name}：{holiday.date_range}，距离节日 {holiday_days} 天；未进入提前 15 天提需窗口，先展示维护表预告。"
+    holiday_summary = (
+        f"""
+<section class="panel compact-panel">
+  <h2>节日提需</h2>
+  <p><strong>{escape(holiday_status)}</strong> · {escape(holiday_body)}</p>
+  <p class="note">节日数据来自日本/法国维护表；进入窗口后会自动进入今日待办，完整建议会结合历史好坏图和价值观规则。</p>
+  <a class="button primary-link" href="{href(state, view='dashboard', show_holiday='1')}">查看完整节日提需建议</a>
+</section>
+"""
+        if holiday
+        else """
+<section class="panel compact-panel">
+  <h2>节日提需</h2>
+  <p>未来 90 天暂无已维护节日节点。</p>
+</section>
+"""
+    )
     return f"""
 <section class="metrics">
   <article><span>当前国家</span><strong>{escape(dashboard["country_label"])}</strong><small>{escape(dashboard["owner"])}</small></article>
@@ -297,26 +373,32 @@ def render_dashboard(agent: PuzzleOpsAgent, state: AppState) -> str:
   <form class="panel" method="post" action="/save_dashboard"><h2>本周工作流</h2>{render_workflow(state)}<button>保存工作流</button></form>
   <form class="panel" method="post" action="/save_dashboard"><h2>今日待办 <span>🧸💦</span></h2><div class="tasks">{tasks}</div><button>保存待办</button></form>
 </section>
-<section class="panel compact-panel">
-  <h2>节日提醒</h2>
-  <p>{escape(holiday.name)}：{escape(holiday.date_range)}，点击按钮查看完整节日提需建议。</p>
-  <a class="button primary-link" href="{href(state, view='dashboard', show_holiday='1')}">查看完整节日提需建议</a>
-</section>
+{holiday_summary}
 {holiday_panel}
 """
 
 
-def render_holiday_panel(holiday, images: str) -> str:
+def render_holiday_panel(holiday) -> str:
+    good_images = "".join(render_image_card(image) for image in holiday.history_good_images)
+    bad_images = "".join(render_image_card(image) for image in holiday.history_bad_images)
+    citations = "".join(f"<li>{escape(str(rule))}</li>" for rule in holiday.value_rule_citations)
     return f"""<section class="panel">
   <h2>节日提需建议：{escape(holiday.name)}</h2>
   <dl class="detail">
     <div><dt>日期范围</dt><dd>{escape(holiday.date_range)}</dd></div>
     <div><dt>节日含义</dt><dd>{escape(holiday.meaning)}</dd></div>
     <div><dt>主要内容</dt><dd>{escape(holiday.content)}</dd></div>
+    <div><dt>历史依据</dt><dd>{escape(holiday.evidence_note)}</dd></div>
     <div><dt>AI推荐主题</dt><dd>{escape("；".join(holiday.ai_themes))}</dd></div>
     <div><dt>推荐元素</dt><dd>{escape("；".join(holiday.elements))}</dd></div>
+    <div><dt>策划来源</dt><dd>{escape(holiday.llm_source or "本地规则 fallback")}</dd></div>
+    <div><dt>策划建议</dt><dd>{escape(holiday.llm_planning_note)}</dd></div>
   </dl>
-  <div class="cards">{images}</div>
+  <h3>真实历史好图参考</h3>
+  <div class="cards">{good_images or '<p class="empty">暂无真实历史好图可引用。</p>'}</div>
+  <h3>真实历史坏图避雷</h3>
+  <div class="cards">{bad_images or '<p class="empty">暂无真实历史坏图可引用。</p>'}</div>
+  <details><summary>价值观规则依据</summary><ul>{citations or '<li>暂无规则依据。</li>'}</ul></details>
 </section>
 """
 
@@ -338,9 +420,85 @@ def render_workflow(state: AppState) -> str:
     ) + "</ol>"
 
 
+def render_description_benchmark(state: AppState) -> str:
+    if not state.description_benchmarks:
+        return ""
+    cards = []
+    score_names = ("主体准确性", "生产可执行性", "简洁度", "市场适配度", "备注有效性")
+    for index, item in enumerate(state.description_benchmarks):
+        template_scores = "".join(
+            f'<label><span>{name}</span><input class="small-input" name="template_benchmark_score_{index}_{score_index}" placeholder="1-5"></label>'
+            for score_index, name in enumerate(score_names)
+        )
+        prompt_scores = "".join(
+            f'<label><span>{name}</span><input class="small-input" name="prompt_benchmark_score_{index}_{score_index}" placeholder="1-5"></label>'
+            for score_index, name in enumerate(score_names)
+        )
+        prompt_status = str(item.get("prompt_status", ""))
+        prompt_model = str(item.get("prompt_model", ""))
+        prompt_remark = str(item.get("prompt_remark", ""))
+        template_output = str(item.get("template_subject_description", ""))
+        prompt_output = str(item.get("prompt_subject_description", ""))
+        hidden = (
+            f'<input type="hidden" name="image_name_{index}" value="{escape(str(item.get("image_name", "")))}">'
+            + f'<input type="hidden" name="operation_tag_{index}" value="{escape(str(item.get("operation_tag", "")))}">'
+            + f'<input type="hidden" name="template_output_{index}" value="{escape(template_output)}">'
+            + f'<input type="hidden" name="prompt_output_{index}" value="{escape(prompt_output)}">'
+            + f'<input type="hidden" name="prompt_model_{index}" value="{escape(prompt_model)}">'
+            + f'<input type="hidden" name="prompt_status_{index}" value="{escape(prompt_status)}">'
+        )
+        cards.append(
+            f"""
+<article class="comparison-card">
+  {hidden}
+  <div class="benchmark-head">
+    <div>
+      <h3>{escape(str(item.get("operation_tag", "")))}</h3>
+      <small>{escape(str(item.get("image_name", "")))}</small>
+    </div>
+    <span class="pill">Prompt baseline v3</span>
+  </div>
+  <div class="benchmark-output-grid">
+    <div class="benchmark-output">
+      <strong>当前模板输出</strong>
+      <p>{escape(template_output)}</p>
+    </div>
+    <div class="benchmark-output">
+      <strong>强 Prompt v3 输出</strong>
+      <p>{escape(prompt_output or "未生成")}</p>
+      <small>{escape(prompt_remark)}</small>
+    </div>
+  </div>
+  <details><summary>查看强 Prompt 原文</summary><pre class="prompt-pre">{escape(str(item.get("prompt", "")))}</pre></details>
+  <p class="note">Prompt baseline 状态：{escape(prompt_status)} · 模型：{escape(prompt_model)}</p>
+  <details class="benchmark-score-details">
+    <summary>填写 A/B 评分</summary>
+    <div class="benchmark-score-grid">
+      <div><h4>当前模板评分</h4><div class="score-grid">{template_scores}<label><span>最终标签</span>{select(f"template_benchmark_label_{index}", ("可直接用", "轻微修改", "需要大改", "不可用"), "轻微修改")}</label></div></div>
+      <div><h4>强 Prompt评分</h4><div class="score-grid">{prompt_scores}<label><span>最终标签</span>{select(f"prompt_benchmark_label_{index}", ("可直接用", "轻微修改", "需要大改", "不可用"), "轻微修改")}</label></div></div>
+    </div>
+  </details>
+</article>
+"""
+        )
+    return f"""
+<section class="panel">
+  <h2>主体描述 Prompt Benchmark</h2>
+  <p class="note">同一张图对比 A 当前固定模板 与 B 强 Prompt v3 生产详细版。这里的评分只用于人工评测，不会影响飞书同步。</p>
+  <form method="post" action="/save_description_benchmark">
+    {hidden_context(state, view="regular")}
+    <input type="hidden" name="benchmark_count" value="{len(state.description_benchmarks)}">
+    <div class="benchmark-list">{''.join(cards)}</div>
+    <div class="section-line benchmark-save-line"><p class="note">可先逐张展开填写，全部完成后一次性保存。</p><button class="primary">批量保存全部评分</button></div>
+  </form>
+</section>
+"""
+
+
 def render_regular(agent: PuzzleOpsAgent, state: AppState) -> str:
     categories = "".join(f'<a class="choice {"active" if name == state.category else ""}" href="{href(state, view="regular", category=name)}">{escape(name)}</a>' for name in agent.categories(state.country))
-    tags = "".join(render_tag_choice(state, tag) for tag in agent.sorted_tags(state.country, state.category))
+    tag_items = agent.sorted_tags(state.country, state.category)
+    tags = "".join(render_tag_choice(state, tag) for tag in tag_items) or '<p class="empty">暂无此 JS 分类的历史运营 tag。</p>'
     images = "".join(render_reference_image(state, image, index) for index, image in enumerate(agent.images_for_tag(state.country, state.tag)))
     rows = render_need_rows(state.need_rows)
     sync_message = render_sync_message(state)
@@ -350,19 +508,48 @@ def render_regular(agent: PuzzleOpsAgent, state: AppState) -> str:
     else:
         feishu_copy = f"真实飞书未配置，缺少：{escape('、'.join(feishu_status['missing']))}"
     context = hidden_context(state, view="regular")
+    benchmark = render_description_benchmark_entry(state)
+    benchmark_button = '<button formaction="/generate_description_benchmark" formmethod="post">生成 Prompt 对比评测</button>' if state.show_prompt_benchmark else ""
     return f"""
 <section class="grid three">
   <div class="panel"><h2>分类</h2>{categories}</div>
-  <div class="panel"><h2>运营 tag + 库存</h2><p class="alert">红色=低库存爆款；黄色=低库存稳定款；其他=正常库存。</p>{tags}</div>
-  <div class="panel"><h2>已分发图片参考</h2><div class="cards">{images}</div></div>
+  <div class="panel"><h2>运营 tag + 历史表现</h2><p class="alert">历史表现来自真实已分发样本；库存为 demo 模拟字段。红色=历史爆款但模拟库存少。</p>{tags}</div>
+  <div class="panel"><div class="section-line"><h2>已分发图片参考</h2><form method="post" action="/add_regular_all">{context}<button>加入当前tag全部参考图</button></form></div><div class="cards">{images or '<p class="empty">请选择有历史样本的运营 tag。</p>'}</div></div>
 </section>
 <section class="panel">
-  <div class="section-line"><h2>批量提需清单</h2>
-    <form method="post" action="/generate_descriptions">{context}<button>AI生成描述</button></form>
-  </div>
+  <div class="section-line"><h2>批量提需清单</h2><label class="demand-check"><input type="checkbox" onclick="document.querySelectorAll('[name=selected_rows]').forEach(item=>item.checked=this.checked)">全选</label></div>
   <p class="note">{feishu_copy}</p>
   {sync_message}
-  <form method="post" action="/save_needs">{context}{rows}<div class="section-line"><button class="primary">保存表格修改</button><button formaction="/sync_needs_feishu" formmethod="post">生成同步草案</button></div></form>
+  <form method="post" action="/save_needs">{context}{rows}<div class="section-line"><button class="primary">保存表格修改</button><button formaction="/generate_descriptions" formmethod="post">批量AI生成主体描述</button>{benchmark_button}<button formaction="/sync_needs_feishu" formmethod="post">一键同步到飞书表格</button></div></form>
+</section>
+{benchmark}
+"""
+
+
+def render_description_benchmark_entry(state: AppState) -> str:
+    if state.show_prompt_benchmark:
+        if state.description_benchmarks:
+            return render_description_benchmark(state)
+        return f"""
+<section class="panel compact-panel">
+  <div class="section-line">
+    <div>
+      <h2>Prompt 评测已开启</h2>
+      <p class="note">先在提需清单勾选样本，再点击“生成 Prompt 对比评测”；这里用于对比当前线上生成版本和正在调试的新 Prompt/模型版本。</p>
+    </div>
+    <a class="button" href="{href(state, view='regular', show_prompt_benchmark='')}">收起 Prompt 评测</a>
+  </div>
+</section>
+"""
+    return f"""
+<section class="panel compact-panel">
+  <div class="section-line">
+    <div>
+      <h2>Prompt 评测</h2>
+      <p class="note">日常提需默认不展开评测；只有调试新 Prompt、微调版本或模型版本时再打开。</p>
+    </div>
+    <a class="button" href="{href(state, view='regular', show_prompt_benchmark='1')}">展开 Prompt 评测</a>
+  </div>
 </section>
 """
 
@@ -370,7 +557,8 @@ def render_regular(agent: PuzzleOpsAgent, state: AppState) -> str:
 def render_tag_choice(state: AppState, tag) -> str:
     hot = " " + PuzzleOpsAgent().stock_class(tag)
     active = " active" if tag.tag == state.tag else ""
-    return f'<a class="choice{active}{hot}" href="{href(state, view="regular", tag=tag.tag)}"><strong>{escape(tag.tag)}</strong><span>库存 {tag.stock}</span></a>'
+    metric = tag.risk if str(tag.risk) else f"模拟库存 {tag.stock}"
+    return f'<a class="choice{active}{hot}" href="{href(state, view="regular", tag=tag.tag)}"><strong>{escape(tag.tag)}</strong><span>{escape(metric)}</span></a>'
 
 
 def render_reference_image(state: AppState, image, index: int) -> str:
@@ -387,7 +575,7 @@ def render_reference_image(state: AppState, image, index: int) -> str:
 def render_need_rows(rows: list[DemandRow]) -> str:
     if not rows:
         return "<p class='empty'>暂未加入提需。点击图片卡片的加号后，在这里批量提需。</p>"
-    body = "".join(render_need_card(row, index, include_value=False) for index, row in enumerate(rows))
+    body = "".join(render_need_card(row, index, include_value=False, include_select=True) for index, row in enumerate(rows))
     return f'<div class="demand-card-list regular-demand-list">{body}</div>'
 
 
@@ -398,67 +586,176 @@ def render_trial(agent: PuzzleOpsAgent, state: AppState) -> str:
         f'<a class="mode-card {"active" if state.trial_mode == mode else ""}" href="{href(state, view="trial", trial_mode=mode)}"><strong>{label}</strong><span>{copy}</span></a>'
         for mode, label, copy in (
             ("parse", "参考图解析提需", "上传 1-3 张参考图，AI解析主体/色彩/构图。"),
-            ("derive", "好图衍生提需", "上传 1 张历史好图，解析衍生方向并通过已配置 Provider 生成参考图。"),
+            ("derive", "好图衍生提需", "最多上传 3 张历史好图，先用 Qwen 视觉解析共同规律，再生成衍生参考图。"),
         )
     )
-    row = state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)
-    rows = state.trial_rows or [row]
+    if state.trial_mode == "derive":
+        row = state.trial_derive_row or state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)
+        rows = state.trial_derive_rows or state.trial_rows or []
+        uploads = state.trial_derive_uploads or state.trial_uploads
+    else:
+        row = state.trial_parse_row or state.trial_row or agent.create_trial_demand(state.country, state.category, state.trial_mode)
+        rows = state.trial_parse_rows or state.trial_rows or []
+        uploads = state.trial_parse_uploads or state.trial_uploads
+    visible_rows = rows or [row]
     is_derive_mode = state.trial_mode == "derive" or "衍生" in row.operation_tag or "衍生" in row.image_name
     row_html = (
-        "".join(render_need_card(item, index, include_value=True) for index, item in enumerate(rows))
-        if state.trial_rows
+        "".join(render_need_card(item, index, include_value=True) for index, item in enumerate(visible_rows))
+        if rows
         else render_need_card(row, 0, include_value=True, prefix="")
     )
-    upload_copy = "拖拽或选择 1-3 张参考图" if state.trial_mode == "parse" else "上传单张历史好图，解析衍生方向"
-    previews = "".join(render_upload_preview(item) for item in state.trial_uploads) or '<div class="thumb">参考图 A</div><div class="thumb">参考图 B</div><div class="thumb">参考图 C</div>'
+    upload_copy = "拖拽或选择 1-3 张参考图" if state.trial_mode == "parse" else "上传最多3张历史好图，解析共同衍生方向"
+    previews = "".join(render_upload_preview(item, state=state, removable=True) for item in uploads) or '<div class="thumb">参考图 A</div><div class="thumb">参考图 B</div><div class="thumb">参考图 C</div>'
     sync_message = render_sync_message(state)
     context = hidden_context(state, view="trial")
-    derivative_form = (
-        f'<form method="post" action="/generate_trial_derivatives">{context}<button>生成衍生参考图</button></form>'
-        if is_derive_mode
+    can_generate_derivative = is_derive_mode and bool(row.reference_image_path)
+    derivative_form = render_derivative_prompt_panel(agent, row, state, context, can_generate_derivative) if is_derive_mode else ""
+    parse_form = (
+        f'<form method="post" action="/parse_trial_uploads">{context}<button class="primary">解析图片</button></form>'
+        if uploads
         else ""
     )
     generation_diagnostic = render_generation_provider_diagnostic(generation_status)
     generation_event = render_generation_event(state.generation_event)
-    rag_details = render_trial_value_rag_details(agent, rows, state)
+    rag_details = render_trial_value_rag_details(agent, tuple(visible_rows), state)
     value_correction = render_value_match_correction_panel(row, state)
     approval_form = ""
-    if any(item.generation_review_status == "passed" and not item.human_approved for item in state.trial_rows):
-        approval_form = f'<form method="post" action="/approve_generated_derivatives">{context}<button>确认生成图可同步</button></form>'
+    pending_generated_rows = [
+        item for item in rows if item.generation_review_status and not item.human_approved
+    ]
+    if pending_generated_rows and not state.trial_derivative_candidates:
+        approval_form = f'<form method="post" action="/approve_generated_derivatives">{context}<button>确认加入提需表</button></form>'
+    derivative_candidates = render_derivative_candidate_panel(state) if is_derive_mode else ""
+    derivative_job_progress = render_derivative_job_progress(state) if is_derive_mode else ""
     return f"""
 <section class="panel"><h2>试新模式</h2><div class="mode-grid">{mode_links}</div></section>
 <section class="grid two">
-  <div class="panel"><h2>上传参考图</h2><div class="mock-upload-zone"><strong>{upload_copy}</strong><span>可上传本地图片进行结构化解析；未接 LLM 时使用本地解析适配层。</span><form method="post" action="/upload_trial_images" enctype="multipart/form-data">{context}<input type="file" name="trial_images" accept="image/*" multiple><button>上传并解析图片</button></form><form method="post" action="/simulate_trial_upload">{context}<button>模拟上传并解析</button></form>{derivative_form}</div><div class="reference-row">{previews}</div></div>
-  <div class="panel"><h2>解析状态</h2><p class="alert">解析结果已写入下方试新提需表，可在表格中继续编辑后同步飞书。</p><dl class="detail"><div><dt>视觉 LLM 语义解析</dt><dd>{vision_mode_copy(vision_status)}</dd></div><div><dt>图像生成 Provider</dt><dd>{escape(str(generation_status.get("message", "生成 provider 未配置")))}</dd></div><div><dt>当前图片</dt><dd>{escape(row.image_name)}</dd></div><div><dt>解析备注</dt><dd>{escape(row.remark or "等待上传图片")}</dd></div></dl>{generation_diagnostic}{generation_event}<form method="post" action="/check_generation_provider">{context}<button>检查生成 Provider</button></form></div>
+  <div class="panel"><h2>上传参考图</h2><div class="mock-upload-zone"><strong>{upload_copy}</strong><span>先上传图片；确认图片池无误后，再点击解析图片调用 Qwen 视觉模型。</span><form method="post" action="/upload_trial_images" enctype="multipart/form-data">{context}<input type="file" name="trial_images" accept="image/*" multiple><button>上传图片</button></form>{parse_form}{derivative_form}</div><div class="reference-row">{previews}</div></div>
+  <div class="panel"><h2>解析状态</h2><p class="alert">{trial_status_alert(state)}</p><dl class="detail"><div><dt>Qwen 视觉解析</dt><dd>{vision_mode_copy(vision_status)}</dd></div><div><dt>Qwen 图像生成</dt><dd>{generation_mode_copy(generation_status)}</dd></div><div><dt>当前图片</dt><dd>{escape(row.image_name)}</dd></div><div><dt>解析备注</dt><dd>{escape(compact_trial_remark(row.remark))}</dd></div></dl>{generation_diagnostic}{generation_event}<form method="post" action="/check_generation_provider">{context}<button>检查 Qwen 图像生成</button></form></div>
 </section>
+{derivative_candidates}
+{derivative_job_progress}
 <section class="panel">
   <div class="section-line"><h2>试新提需表预览</h2><div class="inline-actions"><form method="post" action="/apply_value_master">{context}<button>价值观大师</button></form>{approval_form}</div></div>
   {sync_message}
-  <form method="post" action="/save_trial">{context}<div class="demand-card-list trial-demand-list">{row_html}</div><div class="section-line"><button class="primary">保存试新修改</button><button formaction="/sync_trial_feishu" formmethod="post">生成同步草案</button></div></form>
+  <form method="post" action="/save_trial">{context}<div class="demand-card-list trial-demand-list">{row_html}</div><div class="section-line"><button class="primary">保存试新修改</button><button formaction="/sync_trial_feishu" formmethod="post">一键同步到飞书表格</button></div></form>
   {rag_details}
   {value_correction}
 </section>
 """
 
 
+def trial_status_alert(state: AppState) -> str:
+    if state.trial_mode == "derive":
+        return "上传后先形成衍生方向；生成AI效果图后，运营确认才会加入下方提需表。"
+    return "解析结果已写入下方试新提需表，可在表格中继续编辑后同步飞书。"
+
+
+def compact_trial_remark(remark: str) -> str:
+    text = str(remark or "").strip()
+    if not text:
+        return "等待上传图片"
+    if "后台解析中" in text:
+        return "后台解析中，请稍后"
+    if "调用失败" in text or "失败" in text or "错误" in text:
+        return "处理失败，详情见表格"
+    if "已生成" in text and "衍生参考图" in text:
+        return "已生成衍生图，详情见表格"
+    if "Prompt：" in text or "二次 VLM" in text:
+        return "生成审核完成，详情见表格"
+    if "本地图片解析" in text or "视觉LLM" in text or "已读取" in text:
+        return "解析完成，详情见表格"
+    if len(text) <= 30:
+        return text
+    return text[:27] + "..."
+
+
+def render_derivative_prompt_panel(agent: PuzzleOpsAgent, row: DemandRow, state: AppState, context: str, can_generate: bool) -> str:
+    recommended_prompt, recommended_negative = agent.derivative_generation_prompts(row)
+    prompt = state.trial_derivative_prompt or recommended_prompt
+    negative_prompt = state.trial_derivative_negative_prompt or recommended_negative
+    if not can_generate:
+        return f"""
+<div class="prompt-panel">
+  <h3>衍生 Prompt 设置</h3>
+  <p class="note">核心约束：单张完整画面、单一主场景、单一季节氛围、清晰主体、禁止四宫格/拼贴/多场景合集。</p>
+  <form method="post" action="/save_derivative_prompt">
+    {context}
+    <label>正向 prompt<textarea name="derivative_prompt" rows="5">{escape(prompt)}</textarea></label>
+    <label>负向 prompt<textarea name="derivative_negative_prompt" rows="4">{escape(negative_prompt)}</textarea></label>
+    <div class="section-line"><button>保存 Prompt</button><button disabled title="请先上传并解析图片">生成衍生参考图</button></div>
+  </form>
+  <p class="note">请先上传并解析 1-3 张真实历史好图；prompt 可先编辑并保存。</p>
+</div>
+"""
+    return f"""
+<div class="prompt-panel">
+  <h3>衍生 Prompt 设置</h3>
+  <p class="note">核心约束：单张完整画面、单一主场景、单一季节氛围、清晰主体、禁止四宫格/拼贴/多场景合集。</p>
+  <form method="post" action="/generate_trial_derivatives">
+    {context}
+    <label>正向 prompt<textarea name="derivative_prompt" rows="5">{escape(prompt)}</textarea></label>
+    <label>负向 prompt<textarea name="derivative_negative_prompt" rows="4">{escape(negative_prompt)}</textarea></label>
+    <div class="section-line"><button>生成衍生参考图</button><button formaction="/reset_derivative_prompt" formmethod="post">恢复推荐 prompt</button></div>
+  </form>
+</div>
+"""
+
+
+def render_derivative_candidate_panel(state: AppState) -> str:
+    if not state.trial_derivative_candidates:
+        return ""
+    cards = []
+    for index, row in enumerate(state.trial_derivative_candidates):
+        preview = render_image_preview(row.image_name, row.reference_image_url)
+        cards.append(
+            '<article class="candidate-card">'
+            f"<h3>AI效果图候选 {index + 1}</h3>"
+            f'<label class="choice"><input type="checkbox" name="selected_derivative_candidates" value="{index}"> 选中加入提需表</label>'
+            f"{preview}"
+            f"<p>{escape(row.subject_description)}</p>"
+            f"<small>{escape(row.remark[:260])}</small>"
+            "</article>"
+        )
+    return (
+        '<section class="panel"><div class="section-line"><h2>衍生方向 + AI效果图候选</h2>'
+        f'<form method="post" action="/clear_derivative_candidates">{hidden_context(state, view="trial")}<button>清空候选并重试</button></form></div>'
+        f'<form method="post" action="/approve_generated_derivatives">{hidden_context(state, view="trial")}'
+        '<div class="card-grid">'
+        + "".join(cards)
+        + '</div><div class="section-line"><button class="primary">确认加入提需表</button></div></form></section>'
+    )
+
+
+def render_derivative_job_progress(state: AppState) -> str:
+    if not state.trial_derivative_job_status:
+        return ""
+    progress = max(0, min(100, int(state.trial_derivative_job_progress or 0)))
+    status = state.trial_derivative_job_status
+    message = state.trial_derivative_job_message or "后台生成任务处理中"
+    return f"""
+<section class="panel derivative-job-panel">
+  <div class="section-line"><h2>衍生图生成进度</h2><span class="status-pill">{escape(status)}</span></div>
+  <progress value="{progress}" max="100"></progress>
+  <p class="note">{escape(message)}</p>
+  <small>页面会每 3 秒自动刷新；生成完成后候选图会出现在“衍生方向 + AI效果图候选”。</small>
+</section>
+"""
+
+
 def render_generation_provider_diagnostic(status: dict[str, object]) -> str:
     fields = [
-        ("provider", status.get("provider", "not_configured")),
-        ("configured", status.get("configured", False)),
-        ("ready", status.get("ready", status.get("configured", False))),
-        ("model", status.get("model", "未配置")),
-        ("endpoint", status.get("base_url") or status.get("submit_url") or "未配置"),
+        ("服务", generation_provider_ui_label(str(status.get("provider", "not_configured")))),
+        ("配置状态", "可用" if status.get("configured", False) else "未配置"),
+        ("就绪状态", "就绪" if status.get("ready", status.get("configured", False)) else "未就绪"),
+        ("模型", status.get("model", "未配置")),
     ]
-    if "api_key_source" in status:
-        fields.append(("api_key_source", status.get("api_key_source", "未配置")))
-    if "sdk_available" in status:
-        fields.append(("sdk_available", status.get("sdk_available", False)))
     if "workflow_path" in status:
-        fields.append(("workflow_path", status.get("workflow_path", "未配置")))
+        fields.append(("本地工作流", status.get("workflow_path", "未配置")))
     if "workflow_configured" in status:
-        fields.append(("workflow_configured", status.get("workflow_configured", False)))
+        fields.append(("工作流状态", "已配置" if status.get("workflow_configured", False) else "未配置"))
     rows = "".join(f"<div><dt>{escape(key)}</dt><dd>{escape(str(value))}</dd></div>" for key, value in fields)
-    return f"<h3>生成 Provider 诊断</h3><dl class=\"detail compact-detail\">{rows}</dl>"
+    return f"<h3>Qwen 图像生成诊断</h3><dl class=\"detail compact-detail\">{rows}</dl>"
 
 
 def render_generation_event(event: dict[str, str]) -> str:
@@ -466,8 +763,8 @@ def render_generation_event(event: dict[str, str]) -> str:
         return ""
     fields = (
         ("状态", event.get("status", "unknown")),
-        ("provider", event.get("provider", "unknown")),
-        ("model", event.get("model", "未记录")),
+        ("生成服务", generation_provider_ui_label(event.get("provider", "unknown"))),
+        ("模型", event.get("model", "未记录")),
         ("task_id", event.get("task_id", "")),
         ("来源tag", event.get("source_operation_tag", "")),
         ("生成图", event.get("generated_image_paths", "")),
@@ -481,10 +778,32 @@ def render_generation_event(event: dict[str, str]) -> str:
     return f"<h3>最近一次生成任务</h3><dl class=\"detail compact-detail generation-event\">{rows}</dl>"
 
 
+def generation_provider_ui_label(provider: str) -> str:
+    value = (provider or "").strip().lower()
+    if value in {"dashscope", "wanx", "cloud", "qwen 图像生成"}:
+        return "Qwen 图像生成"
+    if value == "mock":
+        return "本地模拟生成"
+    if value == "comfyui":
+        return "ComfyUI 本地图像生成"
+    if value in {"not_configured", "missing", "未配置", ""}:
+        return "未配置"
+    return provider
+
+
+def generation_mode_copy(status: dict[str, object]) -> str:
+    provider = generation_provider_ui_label(str(status.get("provider", "not_configured")))
+    model = str(status.get("model", "未配置"))
+    ready = bool(status.get("ready", status.get("configured", False)))
+    if provider == "未配置":
+        return "未配置 Qwen 图像生成；好图衍生暂不可用"
+    return f"{provider} · {model} · {'可用' if ready else '未就绪'}"
+
+
 def render_sync_message(state: AppState) -> str:
     if not state.sync_message:
         return ""
-    if state.sync_url and state.sync_message.startswith("同步成功"):
+    if state.sync_url:
         return f"""
 <div class="sync-success-card">
   <p class="success">{escape(state.sync_message)}</p>
@@ -506,6 +825,12 @@ def render_trial_value_rag_details(agent: PuzzleOpsAgent, rows: tuple[DemandRow,
                 details.append(item)
     if not details:
         return ""
+    feedback_summary = agent.rag_feedback_summary(state.country)
+    feedback_by_chunk = {
+        str(item.get("chunk_id", "")): item
+        for item in feedback_summary.get("top_chunks", ())
+        if isinstance(item, dict)
+    }
     rows_html = "".join(
         "<tr>"
         f"<td>{escape(str(item.get('chunk_id', '')))}</td>"
@@ -513,50 +838,62 @@ def render_trial_value_rag_details(agent: PuzzleOpsAgent, rows: tuple[DemandRow,
         f"<td>{escape(str(item.get('parent_id', '')))}</td>"
         f"<td>{escape(str(item.get('title', '')))}</td>"
         f"<td>{escape(str(item.get('text', '')))}</td>"
-        f"<td>{render_rag_feedback_forms(str(item.get('chunk_id', '')), state)}</td>"
+        f"<td>{render_rag_feedback_counts(feedback_by_chunk.get(str(item.get('chunk_id', '')), {}))}</td>"
         "</tr>"
         for item in details
     )
+    feedback_form = render_rag_batch_feedback_form(details, state)
     return f"""
 <section class="subpanel rag-detail-panel">
   <h3>价值观 RAG 依据明细</h3>
-  <div class="table-wrap"><table><thead><tr><th>引用ID</th><th>知识来源</th><th>父文档</th><th>标题</th><th>内容</th><th>反馈</th></tr></thead><tbody>{rows_html}</tbody></table></div>
+  <div class="table-wrap"><table><thead><tr><th>引用ID</th><th>知识来源</th><th>父文档</th><th>标题</th><th>内容</th><th>历史反馈</th></tr></thead><tbody>{rows_html}</tbody></table></div>
+  {feedback_form}
 </section>
 """
 
 
 def render_value_match_correction_panel(row: DemandRow, state: AppState) -> str:
-    if not row.value_match:
-        return ""
-    context = hidden_context(state, view="trial")
+    return ""
+
+
+def render_rag_feedback_counts(stats: dict[str, object] | None = None) -> str:
+    stats = stats or {}
+    useful_count = int(stats.get("useful_count", 0) or 0)
+    not_useful_count = int(stats.get("not_useful_count", 0) or 0)
+    net_score = int(stats.get("net_score", 0) or 0)
+    return f'<small class="rag-feedback-counts">已反馈：useful={useful_count} / not_useful={not_useful_count} / net={net_score}</small>'
+
+
+def render_rag_batch_feedback_form(details: list[dict[str, str]], state: AppState) -> str:
+    rows = []
+    for index, item in enumerate(details):
+        chunk_id = str(item.get("chunk_id", ""))
+        rows.append(
+            "<tr>"
+            f"<td>{escape(chunk_id)}<input type=\"hidden\" name=\"chunk_id_{index}\" value=\"{escape(chunk_id)}\"></td>"
+            f"<td>{escape(str(item.get('title', '')))}</td>"
+            f"<td><label><input type=\"radio\" name=\"usefulness_{index}\" value=\"\" checked> 未评价</label> "
+            f"<label><input type=\"radio\" name=\"usefulness_{index}\" value=\"useful\"> 有用</label> "
+            f"<label><input type=\"radio\" name=\"usefulness_{index}\" value=\"not_useful\"> 无用</label></td>"
+            f"<td><input name=\"note_{index}\" placeholder=\"可选：为什么有用/无用\"></td>"
+            "</tr>"
+        )
     return f"""
-<section class="subpanel value-correction-panel">
-  <h3>价值观人工修正</h3>
-  <form method="post" action="/save_value_match_correction" class="value-correction-form">
-    {context}
-    <textarea name="human_correction" placeholder="填写运营人工修正，例如：符合本土饮食文化，但需规避品牌露出。"></textarea>
-    <label><span>满意度</span><input class="small-input" name="satisfaction_score" type="number" min="1" max="5" value="5"></label>
-    <button>反哺RAG/Memory</button>
+<details class="rag-feedback-batch">
+  <summary>展开反馈与评分</summary>
+  <form method="post" action="/submit_rag_feedback_batch">
+    {hidden_context(state, view="trial")}
+    <input type="hidden" name="citation_count" value="{len(details)}">
+    <div class="table-wrap"><table><thead><tr><th>引用ID</th><th>标题</th><th>评价</th><th>备注</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>
+    <div class="grid two">
+      <label>整体人工评分<input class="small-input" name="satisfaction_score" type="number" min="1" max="5" placeholder="1-5，可不填"></label>
+      <label>人工评价/修正<textarea name="human_correction" placeholder="可选：填写运营人工修正或评价。忙的时候可以留空。"></textarea></label>
+    </div>
+    <button>一次性提交反馈</button>
   </form>
-  <small>保存后会写入 working memory、facts memory 和 RAG eval feedback，用于下一轮评测与知识补丁。</small>
-</section>
+  <small>不展开、不提交也不影响加入提需或同步飞书；未评价 citation 不会写入 Memory/RAG 反馈。</small>
+</details>
 """
-
-
-def render_rag_feedback_forms(chunk_id: str, state: AppState) -> str:
-    if not chunk_id:
-        return ""
-    note = '<input name="note" placeholder="可补充原因">'
-    hidden = hidden_context(state, view="trial") + f'<input type="hidden" name="chunk_id" value="{escape(chunk_id)}"><input type="hidden" name="task_type" value="trial_value_match">'
-    useful = (
-        f'<form class="rag-feedback-form" method="post" action="/record_rag_feedback">'
-        f'{hidden}<input type="hidden" name="usefulness" value="useful">{note}<button>有用</button></form>'
-    )
-    not_useful = (
-        f'<form class="rag-feedback-form" method="post" action="/record_rag_feedback">'
-        f'{hidden}<input type="hidden" name="usefulness" value="not_useful"><button>无用</button></form>'
-    )
-    return f'<div class="rag-feedback-actions">{useful}{not_useful}</div>'
 
 
 def need_colgroup(include_check: bool, include_value: bool) -> str:
@@ -612,9 +949,9 @@ def render_need_row(row: DemandRow, index: int, include_value: bool, prefix: str
     return "<tr>" + "".join(f"<td>{cell}</td>" for cell in cells) + "</tr>"
 
 
-def render_need_card(row: DemandRow, index: int, include_value: bool, prefix: str | None = None) -> str:
+def render_need_card(row: DemandRow, index: int, include_value: bool, prefix: str | None = None, include_select: bool = False) -> str:
     prefix = f"_{index}" if prefix is None else prefix
-    select_html = '<label class="demand-check"><input type="checkbox" checked>选择</label>' if include_value else ""
+    select_html = f'<label class="demand-check"><input type="checkbox" name="selected_rows" value="{index}" checked>选择</label>' if include_select else ""
     value_html = (
         f'<label class="span-2"><span>价值观匹配度</span><div class="readonly-long">{escape(row.value_match)}</div></label>'
         if include_value
@@ -627,7 +964,7 @@ def render_need_card(row: DemandRow, index: int, include_value: bool, prefix: st
     <small>第 {index + 1} 条</small>
   </div>
   <div class="demand-card-grid">
-    <label class="image-field"><span>图片本身</span>{render_image_preview(row.image_name, row.reference_image_url)}</label>
+    <label class="image-field"><span>图片本身</span>{render_image_preview(row.image_name, row.reference_image_url or (local_image_url(Path(row.reference_image_path)) if row.reference_image_path else ""))}</label>
     <label><span>运营tag</span><input class="operation-tag-input" name="operation_tag{prefix}" value="{escape(row.operation_tag)}"></label>
     <label><span>主体内容</span><div class="readonly-field">{escape(row.subject)}</div></label>
     <label><span>张数</span><input class="small-input" name="count{prefix}" value="{row.count}" size="3"></label>
@@ -776,10 +1113,368 @@ def render_need_suggestion_rows(items: object) -> str:
 
 
 def render_value(agent: PuzzleOpsAgent, state: AppState) -> str:
-    tabs = "".join(f'<a class="pill {"active" if grade == state.value_grade else ""}" href="{href(state, view="value", value_grade=grade)}">{grade}</a>' for grade in ("S", "A", "B", "C", "D"))
-    cards = "".join(f"<article class='image-card'>{visual_thumb(card.image.thumb, card.image.title)}<strong>{escape(card.operation_tag)}</strong><p>{grade(card.image.grade)} 预测等级</p><small>开图 {escape(card.image.open_rate)} · 完成 {escape(card.image.finish_rate)} · {escape(card.image.finish_time)}</small><p>{escape(card.prediction_remark)}</p></article>" for card in agent.value_predictions(state.country, state.value_grade))
+    grade_filter = "" if state.value_grade == "all" else state.value_grade
+    tabs = "".join(f'<a class="pill {"active" if grade == state.value_grade else ""}" href="{href(state, view="value", value_grade=grade)}">{grade}</a>' for grade in ("all", "S", "A", "B", "C", "D"))
+    candidates = agent.undistributed_value_candidates(state.country, grade_filter)
+    decisions = {str(item.get("candidate_id", "")): item for item in agent.value_candidate_decisions(state.country)}
+    cards = "".join(render_undistributed_candidate_card(agent, candidate, state, decisions.get(str(candidate.get("candidate_id", "")))) for candidate in candidates)
+    selected_pool = render_value_selected_pool(agent, state, decisions)
+    benchmark_entry = render_value_prediction_benchmark_entry(state, candidates)
     rules = "".join(f"<li><strong>{escape(title)}</strong>：{escape(body)}</li>" for title, body in agent.value_rules(state.country))
-    return f"<section class='panel'><h2>SABCD 预测</h2><div class='pills'>{tabs}</div><div class='cards'>{cards or '<p class=\"empty\">当前等级暂无样例。</p>'}</div></section><section class='panel'><details><summary>查看完整价值观规则库</summary><ul>{rules}</ul></details></section>"
+    context = hidden_context(state, view="value")
+    progress = render_value_prediction_job_progress(state)
+    write_controls = ""
+    if can_write_country(state.user_id, state.country):
+        write_controls = f"""
+        <div class="section-line">
+          <form method="post" action="/import_value_candidates_excel">{context}<button>导入候选图 Excel</button></form>
+          <form method="post" action="/predict_value_candidates">{context}<button class="primary">批量预测当前国家</button></form>
+        </div>
+        """
+    else:
+        write_controls = '<p class="note">当前国家只读，可查看候选图与预测结果，不能触发预测或保存人工决策。</p>'
+    return f"""
+<section class='panel'>
+  <h2>未分发候选排图池</h2>
+  {render_sync_message(state)}
+  <p class='note'>候选图来自桌面 Excel 真实未分发候选池；所有等级、SA概率、开图率、完成率、完成时长均为预测值，只用于人工排图参考。</p>
+  {write_controls}
+  {progress}
+  {selected_pool}
+  {benchmark_entry}
+  <div class='pills'>{tabs}</div>
+  <div class='cards value-candidate-grid'>{cards or '<p class="empty">当前等级暂无候选图。</p>'}</div>
+</section>
+<section class='panel'><details><summary>查看完整价值观规则库</summary><ul>{rules}</ul></details></section>
+"""
+
+
+def render_value_prediction_benchmark_entry(state: AppState, candidates: tuple[dict[str, object], ...]) -> str:
+    if not state.show_value_benchmark:
+        return f"""
+<section class="panel compact-panel">
+  <div class="section-line">
+    <div>
+      <h2>价值观预测评测</h2>
+      <p class="note">日常排图默认不展开；只有调试价值观 Prompt、RAG 证据或微调模型时再打开。</p>
+    </div>
+    <a class="button" href="{href(state, view='value', show_value_benchmark='1')}">展开价值观预测评测</a>
+  </div>
+</section>
+"""
+    candidate_options = "".join(
+        f'<label class="demand-check value-benchmark-option" data-search="{escape((str(candidate.get("candidate_id", "")) + " " + str(candidate.get("operation_tag", ""))).lower())}"><input type="checkbox" name="candidate_id" value="{escape(str(candidate.get("candidate_id", "")))}">'
+        f'{escape(str(candidate.get("candidate_id", "")))} · {escape(str(candidate.get("operation_tag", "")))}</label>'
+        for candidate in candidates
+    )
+    benchmark_results = render_value_prediction_benchmark_results(state)
+    return f"""
+<section class="panel compact-panel">
+  <div class="section-line">
+    <div>
+      <h2>价值观预测评测已开启</h2>
+      <p class="note">勾选 5-10 张候选图，生成单模型预测评分表；日常排图不需要操作这里。</p>
+    </div>
+    <a class="button" href="{href(state, view='value', show_value_benchmark='')}">收起价值观预测评测</a>
+  </div>
+  <form method="post" action="/generate_value_prediction_benchmark">
+    {hidden_context(state, view='value')}
+    <div class="inline-actions benchmark-filter-bar">
+      <input id="value-benchmark-filter" placeholder="筛选候选ID或tag，例如 002、003、香水" oninput="filterValueBenchmarkCandidates(this.value)">
+      <button type="button" onclick="selectVisibleValueBenchmarkCandidates(true)">全选可见候选</button>
+      <button type="button" onclick="selectVisibleValueBenchmarkCandidates(false)">清空可见候选</button>
+    </div>
+    <div class="benchmark-select-list">{candidate_options or '<p class="empty">暂无候选图。</p>'}</div>
+    <button class="primary">生成价值观预测评测</button>
+  </form>
+  {benchmark_results}
+  <script>
+  function filterValueBenchmarkCandidates(query) {{
+    var needle = String(query || '').toLowerCase().trim();
+    document.querySelectorAll('.value-benchmark-option').forEach(function(item) {{
+      item.style.display = !needle || item.dataset.search.indexOf(needle) >= 0 ? 'inline-flex' : 'none';
+    }});
+  }}
+  function selectVisibleValueBenchmarkCandidates(checked) {{
+    document.querySelectorAll('.value-benchmark-option').forEach(function(item) {{
+      if (item.style.display !== 'none') {{
+        var input = item.querySelector('input[type="checkbox"]');
+        if (input) input.checked = checked;
+      }}
+    }});
+  }}
+  </script>
+</section>
+"""
+
+
+def render_value_prediction_benchmark_results(state: AppState) -> str:
+    if not state.value_prediction_benchmarks:
+        return ""
+    score_names = ("图像主体准确性", "国家价值观适配", "历史依据合理性", "RAG citation 有用性", "风险识别", "预测等级可信度", "指标区间可信度", "排图建议可执行性")
+    cards = []
+    for index, item in enumerate(state.value_prediction_benchmarks):
+        baseline_scores = "".join(
+            f'<label><span>{name}</span><input class="small-input" name="baseline_value_score_{index}_{score_index}" placeholder="1-5"></label>'
+            for score_index, name in enumerate(score_names)
+        )
+        baseline_output = str(item.get("baseline_output", ""))
+        cards.append(
+            f"""
+<article class="comparison-card">
+  <input type="hidden" name="candidate_id_{index}" value="{escape(str(item.get('candidate_id', '')))}">
+  <input type="hidden" name="operation_tag_{index}" value="{escape(str(item.get('operation_tag', '')))}">
+  <input type="hidden" name="baseline_output_{index}" value="{escape(baseline_output)}">
+  <div class="benchmark-head"><div><h3>{escape(str(item.get('candidate_id', '')))}</h3><small>{escape(str(item.get('operation_tag', '')))}</small></div><span class="pill">value_model_current</span></div>
+  <div class="benchmark-output"><strong>模型预测输出</strong><p>{escape(baseline_output)}</p></div>
+  <details class="benchmark-score-details"><summary>填写 8 维评分</summary>
+    <h4>模型预测评分</h4>
+    <div class="score-grid">{baseline_scores}<label><span>最终标签</span>{select(f"baseline_label_{index}", ("可直接用", "轻微修改", "需要大改", "不可用"), "轻微修改")}</label></div>
+  </details>
+</article>
+"""
+        )
+    return f"""
+<form method="post" action="/save_value_prediction_benchmark">
+  {hidden_context(state, view='value')}
+  <input type="hidden" name="benchmark_count" value="{len(state.value_prediction_benchmarks)}">
+  <div class="benchmark-list">{''.join(cards)}</div>
+  <div class="section-line benchmark-save-line"><p class="note">可先逐张填写 8 维评分，全部完成后一次性保存。</p><button class="primary">批量保存价值观评分</button></div>
+</form>
+"""
+
+
+def render_value_selected_pool(agent: PuzzleOpsAgent, state: AppState, decisions: dict[str, dict[str, object]]) -> str:
+    selected_ids = {
+        candidate_id
+        for candidate_id, decision in decisions.items()
+        if str(decision.get("decision", "")) == "优先排图"
+    }
+    if not selected_ids:
+        return '<section class="value-selected-pool"><div class="section-line"><h3>本周排图候选池</h3><small>点击候选卡“加入下周排图池”后会出现在这里；最终排图仍在公司 CMS 完成。</small></div><p class="empty">暂无已加入候选。</p></section>'
+    candidates = {str(item.get("candidate_id", "")): item for item in agent.undistributed_value_candidates(state.country)}
+    cards = []
+    for candidate_id in sorted(selected_ids):
+        candidate = candidates.get(candidate_id)
+        decision = decisions.get(candidate_id, {})
+        note = str(decision.get("human_note", ""))
+        if candidate:
+            image = candidate["image"]
+            cards.append(
+                "<article class='value-selected-item'>"
+                f"{visual_thumb(image.thumb, image.title)}"
+                f"<strong>{escape(candidate_id)}</strong>"
+                f"<span class='status-pill'>已加入排图池</span>"
+                f"<small>{escape(str(candidate.get('operation_tag', '')))} · {escape(str(candidate.get('predicted_grade', '待预测')))} · {escape(str(decision.get('decision', '')))}</small>"
+                f"<p>{escape(note or '无人工备注')}</p>"
+                "</article>"
+            )
+        else:
+            cards.append(
+                "<article class='value-selected-item'>"
+                f"<strong>{escape(candidate_id)}</strong><span class='status-pill'>已加入排图池</span><p>{escape(note or 'Excel 中暂未找到该候选图')}</p>"
+                "</article>"
+            )
+    return f"<section class='value-selected-pool'><div class='section-line'><h3>本周排图候选池</h3><small>这里是价值观大师预测后的人工候选清单；最终排图仍在公司 CMS 完成。</small></div><div class='value-selected-grid'>{''.join(cards)}</div></section>"
+
+
+def render_undistributed_candidate_card(agent: PuzzleOpsAgent, candidate: dict[str, object], state: AppState, decision: dict[str, object] | None = None) -> str:
+    image = candidate["image"]
+    probability = f"{float(candidate['sa_probability']) * 100:.0f}%"
+    visual_subject = str(candidate.get("visual_subject") or candidate.get("subject") or "待视觉解析")
+    visual_scene = str(candidate.get("visual_scene") or candidate.get("scene") or "")
+    visual_style = str(candidate.get("visual_style") or candidate.get("style_keywords") or "")
+    prediction_status = str(candidate.get("prediction_status") or "pending")
+    status_label = {
+        "predicted": "已预测",
+        "pending": "待预测",
+        "missing_image": "图片缺失/无法预测",
+        "missing_vision_model": "未配置真实 Qwen3-VL",
+        "failed": "预测失败",
+    }.get(prediction_status, prediction_status)
+    decision = decision or {}
+    selected_badge = '<span class="status-pill">已加入排图池</span>' if str(decision.get("decision", "")) == "优先排图" else ""
+    decision_note = render_value_candidate_decision_note(decision)
+    rag_citations = candidate.get("rag_citations", ())
+    citation_details = candidate.get("rag_citation_details", ())
+    if not citation_details and isinstance(rag_citations, (tuple, list)):
+        citation_details = agent.rag_citation_details(state.country, tuple(str(item) for item in rag_citations))
+    citation_chips = render_citation_cards(rag_citations, citation_details)
+    similar_good = candidate.get("similar_positive", ())
+    similar_bad = candidate.get("similar_negative", ())
+    similar_good_copy = render_similar_history_items(similar_good)
+    similar_bad_copy = render_similar_history_items(similar_bad)
+    risk_badges = render_value_risk_badges(candidate.get("risk_points", ()))
+    decision_actions = render_value_candidate_decision_actions(candidate, state, decision)
+    retry_action = render_value_candidate_retry_action(candidate, state)
+    evidence_summary = compact_text(str(candidate.get("evidence", "")), 92)
+    metric_levels = candidate.get("metric_levels", {})
+    metric_level_copy = ""
+    if isinstance(metric_levels, dict) and metric_levels:
+        metric_level_copy = (
+            f"<small>指标分档 开图={escape(str(metric_levels.get('open_rate', '')))} · "
+            f"完成={escape(str(metric_levels.get('completion_rate', '')))} · "
+            f"时长={escape(str(metric_levels.get('avg_finish_time', '')))}</small>"
+        )
+    return f"""
+<article class='image-card candidate-card'>
+  {visual_thumb(image.thumb, image.title)}
+  <div class="candidate-title"><strong>{escape(str(candidate['candidate_id']))}</strong>{selected_badge}</div>
+  {decision_note}
+  <p>{grade(str(candidate['predicted_grade']))} 预测等级 · 预测SA概率 {probability} · {escape(status_label)}</p>
+  <small>预测开图率 {escape(str(candidate['open_rate_range']))} · 预测完成率 {escape(str(candidate['completion_rate_range']))} · 预测完成时长 {escape(str(candidate['finish_time_range']))}</small>
+  {metric_level_copy}
+  <p><strong>{escape(str(candidate.get('js_category', '')))}</strong> · {escape(str(candidate.get('operation_tag', '')))} · {escape(str(candidate.get('candidate_source', '')))}</p>
+  <p class="candidate-summary">视觉主体：{escape(compact_text(visual_subject, 34))}</p>
+  <p>{escape(str(candidate['action']))}</p>
+  {risk_badges}
+  <p class="candidate-evidence-summary">预测理由：{escape(evidence_summary)}</p>
+  <details class="candidate-details"><summary>展开视觉解析</summary><dl><div><dt>主体</dt><dd>{escape(visual_subject)}</dd></div><div><dt>场景</dt><dd>{escape(visual_scene or '待预测后生成')}</dd></div><div><dt>风格</dt><dd>{escape(visual_style or '待预测后生成')}</dd></div></dl></details>
+  <details class="candidate-details"><summary>展开相似历史图</summary><div><strong>相似历史好图</strong>{similar_good_copy}</div><div><strong>相似历史风险图</strong>{similar_bad_copy}</div></details>
+  <details class="candidate-details"><summary>展开 RAG 依据</summary>{citation_chips}<p>{escape(str(candidate['evidence']))}</p></details>
+  {retry_action}
+  {decision_actions}
+</article>
+"""
+
+
+def render_value_candidate_decision_note(decision: dict[str, object]) -> str:
+    decision_value = str(decision.get("decision", ""))
+    note = str(decision.get("human_note", ""))
+    if not decision_value:
+        return ""
+    return f'<p class="candidate-human-note">人工决策：{escape(decision_value)}{("；" + escape(note)) if note else ""}</p>'
+
+
+def render_value_candidate_decision_actions(candidate: dict[str, object], state: AppState, decision: dict[str, object] | None = None) -> str:
+    if not can_write_country(state.user_id, state.country):
+        return '<div class="section-line"><small>只读国家不可保存人工决策</small></div>'
+    current_decision = decision or {}
+    context = hidden_context(state, view="value")
+    candidate_id = escape(str(candidate.get("candidate_id", "")))
+    note = '<input name="decision_note" placeholder="人工备注，可空">'
+    buttons = (
+        ("优先排图", "加入下周排图池"),
+        ("人工看好", "标记人工看好"),
+        ("人工复核", "要求修改"),
+    )
+    forms = []
+    for decision_value, label in buttons:
+        disabled = " disabled" if decision_value == "优先排图" and str(current_decision.get("decision", "")) == "优先排图" else ""
+        button_label = "已加入" if disabled else label
+        forms.append(
+            f'<form method="post" action="/save_value_candidate_decision">{context}'
+            f'<input type="hidden" name="candidate_id" value="{candidate_id}">'
+            f'<input type="hidden" name="decision" value="{escape(decision_value)}">'
+            f'{note}<button{disabled}>{escape(button_label)}</button></form>'
+        )
+    return '<div class="section-line">' + "".join(forms) + "</div>"
+
+
+def render_value_candidate_retry_action(candidate: dict[str, object], state: AppState) -> str:
+    if not can_write_country(state.user_id, state.country):
+        return ""
+    return (
+        '<form class="single-retry-form" method="post" action="/predict_single_value_candidate">'
+        f'{hidden_context(state, view="value")}'
+        f'<input type="hidden" name="candidate_id" value="{escape(str(candidate.get("candidate_id", "")))}">'
+        '<button>重新预测此图</button>'
+        "</form>"
+    )
+
+
+def render_citation_chips(citations: object) -> str:
+    if not isinstance(citations, (tuple, list)) or not citations:
+        return '<p class="empty">待预测后生成</p>'
+    chips = []
+    for item in citations[:4]:
+        text = str(item)
+        label = text.split("#", 1)[0].replace("GLOBAL_KB_", "").replace("AUDIT_", "审核 ")
+        chips.append(f'<span class="citation-chip" title="{escape(text)}">{escape(compact_text(label, 24))}</span>')
+    return '<div class="citation-chip-row">' + "".join(chips) + "</div>"
+
+
+def render_citation_cards(citations: object, details: object) -> str:
+    if isinstance(details, (tuple, list)) and details:
+        cards = []
+        for item in details[:4]:
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("title", "") or item.get("parent_id", "") or item.get("chunk_id", ""))
+            source_type = str(item.get("source_type", ""))
+            chunk_id = str(item.get("chunk_id", ""))
+            text = compact_text(str(item.get("text", "")), 120)
+            source_label = _citation_source_label(source_type)
+            cards.append(
+                "<article class='citation-card'>"
+                f"<strong>{escape(source_label)}：{escape(title)}</strong>"
+                f"<p>{escape(text or '暂无摘要；可用原始 chunk id 追踪。')}</p>"
+                f"<small>{escape(chunk_id)}</small>"
+                "</article>"
+            )
+        if cards:
+            return "<div class='citation-card-list'>" + "".join(cards) + "</div>"
+    return render_citation_chips(citations)
+
+
+def _citation_source_label(source_type: str) -> str:
+    labels = {
+        "human_gold": "历史样本",
+        "harness_gold_sample": "历史样本",
+        "memory_fact": "Memory",
+        "memory_long_term": "Memory",
+        "value_master": "价值观规则",
+        "value_rule": "价值观规则",
+        "audit_rule": "审核规则",
+        "audit_policy": "审核规则",
+        "sop": "SOP",
+    }
+    return labels.get(source_type, source_type or "RAG依据")
+
+
+def render_similar_history_items(items: object) -> str:
+    if not isinstance(items, (tuple, list)) or not items:
+        return '<p class="empty">待预测后生成</p>'
+    rows = []
+    for item in items[:3]:
+        if not isinstance(item, dict):
+            continue
+        rows.append(
+            "<li>"
+            f"{escape(str(item.get('image_id', '')))} · {escape(str(item.get('operation_tag', '')))} · {escape(str(item.get('grade', '')))}"
+            f"<small>开图 {escape(str(item.get('open_rate', '')))} · 完成 {escape(str(item.get('completion_rate', '')))} · {escape(str(item.get('avg_finish_time', '')))}</small>"
+            "</li>"
+        )
+    return "<ul class='candidate-history-list'>" + "".join(rows) + "</ul>"
+
+
+def render_value_risk_badges(risks: object) -> str:
+    if not isinstance(risks, (tuple, list)) or not risks:
+        return '<div class="risk-badges"><span>低风险</span></div>'
+    return '<div class="risk-badges">' + "".join(f"<span>{escape(str(risk))}</span>" for risk in risks[:4]) + "</div>"
+
+
+def compact_text(text: str, limit: int) -> str:
+    normalized = " ".join(str(text or "").split())
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: max(limit - 1, 0)].rstrip() + "…"
+
+
+def render_value_prediction_job_progress(state: AppState) -> str:
+    if not state.value_prediction_job_status:
+        return ""
+    progress = max(0, min(100, int(state.value_prediction_job_progress or 0)))
+    status = state.value_prediction_job_status
+    message = state.value_prediction_job_message or "价值观大师后台预测处理中"
+    return f"""
+<section class="panel derivative-job-panel">
+  <div class="section-line"><h2>价值观大师预测进度</h2><span class="status-pill">{escape(status)}</span></div>
+  <progress value="{progress}" max="100"></progress>
+  <p class="note">{escape(message)}</p>
+  <small>页面会每 3 秒自动刷新；预测完成后候选卡会显示预测等级、指标区间、RAG citation 和相似历史依据。</small>
+</section>
+"""
 
 
 def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
@@ -804,7 +1499,8 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
     memory_items = "".join(f'<li>{escape(str(memory["content"]))}</li>' for memory in memories)
     memory_overview_cards = render_memory_overview(memory_overview)
     memory_filters = memory_filter_values(state)
-    memory_workbench = render_memory_workbench(agent.memory_workbench(state.country, filters=memory_filters), state, memory_filters)
+    memory_workbench_data = agent.memory_workbench(state.country, filters=memory_filters)
+    memory_workbench = render_memory_workbench(memory_workbench_data, state, memory_filters)
     rag_cards = render_rag_summary(rag_summary, state)
     rag_actions = render_rag_runtime_actions(agent, state)
     memory_debug = agent.memory_debug(state.country, query=feature.main_subject)
@@ -812,14 +1508,60 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
     memory_conflicts = render_memory_conflicts(agent.memory_conflicts(state.country), state)
     provenance_root = int(memory_debug[0].get("memory_id", 0)) if memory_debug else 0
     memory_provenance = render_memory_provenance(agent.memory_provenance(state.country, provenance_root) if provenance_root else {})
-    guarded_actions = render_guarded_actions_workbench(agent.guarded_action_workbench(state.country), state)
+    guarded_action_data = agent.guarded_action_workbench(state.country)
+    guarded_actions = render_guarded_actions_workbench(guarded_action_data, state)
     skill_center = render_skill_center(agent.business_skill_contracts(), state)
+    tools_console_data = agent.tools_console(state.country)
+    tools_console = render_tools_console(tools_console_data)
+    sync_history = render_feishu_lightweight_sync_history(agent, state)
+    governance_overview = render_runtime_governance_overview(
+        agent,
+        state,
+        vision_status,
+        memory_overview,
+        memory_workbench_data,
+        rag_summary,
+        guarded_action_data,
+        tools_console_data,
+    )
     return f"""
 <section class="panel">
-  <h2>多模态底座</h2>
+  <h2>系统治理中心</h2>
+  <p class="note">这个页面用来确认 Agent 的知识、RAG、工具链和审批链路是否健康。</p>
   {render_sync_message(state)}
-  <div class="grid two">
-    <div><h3>ImageProfile</h3><dl class="detail">
+</section>
+<details class="governance-section" open><summary>总览</summary>
+  <p class="note">默认只看这里：系统健康、今日待处理、最近风险和快捷入口。</p>
+  {governance_overview}
+</details>
+<details id="memory治理" class="governance-section"><summary>Memory 治理</summary>
+  <p class="note">审核、批准、停用和排查 Memory，避免未确认或冲突知识进入 RAG。</p>
+  <section class="panel"><h2>四层 Memory 概览</h2><div class="memory-grid">{memory_overview_cards}</div></section>
+  <section class="panel"><h2>Memory 工作台</h2>{memory_workbench}</section>
+  <section class="panel"><h2>Memory Conflict</h2>{memory_conflicts}</section>
+  <section class="panel"><h2>Memory Provenance</h2>{memory_provenance}</section>
+  <section class="panel"><h2>HITL Memory</h2><ul>{memory_items or '<li>暂无人工反馈记忆。</li>'}</ul></section>
+</details>
+<details id="rag治理" class="governance-section"><summary>RAG 治理</summary>
+  <p class="note">查看 RAG 命中、反馈、补丁、重建和验收能力；高风险操作保留在这里。</p>
+  <section class="panel"><div class="section-line"><h2>价值观与审核 RAG</h2><div class="actions">{rag_actions}</div></div>{rag_cards}</section>
+</details>
+<details id="toolsactions" class="governance-section"><summary>Tools / Actions</summary>
+  <p class="note">查看工具注册、连接健康、最近调用和外部写入审批链路。</p>
+  <section class="panel"><h2>Tools Console</h2>{tools_console}</section>
+  <section class="panel"><h2>Guarded Actions</h2>{guarded_actions}</section>
+  <details class="compact-tools"><summary>飞书同步轻量历史</summary>{sync_history}</details>
+</details>
+<details class="governance-section"><summary>Skill Center</summary>
+  <p class="note">查看 5 个业务 Skill 的输入、RAG 来源、Memory 写入和验收指标。</p>
+  <section class="panel"><h2>Skill Center</h2>{skill_center}</section>
+</details>
+<details id="debug" class="governance-section"><summary>Debug</summary>
+  <p class="note">研发排查区：图像 profile、价值观候选、Memory 明细和底层证据。</p>
+  <section class="panel">
+    <h2>ImageProfile Debug</h2>
+    <div class="grid two">
+      <div><h3>ImageProfile</h3><dl class="detail">
       <div><dt>图片ID</dt><dd>{escape(profile.asset.image_id)}</dd></div>
       <div><dt>运营tag</dt><dd>{escape(profile.asset.operation_tag)}</dd></div>
       <div><dt>主体</dt><dd>{escape(feature.main_subject)}</dd></div>
@@ -838,26 +1580,140 @@ def render_runtime(agent: PuzzleOpsAgent, state: AppState) -> str:
       <div><dt>风险标签</dt><dd>{escape('、'.join(feature.risk_tags) or '无')}</dd></div>
       <div><dt>视觉 LLM 适配器</dt><dd>{vision_mode_copy(vision_status)}</dd></div>
     </dl></div>
-  </div>
-</section>
-<section class="grid two">
-  <div class="panel"><h2>相似历史好图</h2><div class="cards">{good}</div></div>
-  <div class="panel"><h2>相似历史坏图</h2><div class="cards">{bad}</div></div>
-</section>
-<section class="panel"><h2>价值观候选池</h2><div class="table-wrap"><table><thead><tr><th>候选价值观</th><th>置信度</th><th>支撑样本</th><th>反例样本</th><th>状态</th><th>Agent归因</th><th>运营审核</th></tr></thead><tbody>{candidate_rows}</tbody></table></div></section>
-<section class="grid two">
-  <div class="panel"><h2>已审批价值观规则</h2><div class="table-wrap"><table><thead><tr><th>国家</th><th>规则</th><th>状态</th></tr></thead><tbody>{approved_rows or '<tr><td colspan="3">暂无已审批规则，点击上方候选池“通过”后会写入这里。</td></tr>'}</tbody></table></div></div>
-  <div class="panel"><h2>HITL Memory</h2><ul>{memory_items or '<li>暂无人工反馈记忆。</li>'}</ul></div>
-</section>
-<section class="panel"><h2>四层 Memory 概览</h2><div class="memory-grid">{memory_overview_cards}</div></section>
-<section class="panel"><h2>Skill Center</h2>{skill_center}</section>
-<section class="panel"><h2>Guarded Actions</h2>{guarded_actions}</section>
-<section class="panel"><h2>Memory 工作台</h2>{memory_workbench}</section>
-<section class="panel"><h2>Memory Conflict</h2>{memory_conflicts}</section>
-<section class="panel"><h2>Memory Provenance</h2>{memory_provenance}</section>
-<section class="panel"><h2>Memory Debug</h2><div class="table-wrap"><table><thead><tr><th>ID</th><th>层级/类型</th><th>状态</th><th>审核状态</th><th>进入RAG</th><th>创建人</th><th>批准人</th><th>更新时间</th><th>RAG Source</th><th>命中分</th><th>冲突</th><th>来源</th><th>记忆内容</th><th>治理</th></tr></thead><tbody>{memory_debug_rows}</tbody></table></div></section>
-<section class="panel"><div class="section-line"><h2>价值观与审核 RAG</h2><div class="actions">{rag_actions}</div></div>{rag_cards}</section>
+    </div>
+  </section>
+  <section class="grid two">
+    <div class="panel"><h2>相似历史好图</h2><div class="cards">{good}</div></div>
+    <div class="panel"><h2>相似历史坏图</h2><div class="cards">{bad}</div></div>
+  </section>
+  <section class="panel"><h2>价值观候选池</h2><p class="note">从历史样本中挖出的候选价值观规则，人工通过后进入长期治理链路。</p><div class="table-wrap"><table><thead><tr><th>候选价值观</th><th>置信度</th><th>支撑样本</th><th>反例样本</th><th>状态</th><th>Agent归因</th><th>运营审核</th></tr></thead><tbody>{candidate_rows}</tbody></table></div></section>
+  <section class="panel"><h2>已审批价值观规则</h2><div class="table-wrap"><table><thead><tr><th>国家</th><th>规则</th><th>状态</th></tr></thead><tbody>{approved_rows or '<tr><td colspan="3">暂无已审批规则，点击上方候选池“通过”后会写入这里。</td></tr>'}</tbody></table></div></section>
+  <section class="panel"><h2>Memory Debug</h2><div class="table-wrap"><table><thead><tr><th>ID</th><th>层级/类型</th><th>状态</th><th>审核状态</th><th>进入RAG</th><th>创建人</th><th>批准人</th><th>更新时间</th><th>RAG Source</th><th>命中分</th><th>冲突</th><th>来源</th><th>记忆内容</th><th>治理</th></tr></thead><tbody>{memory_debug_rows}</tbody></table></div></section>
+</details>
 """
+
+
+def render_runtime_governance_overview(
+    agent: PuzzleOpsAgent,
+    state: AppState,
+    vision_status: dict[str, object],
+    memory_overview: dict[str, dict[str, object]],
+    memory_workbench: dict[str, object],
+    rag_summary: dict[str, object],
+    guarded_actions: dict[str, object],
+    tools_console: dict[str, object],
+) -> str:
+    generation_status = agent.generation_provider_status()
+    vector_provider = vector_store_label(agent.rag_vector_store_config.provider or "sqlite")
+    feishu_status = "可用" if getattr(agent.feishu, "allow_real_sync", False) else "Mock / 未真实写入"
+    tool_failed = len(tuple(item for item in tools_console.get("recent_invocations", ()) if isinstance(item, dict) and not item.get("success")))
+    guarded_groups = guarded_actions.get("groups", {}) if isinstance(guarded_actions, dict) else {}
+    pending_actions = len(guarded_groups.get("pending", ()) if isinstance(guarded_groups, dict) else ())
+    pending_memory = len(memory_workbench.get("pending_review", ()) if isinstance(memory_workbench, dict) else ())
+    conflict_count = len(memory_workbench.get("conflicts", ()) if isinstance(memory_workbench, dict) else ())
+    feedback_summary = agent.rag_feedback_summary(state.country)
+    not_useful = int(feedback_summary.get("not_useful_total", 0) or 0)
+    rag_chunks = int(rag_summary.get("chunk_count", 0) or 0)
+    memory_total = sum(int(item.get("count", 0) or 0) for item in memory_overview.values() if isinstance(item, dict))
+    write_countries = production_write_countries()
+    readonly_countries = tuple(country for country, _ in LOGIN_COUNTRIES if country not in write_countries)
+    production_cards = (
+        ("生产运行目录", str(agent._runtime_dir), "SQLite、候选图、上传图、预测缓存、Harness 和 RAG 反馈都应在这里持久化。"),
+        ("明日可写国家", "、".join(write_countries), "日本、法国开放真实运营写入，其余国家先只读。"),
+        ("灰度只读国家", f"{'、'.join(readonly_countries)}只读", "巴西、俄罗斯、美国只读，避免未接入业务数据时触发生产写入。"),
+        ("备份策略", "手动/每日备份", "上线前先备份，运行后每天备份 runtime 目录。"),
+    )
+    health_cards = (
+        ("Qwen 视觉", vision_mode_copy(vision_status), "试新解析、价值观大师和 Harness 真实评测依赖它。"),
+        ("Qwen 图像生成", generation_mode_copy(generation_status), "好图衍生会产生费用，默认只在明确操作时调用。"),
+        ("RAG / 向量库", f"{vector_provider} · chunks {rag_chunks}", "价值观规则、审核规则和 Memory facts 的检索状态。"),
+        ("飞书", feishu_status, "常规/试新同步入口状态；真实写入仍走现有权限和审计。"),
+        ("工具链", f"失败 {tool_failed} 次", "最近工具调用失败数量，详情在 Tools / Actions。"),
+    )
+    todo_cards = (
+        ("待审核 Memory", pending_memory, "进入 Memory 治理处理。"),
+        ("Memory 冲突", conflict_count, "冲突未处理前不应进入 RAG。"),
+        ("RAG 无用反馈", not_useful, "进入 RAG 治理查看补丁候选。"),
+        ("待确认 Actions", pending_actions, "进入 Tools / Actions 处理外部写入审批。"),
+    )
+    production_html = "".join(render_overview_card(title, value, detail) for title, value, detail in production_cards)
+    health_html = "".join(render_overview_card(title, value, detail) for title, value, detail in health_cards)
+    todo_html = "".join(render_overview_card(title, value, detail) for title, value, detail in todo_cards)
+    backup_form = (
+        f'<form method="post" action="/create_production_backup" class="inline-actions">'
+        f'{hidden_context(state, view="runtime")}'
+        '<input name="backup_label" value="manual_launch_backup">'
+        '<button>立即备份生产数据</button>'
+        '</form>'
+        if can_write_country(state.user_id, state.country)
+        else '<p class="note">只读模式不显示备份按钮；请切换到负责国家后执行备份。</p>'
+    )
+    return f"""
+<div class="governance-overview">
+  <section><div class="section-line"><h3>生产上线收口</h3>{backup_form}</div><div class="overview-grid">{production_html}</div></section>
+  <section><h3>系统健康</h3><div class="overview-grid">{health_html}</div></section>
+  <section><h3>今日待处理</h3><div class="overview-grid">{todo_html}</div></section>
+  <section><h3>最近风险</h3><p class="note">工具失败 {tool_failed} 次；RAG 无用反馈 {not_useful} 条；Memory 冲突 {conflict_count} 组；当前 Memory active 总量 {memory_total} 条。</p></section>
+  <section><h3>快捷入口</h3><div class="pills"><a class="pill" href="#memory治理">Memory治理</a><a class="pill" href="#rag治理">RAG治理</a><a class="pill" href="#toolsactions">Tools / Actions</a><a class="pill" href="#debug">Debug</a></div></section>
+</div>
+"""
+
+
+def render_overview_card(title: str, value: object, detail: str) -> str:
+    return f"<article class='overview-card'><strong>{escape(title)}</strong><span>{escape(str(value))}</span><small>{escape(detail)}</small></article>"
+
+
+def render_tools_console(console: dict[str, object]) -> str:
+    catalog = console.get("catalog", ())
+    invocations = console.get("recent_invocations", ())
+    health = console.get("connector_health", {})
+    catalog_rows = "".join(
+        "<tr>"
+        f"<td>{escape(str(item.get('name', '')))}</td>"
+        f"<td>{escape(str(item.get('target_system', '')))}</td>"
+        f"<td>{escape(str(item.get('side_effect', '')))}</td>"
+        f"<td>{'需要' if item.get('approval_required') else '不需要'}</td>"
+        f"<td>{'是' if item.get('country_scoped') else '否'}</td>"
+        f"<td>{escape('、'.join(str(skill) for skill in item.get('allowed_skill_ids', ())))}</td>"
+        "</tr>"
+        for item in catalog
+        if isinstance(item, dict)
+    )
+    invocation_rows = "".join(
+        "<tr>"
+        f"<td>{escape(str(item.get('tool_name', '')))}</td>"
+        f"<td>{escape(str(item.get('actor', '')))}</td>"
+        f"<td>{escape(str(item.get('skill_id', '')))}</td>"
+        f"<td>{'成功' if item.get('success') else '失败'}</td>"
+        f"<td>{escape(str(item.get('latency_ms', '')))}ms</td>"
+        f"<td>{escape(str(item.get('error_code', '')))}</td>"
+        "</tr>"
+        for item in invocations
+        if isinstance(item, dict)
+    )
+    health_cards = ""
+    if isinstance(health, dict):
+        for name, status in health.items():
+            text = status if isinstance(status, str) else json_dumps_compact(status)
+            health_cards += f"<article class='memory-card'><strong>{escape(str(name))}</strong><small>{escape(text)}</small></article>"
+    return f"""
+<div class="grid two">
+  <div>
+    <h3>Tool Catalog</h3>
+    <div class="table-wrap"><table><thead><tr><th>工具</th><th>系统</th><th>读写</th><th>审批</th><th>国家过滤</th><th>Skill 白名单</th></tr></thead><tbody>{catalog_rows or '<tr><td colspan="6">暂无工具。</td></tr>'}</tbody></table></div>
+  </div>
+  <div>
+    <h3>Connector Health</h3>
+    <div class="memory-grid">{health_cards}</div>
+  </div>
+</div>
+<h3>Recent Invocations</h3>
+<div class="table-wrap"><table><thead><tr><th>工具</th><th>Actor</th><th>Skill</th><th>状态</th><th>耗时</th><th>错误</th></tr></thead><tbody>{invocation_rows or '<tr><td colspan="6">暂无调用记录。</td></tr>'}</tbody></table></div>
+"""
+
+
+def json_dumps_compact(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":"))
 
 
 def render_skill_center(skills: object, state: AppState) -> str:
@@ -1354,6 +2210,7 @@ def render_rag_summary(summary: dict[str, object], state: AppState | None = None
         eval_dataset_payload["business_sample_gate"] = eval_report.get("business_sample_gate")
     eval_dataset_card = render_rag_eval_dataset(eval_dataset_payload)
     chunk_eval_card = render_rag_chunk_eval_dataset(summary.get("rag_chunk_eval_dataset", {}))
+    governance = render_rag_quality_governance(summary.get("rag_quality_governance", {}), state)
     vector_store_search = "on" if summary.get("vector_store_search_enabled") else "off"
     return f"""
 <div class="rag-grid">
@@ -1379,6 +2236,7 @@ def render_rag_summary(summary: dict[str, object], state: AppState | None = None
 <h3>引用明细</h3>
 <div class="table-wrap"><table><thead><tr><th>引用ID</th><th>知识来源</th><th>父文档</th><th>标题</th><th>内容</th></tr></thead><tbody>{citation_rows}</tbody></table></div>
 {eval_case_evidence}
+{governance}
 {failure_feedback}
 {patch_drafts}
 {patch_runs}
@@ -1543,6 +2401,80 @@ def render_rag_knowledge_patch_drafts(summary: object, state: AppState | None = 
         "<th>Patch</th><th>优先级</th><th>Source Type</th><th>Expected Parent</th><th>审核状态</th><th>草案内容</th><th>HITL</th>"
         f"</tr></thead><tbody>{body}</tbody></table></div>"
     )
+
+
+def render_rag_quality_governance(summary: object, state: AppState | None = None) -> str:
+    if not isinstance(summary, dict):
+        summary = {}
+    feedback_pool = summary.get("feedback_pool", {}) if isinstance(summary.get("feedback_pool", {}), dict) else {}
+    weekly = summary.get("weekly_anomalies", {}) if isinstance(summary.get("weekly_anomalies", {}), dict) else {}
+    monthly = summary.get("monthly_patch_plan", {}) if isinstance(summary.get("monthly_patch_plan", {}), dict) else {}
+    emergency = summary.get("emergency_patch_flow", {}) if isinstance(summary.get("emergency_patch_flow", {}), dict) else {}
+    context = hidden_context(state, view="runtime") if state is not None else ""
+    monthly_items = monthly.get("items", ())
+    if not isinstance(monthly_items, (list, tuple)):
+        monthly_items = ()
+    emergency_items = emergency.get("items", ())
+    if not isinstance(emergency_items, (list, tuple)):
+        emergency_items = ()
+    rows = []
+    for item in monthly_items[:6]:
+        if not isinstance(item, dict):
+            continue
+        memory_id = str(item.get("source_memory_id", ""))
+        monthly_form = (
+            f'<form method="post" action="/mark_rag_feedback_monthly">{context}'
+            f'<input type="hidden" name="memory_id" value="{escape(memory_id)}">'
+            '<input name="review_note" value="纳入月度知识补丁审核"><button>标记月度处理</button></form>'
+        )
+        emergency_form = (
+            f'<form method="post" action="/mark_rag_feedback_emergency">{context}'
+            f'<input type="hidden" name="memory_id" value="{escape(memory_id)}">'
+            '<input name="review_note" value="标记紧急补丁"><button>标记紧急补丁</button></form>'
+        )
+        rows.append(
+            "<tr>"
+            f"<td>{escape(str(item.get('patch_id', '')))}</td>"
+            f"<td>{escape(str(item.get('priority_band', '')))}</td>"
+            f"<td>{escape(str(item.get('query', ''))[:120])}</td>"
+            f"<td>{monthly_form}{emergency_form}</td>"
+            "</tr>"
+        )
+    emergency_rows = []
+    for item in emergency_items[:4]:
+        if not isinstance(item, dict):
+            continue
+        memory_id = str(item.get("source_memory_id", ""))
+        apply_form = (
+            f'<form method="post" action="/apply_emergency_rag_patch_and_rebuild">{context}'
+            f'<input type="hidden" name="memory_id" value="{escape(memory_id)}">'
+            '<input name="review_note" value="负责人确认紧急补丁"><button>应用紧急补丁并重建</button></form>'
+        )
+        emergency_rows.append(
+            "<tr>"
+            f"<td>{escape(str(item.get('patch_id', '')))}</td>"
+            f"<td>{escape(str(item.get('reason', '')))}</td>"
+            f"<td>{escape(str(item.get('draft_text', ''))[:160])}</td>"
+            f"<td>{apply_form}</td>"
+            "</tr>"
+        )
+    rows_html = "".join(rows) or '<tr><td colspan="4">暂无月度草案候选。</td></tr>'
+    emergency_html = "".join(emergency_rows) or '<tr><td colspan="4">暂无紧急补丁候选。</td></tr>'
+    return f"""
+<section class="subpanel rag-governance-panel">
+  <h3>RAG质量治理工作台</h3>
+  <div class="rag-grid">
+    <article><strong>治理节奏</strong><span>{escape(str(summary.get('cadence_label', '月度重建 + 紧急补丁')))}</span><small>日常可选反馈；每周看异常；每月审核补丁并重建；紧急风险随时处理。</small></article>
+    <article><strong>反馈池</strong><span>citation={escape(str(feedback_pool.get('citation_feedback_count', 0)))} / low_score={escape(str(feedback_pool.get('low_score_count', 0)))}</span><small>not_useful={escape(str(feedback_pool.get('not_useful_count', 0)))}；failure={escape(str(feedback_pool.get('failure_feedback_count', 0)))}</small></article>
+    <article><strong>本周异常巡检</strong><span>紧急候选 {escape(str(weekly.get('emergency_candidate_count', 0)))}</span><small>只做标记，不强制每周重建。</small></article>
+    <article><strong>月度计划</strong><span>草案 {escape(str(monthly.get('draft_count', 0)))}</span><small>recommended_action={escape(str(monthly.get('recommended_action', 'collect_more_feedback')))}</small></article>
+  </div>
+  <div class="section-line"><h3>生成月度知识补丁草案</h3><form method="post" action="/export_rag_knowledge_patch_drafts">{context}<button>导出月度草案</button></form></div>
+  <div class="table-wrap"><table><thead><tr><th>Patch</th><th>优先级</th><th>Query</th><th>标记</th></tr></thead><tbody>{rows_html}</tbody></table></div>
+  <h3>紧急补丁通道</h3>
+  <div class="table-wrap"><table><thead><tr><th>Patch</th><th>原因</th><th>补丁摘要</th><th>动作</th></tr></thead><tbody>{emergency_html}</tbody></table></div>
+</section>
+"""
 
 
 def render_rag_failure_feedback_card(summary: object) -> str:
@@ -1963,6 +2895,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
     readiness_panel = render_harness_readiness(readiness)
     business_acceptance_panel = render_harness_business_acceptance(business_acceptance)
     front_two_layers_panel = render_front_two_layers_readiness(front_two_layers)
+    real_harness_sample_count = sum(1 for sample in harness_samples if sample.is_real)
     gold_rows = render_harness_gold_workbench_rows(harness_samples, state)
     review_cases = list(harness_run.failures)
     seen_cases = {(case.sample_id, case.task_type) for case in review_cases}
@@ -1972,7 +2905,7 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
         if key not in seen_cases and has_skipped_score and case.task_type in {"trial_parse_eval", "value_match_eval", "audit_eval"}:
             review_cases.append(case)
             seen_cases.add(key)
-    failure_rows = "".join(
+    failure_cards = "".join(
         render_harness_failure_row(case, sample_by_id.get(case.sample_id))
         for case in review_cases[:6]
     )
@@ -1995,88 +2928,264 @@ def render_eval(agent: PuzzleOpsAgent, state: AppState) -> str:
     plan = "".join(f"<li>{escape(step)}</li>" for step in trace.plan)
     tools = "".join(f"<li>{escape(tool)}</li>" for tool in trace.tool_calls)
     observations = "".join(f"<li>{escape(item)}</li>" for item in trace.observations)
+    acceptance_overview = render_eval_acceptance_overview(gold_coverage, business_acceptance, readiness, harness_run)
+    prompt_benchmark_panel = render_prompt_benchmark_eval_panel(agent)
+    value_benchmark_panel = render_value_prediction_benchmark_eval_panel(agent)
     return f"""
 <section class="panel">
-  <div class="section-line"><h2>Harness Dashboard</h2><div class="inline-actions"><form method="post" action="/export_harness_gold_skeleton">{context}<button>生成 Gold 骨架CSV</button></form><form method="post" action="/export_harness_overrides">{context}<button>导出人工修正CSV</button></form><form method="post" action="/export_harness_annotations">{context}<button>导出标注平台文件</button></form><form method="post" action="/export_harness_external_eval">{context}<button>导出外部评测文件</button></form></div></div>
-  <p>内置轻量 Harness：按真实样本与合成 demo 分开统计，批量运行 trial_parse_eval、value_match_eval、audit_eval、grade_predict_eval、derive_generation_eval 和 feishu_sync_eval。</p>
+  <div class="section-line"><h2>上线验收中心</h2><div class="inline-actions"><form method="post" action="/export_harness_gold_skeleton">{context}<button>生成 Gold 骨架CSV</button></form><form method="post" action="/export_harness_overrides">{context}<button>导出人工修正CSV</button></form><form method="post" action="/export_harness_annotations">{context}<button>导出标注平台文件</button></form><form method="post" action="/export_harness_external_eval">{context}<button>导出外部评测文件</button></form></div></div>
+  <h3>Harness Dashboard</h3>
+  <p class="note">当前 Agent 是否具备上线验收条件：先看 human_gold、S/A预测准确率、RAG citation precision、风险漏召回和工具调用成功率；细节按分类展开。</p>
   <form class="harness-run-form" method="post" action="/run_harness">{context}<input type="hidden" name="run_real_models" value="1"><button class="primary">运行真实 VLM Harness</button><label><input type="checkbox" name="include_generation" value="1">包含付费生成评测</label><small>真实 VLM 会按图片样本调用模型并产生少量费用；默认不调用图像生成模型，勾选后会额外生成参考图。</small></form>
   {sync_message}
 </section>
-{front_two_layers_panel}
-<section class="panel">
-  <div class="section-line"><h2>Gold Dataset 工作台</h2><span class="status-pill">gold 完成率 {escape(str(gold_coverage.get("gold 完成率", "0%")))}</span></div>
-  <div class="gold-coverage">
-    <article><span>真实样本</span><strong>{escape(str(gold_coverage.get("真实样本数", 0)))}</strong></article>
-    <article><span>完整 gold</span><strong>{escape(str(gold_coverage.get("完整 gold 样本数", 0)))}</strong></article>
-    <article><span>缺失字段</span><strong>{escape(str(gold_coverage.get("缺失字段摘要", "无")))}</strong></article>
-    <article><span>业务指标完成率</span><strong>{escape(str(gold_coverage.get("业务指标完成率", "0%")))}</strong></article>
-    <article><span>缺失业务指标</span><strong>{escape(str(gold_coverage.get("缺失业务指标摘要", "无")))}</strong></article>
-    <article><span>AI 预标注进度</span><strong>待预标注 {escape(str(gold_coverage.get("待 AI 预标注", 0)))} · 待审核 silver {escape(str(gold_coverage.get("待审核 silver", 0)))} · human_gold {escape(str(gold_coverage.get("human_gold 样本数", 0)))}</strong></article>
-  </div>
-  {readiness_panel}
-  <form class="harness-run-form" method="post" action="/auto_prelabeled_harness_gold">{context}<input name="max_count" value="5" inputmode="numeric" aria-label="本次最多预标注张数"><button>AI 自动预标注</button><small>调用真实视觉 LLM，为已有人工作等级的真实样本补主体、色彩、构图、价值观候选和风险候选；结果标记为 ai_silver，待人工抽查。</small></form>
-  <form class="harness-run-form bulk-sample-form" method="post" action="/register_harness_real_samples">{context}<textarea name="samples_text" placeholder="A /Users/you/Desktop/france picnic.png&#10;/Users/you/Desktop/lavender.png,S,landscape,4,0.36,0.91,42,试新_法国_薰衣草风车0624,薰衣草风车"></textarea><button>批量登记真实样本</button><label><input type="checkbox" name="auto_prelabeled" value="1">登记后立即 AI 预标注</label><small>每行一张图；支持“等级 图片绝对路径”或“图片绝对路径,等级,分类,位置,开图率,完成率,平均完成时长,运营tag,主体”。图片只保存本机路径，不提交进 Git。</small></form>
-  <form class="harness-run-form bulk-sample-form" method="post" action="/register_harness_real_samples">{context}<input name="image_dir" placeholder="/Users/fanglemin/Desktop/图片"><input name="directory_grade_text" placeholder="1A 2A 3B 4S 5C 或 文件名=A"><input name="directory_js_category" value="real_sample"><button>按目录登记真实样本</button><label><input type="checkbox" name="auto_prelabeled" value="1">登记后立即 AI 预标注</label><small>适合一批图片已放在同一文件夹的情况；序号按文件名排序，也可用“文件名=A”精确指定等级。只登记本机路径和人工等级，图片文件不提交进 Git。</small></form>
-  <form id="approve-silver-form" class="harness-run-form" method="post" action="/approve_harness_silver_labels">{context}<input name="reviewer_note" value="人工抽查通过"><button>确认 AI 预标注为 human_gold</button><small>请先在表格中勾选已抽查的 silver label；确认后写入 facts memory，作为可信评测标准答案。</small></form>
-  <small>Gold label 是 Harness 的人工标准答案；AI 预标注只是 silver label。运营保存确认后才会作为人工确认事实进入 memory/RAG。</small>
-  <div class="table-wrap"><table class="gold-workbench"><thead><tr><th>样本</th><th>等级</th><th>主体</th><th>色彩氛围</th><th>构图环境</th><th>价值观/风险</th><th>标注状态</th><th>操作</th></tr></thead><tbody>{gold_rows}</tbody></table></div>
-</section>
-{business_acceptance_panel}
-<section class="grid two">
-  <div class="panel"><h2>数据集概览</h2><div class="table-wrap"><table><tbody>{summary_rows}</tbody></table></div></div>
-  <div class="panel"><h2>本次运行</h2><dl class="detail">
-    <div><dt>run_id</dt><dd>{escape(harness_run.run_id)}</dd></div>
-    <div><dt>版本</dt><dd>{escape(harness_run.version)}</dd></div>
-    <div><dt>模型</dt><dd>{escape(harness_run.model_provider)}</dd></div>
-    <div><dt>生成 provider</dt><dd>{escape(harness_run.generator_provider)}</dd></div>
-    <div><dt>执行模式</dt><dd>{escape(harness_run.execution_mode)}</dd></div>
-  </dl></div>
-</section>
-<section class="panel"><div class="section-line"><h2>真实 Baseline 复盘</h2><span class="status-pill">run {escape(str(baseline_summary.get('run_id', '')))}</span></div><div class="gold-coverage">{baseline_cards}</div></section>
-<section class="metrics">{harness_metric_cards}</section>
-<section class="grid two">
-  <div class="panel"><h2>失败样本复盘</h2><div class="table-wrap"><table><thead><tr><th>样本</th><th>Gold Label</th><th>任务</th><th>Agent 输出</th><th>失败原因</th><th>HITL 修正入口</th></tr></thead><tbody>{failure_rows or '<tr><td colspan="6">暂无失败样本。</td></tr>'}</tbody></table></div></div>
-  <div class="panel"><h2>版本对比</h2><div class="table-wrap"><table><tbody>{compare_rows}</tbody></table></div></div>
-</section>
-<section class="panel"><h2>生成失败类型分布</h2><div class="table-wrap"><table><thead><tr><th>错误类型</th><th>次数</th><th>处理建议</th></tr></thead><tbody>{generation_failure_rows}</tbody></table></div></section>
-<section class="grid two">
-  <div class="panel"><h2>Case 证据链</h2><div class="table-wrap"><table><thead><tr><th>样本/任务</th><th>RAG 引用</th><th>RAG Trace</th><th>视觉证据</th><th>Memory 证据</th></tr></thead><tbody>{case_evidence_rows}</tbody></table></div></div>
-  <div class="panel"><h2>失败分类</h2><div class="table-wrap"><table><thead><tr><th>分类</th><th>次数</th></tr></thead><tbody>{failure_category_rows}</tbody></table></div></div>
-</section>
-<section class="panel"><h2>Harness RAG Artifacts</h2><div class="table-wrap"><table><thead><tr><th>国家</th><th>Trace</th><th>Query</th><th>引用</th><th>文件</th><th>详情</th></tr></thead><tbody>{rag_artifact_rows}</tbody></table></div></section>
-<section class="metrics">{metric_cards}</section>
-<section class="panel">
-  <h2>任务目标</h2>
-  <p>验证内容运营 Agent 是否能围绕 {escape(state.country)} 市场完成价值观判断、历史样本检索、规则审核和同步前检查。</p>
-</section>
-<section class="panel">
-  <h2>输入与上下文</h2>
-  <dl class="detail">
-    <div><dt>Skill</dt><dd>{escape(trace.skill_name)}</dd></div>
-    <div><dt>上下文</dt><dd>{escape(trace.context_summary)}</dd></div>
-    <div><dt>输出</dt><dd>{escape(trace.final_output)}</dd></div>
-  </dl>
-</section>
-<section class="panel">
-  <h2>工具调用链路</h2>
-  <div class="grid three">
-    <div><h3>Plan</h3><ol>{plan}</ol></div>
-    <div><h3>Tool Calls</h3><ol>{tools}</ol></div>
-    <div><h3>Observations</h3><ol>{observations}</ol></div>
-  </div>
-</section>
-<section class="panel">
-  <h2>指标与结论</h2>
-  <h2>Eval Dataset</h2>
-  <p>{escape(report.dataset_name)} · {escape(report.country)} · 评测 RAG 召回、工具调用、计划遵循、步骤效率。</p>
-  <div class="table-wrap"><table><thead><tr><th>Metric</th><th>Score</th><th>Threshold</th><th>Pass/Fail</th><th>Reason</th></tr></thead><tbody>{eval_metric_rows}</tbody></table></div>
-</section>
-<section class="panel">
-  <h2>Case 明细</h2>
-  <div class="table-wrap"><table><thead><tr><th>Case</th><th>任务</th><th>期望工具</th><th>实际工具</th><th>Judge Reason</th></tr></thead><tbody>{case_rows}</tbody></table></div>
-</section>
-<section class="panel"><h2>Agent Trace</h2><p>Trace 已在上方按输入、工具调用和指标结论拆解。</p></section>
+<details class="governance-section" open><summary>验收总览</summary>
+  <p class="note">默认只保留核心上线状态；底层 gate 和指标表需要时再展开。</p>
+  {acceptance_overview}
+  <details class="compact-tools"><summary>查看前两层落地 gate</summary>{front_two_layers_panel}</details>
+  <details class="compact-tools"><summary>查看业务上线验收表</summary>{business_acceptance_panel}</details>
+  <details class="compact-tools"><summary>查看 Harness 指标明细</summary><section class="metrics">{harness_metric_cards}</section></details>
+</details>
+{prompt_benchmark_panel}
+{value_benchmark_panel}
+<details class="governance-section gold-dataset-section" open><summary>Gold Dataset</summary>
+  <p class="note">登记真实样本、补 human_gold、审核 AI silver label；这是 Harness 的人工标准答案入口。</p>
+  <section class="panel gold-dataset-guide">
+    <h2>Gold Dataset 是什么</h2>
+    <p>Gold Dataset 是上线验收标准答案集，用来检查 Agent 对真实拼图的等级预测、价值观判断、RAG 引用和工具链是否可靠。</p>
+    <div class="overview-grid">
+      <article class="overview-card"><strong>你需要做什么</strong><span>补充真实样本</span><small>把真实历史图、人工等级、开图率、完成率、完成时长登记进去。</small></article>
+      <article class="overview-card"><strong>什么时候做</strong><span>验收前 / 复盘后</span><small>日常运营不需要每天维护，主要在上线验收、月度复盘或修正失败样本时使用。</small></article>
+      <article class="overview-card"><strong>为什么要确认</strong><span>human_gold</span><small>AI 预标注只是 silver，人工确认后才会成为可信标准答案。</small></article>
+    </div>
+  </section>
+  <section class="panel">
+    <div class="section-line"><h2>Gold Dataset 工作台</h2><span class="status-pill">gold 完成率 {escape(str(gold_coverage.get("gold 完成率", "0%")))}</span></div>
+    <div class="gold-coverage">
+      <article><span>真实样本</span><strong>{escape(str(gold_coverage.get("真实样本数", 0)))}</strong></article>
+      <article><span>完整 gold</span><strong>{escape(str(gold_coverage.get("完整 gold 样本数", 0)))}</strong></article>
+      <article><span>缺失字段</span><strong>{escape(str(gold_coverage.get("缺失字段摘要", "无")))}</strong></article>
+      <article><span>业务指标完成率</span><strong>{escape(str(gold_coverage.get("业务指标完成率", "0%")))}</strong></article>
+      <article><span>缺失业务指标</span><strong>{escape(str(gold_coverage.get("缺失业务指标摘要", "无")))}</strong></article>
+      <article><span>AI 预标注进度</span><strong>待预标注 {escape(str(gold_coverage.get("待 AI 预标注", 0)))} · 待审核 silver {escape(str(gold_coverage.get("待审核 silver", 0)))} · human_gold {escape(str(gold_coverage.get("human_gold 样本数", 0)))}</strong></article>
+    </div>
+    {readiness_panel}
+    {render_harness_prelabel_job_progress(state)}
+    {render_harness_approval_job_progress(state)}
+    {render_gold_dataset_progress(gold_coverage)}
+    <div class="gold-select-toolbar">
+      <button type="button" data-select-form="prelabel-selected-form" onclick="selectGoldDatasetRows(this.dataset.selectForm, true)">全选待解析</button>
+      <button type="button" data-select-form="prelabel-selected-form" onclick="selectGoldDatasetRows(this.dataset.selectForm, false)">清空待解析</button>
+      <button type="button" data-select-form="approve-silver-form" onclick="selectGoldDatasetRows(this.dataset.selectForm, true)">全选待确认</button>
+      <button type="button" data-select-form="approve-silver-form" onclick="selectGoldDatasetRows(this.dataset.selectForm, false)">清空待确认</button>
+      <small>全选只作用于当前页面中可操作的样本，提交前仍可手动取消单条。</small>
+    </div>
+    <form id="prelabel-selected-form" class="harness-run-form gold-batch-form" method="post" action="/auto_prelabeled_harness_gold">{context}<input name="max_count" value="" inputmode="numeric" aria-label="本次最多预标注张数，可留空"><button class="primary">勾选样本 AI 预标注</button><small>先在下方图片前勾选“待解析”的样本，再一次性调用 Qwen 视觉模型；留空表示解析全部勾选项。</small></form>
+    <form id="approve-silver-form" class="harness-run-form gold-batch-form" method="post" action="/approve_harness_silver_labels">{context}<input name="reviewer_note" value="人工抽查通过"><button class="primary">批量确认勾选 silver 为 human_gold</button><small>确认 AI 预标注为 human_gold：先在下方勾选已抽查通过的 silver label；确认后写入 facts memory，作为可信评测标准答案。</small></form>
+    <details class="compact-tools"><summary>新增真实样本入口</summary>
+      <form class="harness-run-form bulk-sample-form" method="post" action="/register_harness_real_samples">{context}<textarea name="samples_text" placeholder="A /Users/you/Desktop/france picnic.png&#10;/Users/you/Desktop/lavender.png,S,landscape,4,0.36,0.91,42,试新_法国_薰衣草风车0624,薰衣草风车"></textarea><button>批量登记真实样本</button><label><input type="checkbox" name="auto_prelabeled" value="1">登记后立即 AI 预标注</label><small>每行一张图；支持“等级 图片绝对路径”或“图片绝对路径,等级,分类,位置,开图率,完成率,平均完成时长,运营tag,主体”。图片只保存本机路径，不提交进 Git。</small></form>
+      <form class="harness-run-form bulk-sample-form" method="post" action="/register_harness_real_samples">{context}<input name="image_dir" placeholder="/Users/fanglemin/Desktop/图片"><input name="directory_grade_text" placeholder="1A 2A 3B 4S 5C 或 文件名=A"><input name="directory_js_category" value="real_sample"><button>按目录登记真实样本</button><label><input type="checkbox" name="auto_prelabeled" value="1">登记后立即 AI 预标注</label><small>适合一批图片已放在同一文件夹的情况；序号按文件名排序，也可用“文件名=A”精确指定等级。只登记本机路径和人工等级，图片文件不提交进 Git。</small></form>
+    </details>
+    <small>Gold label 是 Harness 的人工标准答案；AI 预标注只是 silver label。运营保存确认后才会作为人工确认事实进入 memory/RAG。</small>
+    <p class="note">当前显示 {real_harness_sample_count} / {real_harness_sample_count} 条真实样本。</p>
+    <div class="table-wrap"><table class="gold-workbench"><thead><tr><th>批量选择</th><th>样本</th><th>等级</th><th>主体</th><th>色彩氛围</th><th>构图环境</th><th>价值观/风险</th><th>标注状态</th><th>操作</th></tr></thead><tbody>{gold_rows}</tbody></table></div>
+  </section>
+</details>
+<details class="governance-section"><summary>失败样本</summary>
+  <p class="note">集中看失败样本、失败分类和生成失败原因，方便做人工修正和下一轮治理。</p>
+  <section class="grid two">
+    <div class="panel"><h2>失败样本复盘</h2><div class="failure-review-list">{failure_cards or '<p class="empty">暂无失败样本。</p>'}</div></div>
+    <div class="panel"><h2>失败分类</h2><div class="table-wrap"><table><thead><tr><th>分类</th><th>次数</th></tr></thead><tbody>{failure_category_rows}</tbody></table></div></div>
+  </section>
+  <section class="panel"><h2>生成失败类型分布</h2><div class="table-wrap"><table><thead><tr><th>错误类型</th><th>次数</th><th>处理建议</th></tr></thead><tbody>{generation_failure_rows}</tbody></table></div></section>
+</details>
+<details class="governance-section"><summary>RAG 证据</summary>
+  <p class="note">查看每个评测 case 的 citation、trace、视觉证据和 Memory 证据。</p>
+  <section class="panel"><h2>Case 证据链</h2><div class="table-wrap"><table><thead><tr><th>样本/任务</th><th>RAG 引用</th><th>RAG Trace</th><th>视觉证据</th><th>Memory 证据</th></tr></thead><tbody>{case_evidence_rows}</tbody></table></div></section>
+  <section class="panel"><h2>Harness RAG Artifacts</h2><div class="table-wrap"><table><thead><tr><th>国家</th><th>Trace</th><th>Query</th><th>引用</th><th>文件</th><th>详情</th></tr></thead><tbody>{rag_artifact_rows}</tbody></table></div></section>
+</details>
+<details class="governance-section"><summary>运行历史</summary>
+  <p class="note">查看数据集概览、本次运行、真实 baseline、版本对比和旧 Dashboard 指标。</p>
+  <section class="grid two">
+    <div class="panel"><h2>数据集概览</h2><div class="table-wrap"><table><tbody>{summary_rows}</tbody></table></div></div>
+    <div class="panel"><h2>本次运行</h2><dl class="detail">
+      <div><dt>run_id</dt><dd>{escape(harness_run.run_id)}</dd></div>
+      <div><dt>版本</dt><dd>{escape(harness_run.version)}</dd></div>
+      <div><dt>模型</dt><dd>{escape(harness_run.model_provider)}</dd></div>
+      <div><dt>生成 provider</dt><dd>{escape(harness_run.generator_provider)}</dd></div>
+      <div><dt>执行模式</dt><dd>{escape(harness_run.execution_mode)}</dd></div>
+    </dl></div>
+  </section>
+  <section class="panel"><div class="section-line"><h2>真实 Baseline 复盘</h2><span class="status-pill">run {escape(str(baseline_summary.get('run_id', '')))}</span></div><div class="gold-coverage">{baseline_cards}</div></section>
+  <section class="metrics">{metric_cards}</section>
+  <section class="panel"><h2>版本对比</h2><div class="table-wrap"><table><tbody>{compare_rows}</tbody></table></div></section>
+</details>
+<details class="governance-section"><summary>Debug Trace</summary>
+  <p class="note">研发排查区：任务目标、输入上下文、调用过程、Eval Dataset、Case 明细和 Agent Trace。</p>
+  <section class="panel"><h2>任务目标</h2><p>验证内容运营 Agent 是否能围绕 {escape(state.country)} 市场完成价值观判断、历史样本检索、规则审核和同步前检查。</p></section>
+  <section class="panel"><h2>输入与上下文</h2><dl class="detail"><div><dt>Skill</dt><dd>{escape(trace.skill_name)}</dd></div><div><dt>上下文</dt><dd>{escape(trace.context_summary)}</dd></div><div><dt>输出</dt><dd>{escape(trace.final_output)}</dd></div></dl></section>
+  <section class="panel"><h2>工具调用链路</h2><div class="grid three"><div><h3>Plan</h3><ol>{plan}</ol></div><div><h3>Tool Calls</h3><ol>{tools}</ol></div><div><h3>Observations</h3><ol>{observations}</ol></div></div></section>
+  <section class="panel"><h2>指标与结论</h2><h2>Eval Dataset</h2><p>{escape(report.dataset_name)} · {escape(report.country)} · 评测 RAG 召回、工具调用、计划遵循、步骤效率。</p><div class="table-wrap"><table><thead><tr><th>Metric</th><th>Score</th><th>Threshold</th><th>Pass/Fail</th><th>Reason</th></tr></thead><tbody>{eval_metric_rows}</tbody></table></div></section>
+  <section class="panel"><h2>Case 明细</h2><div class="table-wrap"><table><thead><tr><th>Case</th><th>任务</th><th>期望工具</th><th>实际工具</th><th>Judge Reason</th></tr></thead><tbody>{case_rows}</tbody></table></div></section>
+  <section class="panel"><h2>Agent Trace</h2><p>Trace 已在上方按输入、工具调用和指标结论拆解。</p></section>
+</details>
+<script>
+function selectGoldDatasetRows(formId, checked) {{
+  document.querySelectorAll('input[type="checkbox"][name="sample_id"][form="' + formId + '"]').forEach(function(item) {{
+    item.checked = checked;
+  }});
+}}
+</script>
 """
+
+
+def render_prompt_benchmark_eval_panel(agent: PuzzleOpsAgent) -> str:
+    country_rows = []
+    all_records = []
+    for country in agent.countries():
+        records = agent.repository.description_benchmark_scores(country, limit=10_000)
+        all_records.extend(records)
+        summary = agent.repository.description_benchmark_summary(country)
+        if not records:
+            continue
+        country_rows.append(
+            "<tr>"
+            f"<td>{escape(country)}</td>"
+            f"<td>{escape(str(summary['count']))}</td>"
+            f"<td>{escape(str(summary['template_average']))}</td>"
+            f"<td>{escape(str(summary['prompt_average']))}</td>"
+            f"<td>{int(float(summary['prompt_light_or_direct_rate']) * 100)}%</td>"
+            "</tr>"
+        )
+    version_groups: dict[str, list[dict[str, object]]] = {}
+    for record in all_records:
+        version = _benchmark_prompt_version_label(record)
+        version_groups.setdefault(version, []).append(record)
+    version_rows = []
+    for version, records in sorted(version_groups.items()):
+        template_avg = _benchmark_record_average(records, "template_scores")
+        prompt_avg = _benchmark_record_average(records, "prompt_scores")
+        light_labels = {"可直接用", "轻微修改"}
+        direct_rate = round(sum(1 for record in records if record.get("prompt_label") in light_labels) / len(records) * 100) if records else 0
+        version_rows.append(
+            "<tr>"
+            f"<td>{escape(version)}</td>"
+            f"<td>{len(records)}</td>"
+            f"<td>{template_avg}</td>"
+            f"<td>{prompt_avg}</td>"
+            f"<td>{direct_rate}%</td>"
+            "</tr>"
+        )
+    latest_records = sorted(all_records, key=lambda item: str(item.get("created_at", "")), reverse=True)[:8]
+    history_rows = "".join(
+        "<tr>"
+        f"<td>{escape(str(record.get('created_at', '')))}</td>"
+        f"<td>{escape(str(record.get('country', '')))}</td>"
+        f"<td>{escape(str(record.get('operation_tag', '')))}</td>"
+        f"<td>{_benchmark_single_average(record, 'template_scores')}</td>"
+        f"<td>{_benchmark_single_average(record, 'prompt_scores')}</td>"
+        f"<td>{escape(str(record.get('prompt_label', '')))}</td>"
+        "</tr>"
+        for record in latest_records
+    )
+    return f"""
+<details class="governance-section"><summary>Prompt Benchmark</summary>
+  <p class="note">主体描述 Prompt Benchmark 用来比较当前线上生成版本、Prompt baseline 和后续微调/模型候选版本，判断 prompt engineering 是否已足够，是否需要进入 post-training。</p>
+  <section class="grid two">
+    <div class="panel"><h2>主体描述 Prompt Benchmark</h2><div class="gold-coverage">
+      <article><span>当前强 baseline</span><strong>Prompt baseline v3</strong><small>生产详细版：保留可执行画面细节，避免过度压缩。</small></article>
+      <article><span>验收规则</span><strong>均分 ≥ 4.0</strong><small>生产可执行性 ≥ 4.0，可直接用/轻微修改 ≥ 80%。</small></article>
+    </div></div>
+    <div class="panel"><h2>版本对比</h2><div class="table-wrap"><table><thead><tr><th>版本</th><th>样本数</th><th>模板均分</th><th>Prompt均分</th><th>轻改/直用率</th></tr></thead><tbody>{''.join(version_rows) or '<tr><td colspan="5">暂无评分记录。</td></tr>'}</tbody></table></div></div>
+  </section>
+  <section class="panel"><h2>国家对比</h2><div class="table-wrap"><table><thead><tr><th>国家</th><th>样本数</th><th>模板均分</th><th>Prompt均分</th><th>轻改/直用率</th></tr></thead><tbody>{''.join(country_rows) or '<tr><td colspan="5">暂无评分记录。</td></tr>'}</tbody></table></div></section>
+  <section class="panel"><h2>历史评分</h2><div class="table-wrap"><table><thead><tr><th>时间</th><th>国家</th><th>运营tag</th><th>模板均分</th><th>Prompt均分</th><th>Prompt标签</th></tr></thead><tbody>{history_rows or '<tr><td colspan="6">暂无评分记录。</td></tr>'}</tbody></table></div></section>
+</details>
+"""
+
+
+def render_value_prediction_benchmark_eval_panel(agent: PuzzleOpsAgent) -> str:
+    country_rows = []
+    all_records = []
+    for country in agent.countries():
+        records = agent.repository.value_prediction_benchmark_scores(country, limit=10_000)
+        all_records.extend(records)
+        summary = agent.repository.value_prediction_benchmark_summary(country)
+        if not records:
+            continue
+        country_rows.append(
+            "<tr>"
+            f"<td>{escape(country)}</td>"
+            f"<td>{escape(str(summary['count']))}</td>"
+            f"<td>{escape(str(summary['baseline_average']))}</td>"
+            f"<td>{int(float(summary['candidate_light_or_direct_rate']) * 100)}%</td>"
+            "</tr>"
+        )
+    latest_rows = "".join(
+        "<tr>"
+        f"<td>{escape(str(record.get('created_at', '')))}</td>"
+        f"<td>{escape(str(record.get('country', '')))}</td>"
+        f"<td>{escape(str(record.get('operation_tag', '')))}</td>"
+        f"<td>{_benchmark_single_average(record, 'baseline_scores')}</td>"
+        f"<td>{escape(str(record.get('baseline_label', record.get('candidate_label', ''))))}</td>"
+        "</tr>"
+        for record in sorted(all_records, key=lambda item: str(item.get("created_at", "")), reverse=True)[:8]
+    )
+    version_groups: dict[str, list[dict[str, object]]] = {}
+    for record in all_records:
+        metadata = record.get("metadata", {})
+        version = str(metadata.get("candidate_version", "value_prompt_v1")) if isinstance(metadata, dict) else "value_prompt_v1"
+        version_groups.setdefault(version, []).append(record)
+    version_rows = "".join(
+        "<tr>"
+        f"<td>{escape(version)}</td>"
+        f"<td>{len(records)}</td>"
+        f"<td>{_benchmark_record_average(records, 'baseline_scores')}</td>"
+        "</tr>"
+        for version, records in sorted(version_groups.items())
+    )
+    return f"""
+<details class="governance-section"><summary>价值观预测 Benchmark</summary>
+  <p class="note">评测价值观大师是否真正看懂图片、引用对规则、找到合理历史依据，并输出可信等级、指标区间和排图建议。</p>
+  <section class="grid two">
+    <div class="panel"><h2>评分维度</h2><div class="gold-coverage">
+      <article><span>视觉/RAG</span><strong>图像主体准确性</strong><small>国家价值观适配、历史依据合理性、RAG citation 有用性。</small></article>
+      <article><span>预测/运营</span><strong>预测等级可信度</strong><small>风险识别、指标区间可信度、排图建议可执行性。</small></article>
+    </div></div>
+    <div class="panel"><h2>版本对比</h2><div class="table-wrap"><table><thead><tr><th>版本</th><th>样本数</th><th>模型均分</th></tr></thead><tbody>{version_rows or '<tr><td colspan="3">暂无评分记录。</td></tr>'}</tbody></table></div></div>
+  </section>
+  <section class="panel"><h2>国家对比</h2><div class="table-wrap"><table><thead><tr><th>国家</th><th>样本数</th><th>模型均分</th><th>轻改/直用率</th></tr></thead><tbody>{''.join(country_rows) or '<tr><td colspan="4">暂无评分记录。</td></tr>'}</tbody></table></div></section>
+  <section class="panel"><h2>历史评分</h2><div class="table-wrap"><table><thead><tr><th>时间</th><th>国家</th><th>运营tag</th><th>模型均分</th><th>人工标签</th></tr></thead><tbody>{latest_rows or '<tr><td colspan="5">暂无评分记录。</td></tr>'}</tbody></table></div></section>
+</details>
+"""
+
+
+def _benchmark_record_average(records: list[dict[str, object]], score_key: str) -> float:
+    values = [_benchmark_single_average(record, score_key) for record in records]
+    return round(sum(values) / len(values), 2) if values else 0.0
+
+
+def _benchmark_prompt_version_label(record: dict[str, object]) -> str:
+    metadata = record.get("metadata", {})
+    if isinstance(metadata, dict) and metadata.get("prompt_version"):
+        return f"Prompt baseline {metadata['prompt_version']}"
+    prompt_output = str(record.get("prompt_output", ""))
+    if len(prompt_output) >= 80 and _benchmark_single_average(record, "prompt_scores") >= 4.0:
+        return "Prompt baseline v3（历史推断）"
+    return "历史未标版本"
+
+
+def _benchmark_single_average(record: dict[str, object], score_key: str) -> float:
+    scores = record.get(score_key, {})
+    if not isinstance(scores, dict):
+        return 0.0
+    values = []
+    for value in scores.values():
+        try:
+            values.append(float(value))
+        except (TypeError, ValueError):
+            continue
+    return round(sum(values) / len(values), 2) if values else 0.0
 
 
 def render_generation_failure_distribution(events: tuple[dict[str, str], ...]) -> str:
@@ -2095,6 +3204,48 @@ def render_generation_failure_distribution(events: tuple[dict[str, str], ...]) -
         f"<tr><td>{escape(error_type)}</td><td>{count}</td><td>{escape(hints.get(error_type, ''))}</td></tr>"
         for error_type, count in sorted(counts.items())
     )
+
+
+def render_eval_acceptance_overview(
+    gold_coverage: dict[str, object],
+    business_acceptance: dict[str, object],
+    readiness: dict[str, object],
+    harness_run,
+) -> str:
+    gates = business_acceptance.get("gates", ())
+    if not isinstance(gates, (list, tuple)):
+        gates = ()
+    gate_by_name = {str(gate.get("name", "")): gate for gate in gates if isinstance(gate, dict)}
+    status = "可验收" if business_acceptance.get("overall_passed") else "数据不足 / 风险较高"
+    human_gold = gold_coverage.get("human_gold 样本数", 0)
+    target = "30-50"
+    sa_accuracy = _eval_metric_from_gate(gate_by_name, ("S/A 预测准确率", "S/A预测准确率"), harness_run.metrics.get("sa_prediction_accuracy"))
+    citation_precision = _eval_metric_from_gate(gate_by_name, ("RAG citation precision",), harness_run.metrics.get("rag_citation_precision"))
+    risk_miss = _eval_metric_from_gate(gate_by_name, ("风险漏召回", "国家文化风险漏召回"), harness_run.metrics.get("risk_miss_rate"))
+    tool_success = _eval_metric_from_gate(gate_by_name, ("工具调用成功率",), harness_run.metrics.get("tool_success_rate"))
+    failure_count = len(tuple(getattr(harness_run, "failures", ()) or ()))
+    cards = (
+        ("当前上线状态", status, "上线 gate 由真实样本、预测质量、RAG 证据和工具链共同决定。"),
+        ("human_gold", f"{human_gold} / {target}", "生产验收建议每个国家 30-50 张真实 human_gold。"),
+        ("S/A预测准确率", sa_accuracy, "价值观大师预测 S/A 的核心验收指标。"),
+        ("RAG citation precision", citation_precision, "引用证据是否真的支撑判断。"),
+        ("风险漏召回", risk_miss, "文化/IP/审核风险是否被漏掉。"),
+        ("工具调用成功率", tool_success, "飞书、RAG、VLM 等工具链稳定性。"),
+        ("失败样本数量", failure_count, "进入失败样本区复盘和修正。"),
+        ("Readiness", "可真实评测" if readiness.get("ready_for_real_eval") else "待补数据", "Gold Dataset 和 Memory/RAG 基线是否足够。"),
+    )
+    return '<section class="panel"><h2>验收总览</h2><div class="overview-grid">' + "".join(render_overview_card(title, value, detail) for title, value, detail in cards) + "</div></section>"
+
+
+def _eval_metric_from_gate(gates: dict[str, dict[str, object]], names: tuple[str, ...], fallback: object) -> str:
+    for name in names:
+        gate = gates.get(name)
+        if gate:
+            value = str(gate.get("value", ""))
+            return value or "未评测"
+    if isinstance(fallback, (float, int)):
+        return _pct_text(float(fallback))
+    return "未评测" if fallback is None else str(fallback)
 
 
 def render_harness_readiness(readiness: dict[str, object]) -> str:
@@ -2242,20 +3393,28 @@ def render_harness_failure_categories(failures) -> str:
 def render_harness_gold_workbench_rows(samples, state: AppState) -> str:
     real_samples = [sample for sample in samples if sample.is_real]
     if not real_samples:
-        return '<tr><td colspan="7">暂无真实图片样本。请先上传真实拼图或生成 Gold 骨架 CSV。</td></tr>'
+        return '<tr><td colspan="9">暂无真实图片样本。请先上传真实拼图或生成 Gold 骨架 CSV。</td></tr>'
     rows = []
-    for sample in real_samples[:12]:
+    for sample in real_samples:
+        prelabel_check = ""
+        if sample.label_source == "manual_grade" and sample.label_status == "needs_ai_prelabeled":
+            prelabel_check = (
+                "<label class=\"inline-check\">"
+                f"<input type=\"checkbox\" name=\"sample_id\" value=\"{escape(sample.sample_id)}\" form=\"prelabel-selected-form\">选中解析"
+                "</label>"
+            )
         approval_check = ""
         if sample.label_source == "ai_silver" and sample.label_status == "pending_review":
             approval_check = (
                 "<label class=\"inline-check\">"
-                f"<input type=\"checkbox\" name=\"sample_id\" value=\"{escape(sample.sample_id)}\" form=\"approve-silver-form\">确认"
+                f"<input type=\"checkbox\" name=\"sample_id\" value=\"{escape(sample.sample_id)}\" form=\"approve-silver-form\">选中确认"
                 "</label>"
             )
         metric_status = render_harness_metric_status(sample)
         metric_inputs = render_harness_metric_inputs(sample)
         rows.append(
             "<tr>"
+            f"<td><div class=\"gold-row-actions\">{prelabel_check}{approval_check or '<small>无需批量操作</small>'}</div></td>"
             f"<td>{render_harness_sample_cell(sample.sample_id, sample)}<input form=\"gold-{escape(sample.sample_id)}\" type=\"hidden\" name=\"sample_id\" value=\"{escape(sample.sample_id)}\"></td>"
             f"<td><input form=\"gold-{escape(sample.sample_id)}\" class=\"tiny-input\" name=\"gold_grade\" value=\"{escape(sample.gold_grade)}\" placeholder=\"S/A/B/C/D\"></td>"
             f"<td><textarea form=\"gold-{escape(sample.sample_id)}\" name=\"gold_subject\" placeholder=\"主体内容\">{escape(sample.gold_subject)}</textarea></td>"
@@ -2264,11 +3423,60 @@ def render_harness_gold_workbench_rows(samples, state: AppState) -> str:
             f"<td><textarea form=\"gold-{escape(sample.sample_id)}\" name=\"gold_value_labels\" placeholder=\"价值观标签；用分号分隔\">{escape(';'.join(sample.gold_value_labels))}</textarea>"
             f"<textarea form=\"gold-{escape(sample.sample_id)}\" name=\"gold_risk_labels\" placeholder=\"风险标签；可留空\">{escape(';'.join(sample.gold_risk_labels))}</textarea>"
             f"<textarea form=\"gold-{escape(sample.sample_id)}\" name=\"human_note\" placeholder=\"人工备注\">{escape(sample.human_note)}</textarea></td>"
-            f"<td><span class=\"status-pill\">{escape(sample.label_source or 'unknown')}</span><br><small>{escape(sample.label_status or '未记录')}</small>{metric_status}{metric_inputs}{approval_check}</td>"
+            f"<td><span class=\"status-pill\">{escape(sample.label_source or 'unknown')}</span><br><small>{escape(sample.label_status or '未记录')}</small>{metric_status}{metric_inputs}</td>"
             f"<td><form id=\"gold-{escape(sample.sample_id)}\" method=\"post\" action=\"/save_harness_gold_label\">{hidden_context(state, view='eval')}<button>保存</button></form></td>"
             "</tr>"
         )
     return "".join(rows)
+
+
+def render_gold_dataset_progress(gold_coverage: dict[str, object]) -> str:
+    total = int(gold_coverage.get("真实样本数", 0) or 0)
+    pending = int(gold_coverage.get("待 AI 预标注", 0) or 0)
+    silver = int(gold_coverage.get("待审核 silver", 0) or 0)
+    human_gold = int(gold_coverage.get("human_gold 样本数", 0) or 0)
+    done = human_gold
+    progress = int((done / total) * 100) if total else 0
+    return f"""
+<section class="gold-progress-panel">
+  <div class="section-line"><h3>预标注进度</h3><span class="status-pill">{progress}% human_gold</span></div>
+  <progress value="{progress}" max="100"></progress>
+  <div class="readiness-stats"><span>真实样本 {total}</span><span>待解析 {pending}</span><span>待确认 silver {silver}</span><span>human_gold {human_gold}</span></div>
+  <p class="note">推荐流程：先勾选待解析图片做 AI 预标注，再人工抽查 silver，最后批量确认 human_gold。</p>
+</section>
+"""
+
+
+def render_harness_prelabel_job_progress(state: AppState) -> str:
+    if not state.harness_prelabel_job_status:
+        return ""
+    progress = max(0, min(100, int(state.harness_prelabel_job_progress or 0)))
+    status = state.harness_prelabel_job_status
+    message = state.harness_prelabel_job_message or "Qwen 预标注任务处理中"
+    return f"""
+<section class="panel derivative-job-panel">
+  <div class="section-line"><h2>Qwen 预标注进度</h2><span class="status-pill">{escape(status)}</span></div>
+  <progress value="{progress}" max="100"></progress>
+  <p class="note">{escape(message)}</p>
+  <small>页面会每 3 秒自动刷新；解析完成后样本会变成 ai_silver，抽查后可批量确认 human_gold。</small>
+</section>
+"""
+
+
+def render_harness_approval_job_progress(state: AppState) -> str:
+    if not state.harness_approval_job_status:
+        return ""
+    progress = max(0, min(100, int(state.harness_approval_job_progress or 0)))
+    status = state.harness_approval_job_status
+    message = state.harness_approval_job_message or "human_gold 批量确认任务处理中"
+    return f"""
+<section class="panel derivative-job-panel">
+  <div class="section-line"><h2>human_gold 批量确认进度</h2><span class="status-pill">{escape(status)}</span></div>
+  <progress value="{progress}" max="100"></progress>
+  <p class="note">{escape(message)}</p>
+  <small>页面会每 3 秒自动刷新；确认完成后 ai_silver 会写入 facts memory 和 RAG human_gold。</small>
+</section>
+"""
 
 
 def render_harness_metric_status(sample) -> str:
@@ -2316,6 +3524,7 @@ def render_summary_value(value: object) -> str:
 def render_harness_failure_row(case, sample) -> str:
     sample_cell = render_harness_sample_cell(case.sample_id, sample)
     gold = render_harness_gold_label(sample)
+    failure_reasons = "；".join(case.failure_reasons) or "待运行真实模型"
     correction_form = f"""
 <form method="post" action="/save_harness_override">
   <input type="hidden" name="sample_id" value="{escape(case.sample_id)}">
@@ -2324,16 +3533,20 @@ def render_harness_failure_row(case, sample) -> str:
   <button>保存修正</button>
 </form>
 """
-    return (
-        "<tr>"
-        f"<td>{sample_cell}</td>"
-        f"<td>{gold}</td>"
-        f"<td>{escape(case.task_type)}</td>"
-        f"<td>{escape(case.agent_output)}</td>"
-        f"<td>{escape('；'.join(case.failure_reasons) or '待运行真实模型')}</td>"
-        f"<td>{correction_form}</td>"
-        "</tr>"
-    )
+    return f"""
+<article class="failure-review-card">
+  <div class="failure-review-sample">{sample_cell}<span class="status-pill">{escape(case.task_type)}</span></div>
+  <dl class="failure-review-detail">
+    <div><dt>Gold Label</dt><dd>{gold}</dd></div>
+    <div><dt>Agent 输出</dt><dd>{escape(case.agent_output)}</dd></div>
+    <div><dt>失败原因</dt><dd>{escape(failure_reasons)}</dd></div>
+  </dl>
+  <div class="failure-review-action">
+    <h3>HITL 修正入口</h3>
+    {correction_form}
+  </div>
+</article>
+"""
 
 
 def render_harness_sample_cell(sample_id: str, sample) -> str:
@@ -2387,34 +3600,27 @@ def render_record_card(record) -> str:
     return f"<article class='image-card'>{visual_thumb(record.subject_tag, record.subject_tag)}<strong>{grade(record.grade)} {escape(record.operation_tag)}</strong><small>开图 {record.open_rate:.2%} · 完成 {record.completion_rate:.2%} · {record.avg_finish_time}</small></article>"
 
 
-def render_schedule(agent: PuzzleOpsAgent, state: AppState) -> str:
-    days = "".join(f'<a class="pill {"active" if day == state.schedule_day else ""}" href="{href(state, view="schedule", schedule_day=day)}">{day}</a>' for day in ("周一", "周二", "周三", "周四", "周五", "周六", "周日"))
-    rule = "周末允许 1-9、12-18 位" if state.schedule_day in {"周六", "周日"} else "工作日允许 1-9、12-15 位"
-    items = agent.schedule(state.country, state.schedule_day, state.schedule_replacements)
-    slots = "".join(render_schedule_slot(state, item, index) for index, item in enumerate(items))
-    return f"<section class='panel'><h2>排图工作台</h2><div class='pills'>{days}</div><p>{rule}，一天 10 张，共 70 张推荐排图。</p><div class='schedule'>{slots}</div></section>"
-
-
-def render_schedule_slot(state: AppState, item, index: int) -> str:
-    return f"""<article class='slot'>
-  <strong>排图位 {position(item.position)}</strong>
-  <span>{escape(item.image_name)}</span>
-  <small>{escape(item.operation_tag)}</small>
-  <p>{grade(item.grade)} 开图 {escape(item.open_rate)} · 完成 {escape(item.finish_rate)} · {escape(item.finish_time)}</p>
-  <form method="post" action="/replace_schedule">{hidden_context(state)}<input type="hidden" name="slot_index" value="{index}"><input type="hidden" name="image_name" value="{escape(item.image_name)}"><button>－替换</button></form>
-</article>"""
-
-
 def render_sync(agent: PuzzleOpsAgent, state: AppState) -> str:
-    rows = "".join(f"<tr><td>{escape(time)}</td><td>{escape(country)}</td><td>{escape(action)}</td><td>{escape(target)}</td><td>{escape(status)}</td></tr>" for time, country, action, target, status in agent.sync_rows())
     generation_rows = "".join(
         f"<tr><td>{escape(event.get('status', 'unknown'))}</td><td>{escape(event.get('provider', 'unknown'))}</td><td>{escape(event.get('model', '未记录'))}</td><td>{escape(event.get('task_id', ''))}</td><td>{escape(event.get('source_operation_tag', ''))}</td><td>{escape(event.get('second_review_status', 'unknown'))}</td><td>{escape(event.get('feishu_attachment_status', 'unknown'))}</td><td>{escape(event.get('error_type', 'unknown'))}</td><td>{escape(event.get('message', ''))}</td></tr>"
         for event in reversed(agent.generation_events(state.country)[-8:])
     )
     return f"""
-<section class='panel'><h2>同步记录</h2><table><thead><tr><th>时间</th><th>国家</th><th>动作</th><th>目标</th><th>状态</th></tr></thead><tbody>{rows}</tbody></table></section>
+<section class='panel'><h2>同步记录</h2>{render_feishu_lightweight_sync_history(agent, state)}</section>
 <section class='panel'><h2>生成任务回放</h2><table><thead><tr><th>状态</th><th>Provider</th><th>模型</th><th>Task</th><th>来源tag</th><th>二次审核</th><th>飞书附件</th><th>错误类型</th><th>说明</th></tr></thead><tbody>{generation_rows or '<tr><td colspan="9">暂无生成任务记录。</td></tr>'}</tbody></table></section>
 """
+
+
+def render_feishu_lightweight_sync_history(agent: PuzzleOpsAgent, state: AppState) -> str:
+    rows = "".join(
+        f"<tr><td>{escape(time)}</td><td>{escape(country)}</td><td>{escape(action)}</td><td>{escape(target)}</td><td>{escape(status)}</td></tr>"
+        for time, country, action, target, status in agent.sync_rows()
+    )
+    return (
+        "<p class=\"note\">兼容旧版同步日志；生产审计请以 Guarded Actions 和 Tools Console 为准。</p>"
+        "<div class=\"table-wrap\"><table><thead><tr><th>时间</th><th>国家</th><th>动作</th><th>目标</th><th>状态</th></tr></thead>"
+        f"<tbody>{rows or '<tr><td colspan=\"5\">暂无同步记录。</td></tr>'}</tbody></table></div>"
+    )
 
 
 def render_image_card(image) -> str:
@@ -2427,12 +3633,20 @@ def render_image_preview(image_name: str, image_url: str = "") -> str:
 
 
 def visual_thumb(seed: str, label: str) -> str:
-    src = image_data_uri(seed, label)
+    path = Path(str(seed)).expanduser()
+    src = local_image_url(path) if path.is_file() else image_data_uri(seed, label)
     return f'<div class="thumb visual-thumb"><img src="{escape(src)}" alt="{escape(label)}"></div>'
 
 
-def render_upload_preview(item: dict[str, str]) -> str:
-    return f'<div class="thumb upload-thumb"><img src="{escape(item["url"])}" alt="{escape(item["filename"])}"><span>{escape(item["filename"])}</span></div>'
+def render_upload_preview(item: dict[str, str], *, state: AppState | None = None, removable: bool = False) -> str:
+    remove = ""
+    if removable and state is not None:
+        remove = (
+            '<form method="post" action="/clear_trial_uploads" class="thumb-remove">'
+            f'{hidden_context(state, view="trial")}'
+            '<button title="取消当前上传">×</button></form>'
+        )
+    return f'<div class="thumb upload-thumb">{remove}<img src="{escape(item["url"])}" alt="{escape(item["filename"])}"><span>{escape(item["filename"])}</span></div>'
 
 
 def render_line_chart(report) -> str:
@@ -2504,9 +3718,8 @@ def page_title(view: str) -> str:
         "analysis": "数据分析大师",
         "weekly_review": "周三复盘工作台",
         "value": "价值观大师",
-        "runtime": "多模态底座",
-        "eval": "Agent 评测",
-        "schedule": "排图工作台",
+        "runtime": "系统治理中心",
+        "eval": "上线验收中心",
         "sync": "同步记录",
     }[view]
 
@@ -2521,7 +3734,6 @@ def view_icon(view: str) -> str:
         "value": "🔮",
         "runtime": "🧠",
         "eval": "🧪",
-        "schedule": "🗓️",
         "sync": "🔁",
     }[view]
 
@@ -2543,6 +3755,8 @@ def hidden_context(state: AppState, **overrides: str) -> str:
         "memory_created_by": state.memory_created_by,
         "memory_subject": state.memory_subject,
         "memory_operation_tag": state.memory_operation_tag,
+        "show_prompt_benchmark": "1" if state.show_prompt_benchmark else "",
+        "show_value_benchmark": "1" if state.show_value_benchmark else "",
     }
     values.update(overrides)
     return "".join(f'<input type="hidden" name="{key}" value="{escape(value)}">' for key, value in values.items())
@@ -2566,6 +3780,8 @@ def href(state: AppState, **changes: str) -> str:
         "memory_subject": state.memory_subject,
         "memory_operation_tag": state.memory_operation_tag,
         "show_holiday": "1" if state.show_holiday else "",
+        "show_prompt_benchmark": "1" if state.show_prompt_benchmark else "",
+        "show_value_benchmark": "1" if state.show_value_benchmark else "",
     }
     params.update({key: value for key, value in changes.items() if value is not None})
     return "/?" + urlencode(params)
@@ -2643,6 +3859,19 @@ nav { display:grid; gap:8px; margin:18px 0; }
 .metrics article, .panel { background:#fff; border:1px solid var(--line); border-radius:10px; padding:16px; box-shadow:0 10px 24px rgba(53,67,75,.06); }
 .metrics span, small { color:var(--muted); }
 .metrics strong { display:block; margin:8px 0; font-size:28px; }
+.governance-section { margin:14px 0; border:1px solid var(--line); border-radius:10px; background:#fff; box-shadow:0 10px 24px rgba(53,67,75,.06); overflow:hidden; }
+.governance-section > summary { cursor:pointer; padding:14px 16px; font-weight:900; font-size:18px; color:var(--accent); border-bottom:1px solid var(--line); list-style:none; }
+.governance-section > summary::-webkit-details-marker { display:none; }
+.governance-section > summary::before { content:"▸"; display:inline-block; margin-right:8px; color:var(--muted); }
+.governance-section[open] > summary::before { transform:rotate(90deg); }
+.governance-section:not([open]) > summary { border-bottom:0; }
+.governance-section > .note, .governance-section > section, .governance-section > .grid, .governance-overview { margin:14px 16px; }
+.governance-overview { display:grid; gap:14px; }
+.governance-overview section { min-width:0; }
+.overview-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; }
+.overview-card { display:grid; gap:5px; padding:12px; border:1px solid var(--line); border-radius:8px; background:#f8fbfa; min-width:0; }
+.overview-card span { color:var(--accent); font-size:20px; font-weight:900; overflow-wrap:anywhere; }
+.overview-card small { line-height:1.45; overflow-wrap:anywhere; }
 .metric-value.metric-ok { color:#1f9d68; }
 .metric-value.metric-miss { color:#d84a3a; }
 .metric-value.metric-bad { color:#d84a3a; }
@@ -2669,6 +3898,33 @@ nav { display:grid; gap:8px; margin:18px 0; }
 .compact-detail { margin:8px 0 12px; font-size:13px; }
 .compact-detail div { padding:8px; }
 .cards, .schedule { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; }
+.value-candidate-grid { grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); align-items:start; }
+.value-selected-pool { margin:12px 0 16px; padding:12px; border:1px solid #b8d9ce; border-radius:8px; background:#f4fbf7; }
+.value-selected-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:10px; }
+.value-selected-item { display:grid; gap:7px; padding:10px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+.value-selected-item .visual-thumb { min-height:80px; }
+.candidate-title { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+.candidate-summary, .candidate-evidence-summary { line-height:1.55; overflow-wrap:anywhere; }
+.candidate-evidence-summary { padding:8px; border-radius:8px; background:#f8fbfa; color:#33434a; }
+.candidate-human-note { margin:0; padding:7px 8px; border-radius:8px; background:#fff8de; color:#7a4a00; font-size:13px; font-weight:800; overflow-wrap:anywhere; }
+.candidate-details { border:1px solid var(--line); border-radius:8px; background:#fff; padding:8px; }
+.candidate-details summary { cursor:pointer; font-weight:900; color:#17644e; }
+.candidate-details dl { display:grid; gap:6px; margin:8px 0 0; }
+.candidate-details dl div { display:grid; grid-template-columns:70px minmax(0,1fr); gap:8px; padding:6px 0; border-top:1px solid #edf2ef; }
+.candidate-details dt { font-weight:900; color:#1f2f36; }
+.candidate-details dd { margin:0; color:var(--muted); overflow-wrap:anywhere; }
+.candidate-details p { line-height:1.55; overflow-wrap:anywhere; }
+.citation-chip-row, .risk-badges { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0; }
+.citation-chip, .risk-badges span { display:inline-flex; align-items:center; max-width:100%; padding:4px 8px; border-radius:999px; border:1px solid #c7d9d1; background:#f1faf5; color:#17644e; font-size:12px; font-weight:900; overflow-wrap:anywhere; }
+.citation-card-list { display:grid; gap:8px; margin-top:8px; }
+.citation-card { display:grid; gap:5px; padding:9px 10px; border:1px solid #c7d9d1; border-radius:8px; background:#f8fbfa; }
+.citation-card strong { color:#17644e; font-size:13px; line-height:1.35; overflow-wrap:anywhere; }
+.citation-card p { margin:0; color:#33434a; font-size:13px; line-height:1.45; }
+.citation-card small { color:var(--muted); font-size:11px; overflow-wrap:anywhere; }
+.risk-badges span { border-color:#ecd19a; background:#fff8de; color:#7a4a00; }
+.candidate-history-list { margin:8px 0; padding-left:18px; line-height:1.55; }
+.candidate-history-list li { margin:6px 0; overflow-wrap:anywhere; }
+.candidate-history-list small { display:block; }
 .memory-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
 .memory-card { display:grid; gap:6px; padding:12px; border:1px solid var(--line); border-radius:8px; background:#fffdf7; }
 .memory-card span { color:var(--brand); font-weight:900; }
@@ -2686,6 +3942,16 @@ nav { display:grid; gap:8px; margin:18px 0; }
 .trace-replay { min-width:260px; }
 .trace-replay summary { cursor:pointer; font-weight:900; color:#17644e; }
 .trace-replay pre { max-width:620px; max-height:260px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; padding:10px; border:1px solid var(--line); border-radius:8px; background:#f8fbfa; font-size:12px; line-height:1.45; }
+.benchmark-list { display:grid; gap:14px; }
+.comparison-card { display:grid; gap:12px; padding:14px; border:1px solid var(--line); border-radius:8px; background:#fbfdfc; min-width:0; }
+.benchmark-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+.benchmark-head h3 { margin:0 0 4px; overflow-wrap:anywhere; }
+.benchmark-output-grid, .benchmark-score-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.benchmark-output { min-width:0; padding:12px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+.benchmark-output p { margin:8px 0 0; line-height:1.6; overflow-wrap:anywhere; word-break:break-word; }
+.benchmark-output small { display:block; margin-top:8px; line-height:1.45; overflow-wrap:anywhere; color:var(--muted); }
+.benchmark-score-details summary { cursor:pointer; font-weight:900; color:#17644e; }
+.prompt-pre { max-width:100%; max-height:260px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; padding:10px; border:1px solid var(--line); border-radius:8px; background:#f8fbfa; font-size:12px; line-height:1.45; }
 .mode-grid, .reference-row { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
 .reference-row { grid-template-columns:repeat(3,minmax(0,1fr)); margin-top:12px; }
 .mode-card { display:grid; gap:6px; padding:14px; border:1px solid var(--line); border-radius:10px; background:#fffdf7; }
@@ -2699,12 +3965,49 @@ nav { display:grid; gap:8px; margin:18px 0; }
 .visual-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
 .upload-thumb img { max-width:100%; max-height:120px; border-radius:8px; object-fit:cover; }
 .upload-thumb span { font-size:12px; color:var(--muted); }
+.upload-thumb { position:relative; }
+.thumb-remove { position:absolute; top:6px; right:6px; margin:0; }
+.thumb-remove button { width:28px; height:28px; border-radius:50%; padding:0; display:grid; place-items:center; border:1px solid rgba(25,55,44,.22); background:#fff; color:#9c2f2f; font-size:18px; line-height:1; }
+.candidate-card { display:grid; gap:8px; padding:12px; border:1px solid var(--line); border-radius:8px; background:#fffdf7; }
+.card-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; }
+.prompt-panel { display:grid; gap:10px; margin-top:12px; padding:12px; border:1px solid var(--line); border-radius:8px; background:#f8fbfa; }
+.prompt-panel h3 { margin:0; }
+.prompt-panel label { display:grid; gap:6px; color:var(--muted); font-weight:900; }
+.prompt-panel textarea { min-height:96px; color:var(--text); font-weight:700; line-height:1.5; }
+.candidate-card .choice { justify-content:flex-start; align-items:center; margin:0; }
+.candidate-card .choice input { width:auto; }
+.candidate-card > .section-line { flex-wrap:wrap; justify-content:flex-start; align-items:stretch; }
+.candidate-card > .section-line form { display:grid; grid-template-columns:minmax(120px,1fr) auto; gap:6px; flex:1 1 230px; }
+.candidate-card > .section-line input { min-width:0; width:100%; }
+.single-retry-form { display:flex; justify-content:flex-end; }
 .mini-thumb { width:92px; min-height:64px; display:grid; place-items:center; padding:8px; border-radius:8px; background:linear-gradient(135deg,#f4efe2,#dff1ea); font-size:12px; font-weight:900; text-align:center; }
 .mini-thumb-img { width:92px; height:64px; border-radius:8px; object-fit:cover; background:#f1f5f3; }
 .harness-sample-cell { display:grid; grid-template-columns:92px minmax(150px,1fr); gap:8px 10px; align-items:center; min-width:260px; }
 .harness-sample-cell .mini-thumb, .harness-sample-cell .visual-thumb { grid-row:1 / 4; width:92px; min-height:64px; }
 .harness-sample-cell strong, .harness-sample-cell span, .harness-sample-cell small { overflow-wrap:anywhere; }
+.failure-review-list { display:grid; gap:12px; }
+.failure-review-card { display:grid; gap:12px; padding:12px; border:1px solid var(--line); border-radius:8px; background:#fbfdfc; min-width:0; }
+.failure-review-sample { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.failure-review-sample .harness-sample-cell { min-width:min(100%, 360px); flex:1 1 260px; }
+.failure-review-detail { display:grid; gap:8px; margin:0; }
+.failure-review-detail div { display:grid; gap:5px; padding:10px; border-radius:8px; background:#fff; border:1px solid #edf2ef; }
+.failure-review-detail dt { font-weight:900; color:var(--text); }
+.failure-review-detail dd { margin:0; color:var(--muted); line-height:1.55; overflow-wrap:anywhere; word-break:break-word; }
+.failure-review-action { display:grid; gap:8px; }
+.failure-review-action h3 { margin:0; }
+.failure-review-action textarea { min-height:70px; }
 .status-pill { display:inline-flex; align-items:center; min-height:34px; padding:6px 10px; border:1px solid var(--brand); border-radius:999px; background:#e7f4ee; color:#17644e; font-weight:900; }
+.compact-tools { margin:10px 0; border:1px solid var(--line); border-radius:8px; background:#fbfdfc; padding:0; }
+.compact-tools > summary { cursor:pointer; padding:10px 12px; font-weight:900; color:#17644e; }
+.compact-tools > .panel, .compact-tools > section, .compact-tools > form, .compact-tools > .metrics { margin:10px 12px 12px; }
+.gold-progress-panel { display:grid; gap:8px; margin:10px 0 12px; padding:12px; border:1px solid #cfe2da; border-radius:8px; background:#f6fbf8; }
+.gold-progress-panel progress { width:100%; height:14px; }
+.gold-select-toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:10px 0 12px; padding:10px; border:1px solid var(--line); border-radius:8px; background:#fbfdfc; }
+.gold-select-toolbar small { flex:1 1 260px; }
+.gold-batch-form { grid-template-columns:minmax(110px, 160px) auto minmax(240px, 1fr); align-items:center; }
+.gold-batch-form input[name="max_count"] { width:100%; }
+.gold-row-actions { display:grid; gap:6px; min-width:110px; }
+.gold-row-actions .inline-check { justify-content:flex-start; }
 .gold-coverage { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; margin:8px 0 12px; }
 .gold-coverage article { display:grid; gap:4px; padding:10px; border:1px solid var(--line); border-radius:8px; background:#f6faf8; }
 .gold-coverage span { color:var(--muted); font-size:13px; font-weight:800; }
@@ -2815,5 +4118,5 @@ textarea { min-height:58px; resize:vertical; }
 .grade.D { background:#ef6b5b; color:#fff; }
 .pos { display:inline-block; padding:3px 8px; border-radius:999px; background:#ffe1de; color:var(--red); font-weight:900; }
 .empty { color:var(--muted); background:#f8faf9; padding:12px; border-radius:8px; }
-@media (max-width: 900px) { body { grid-template-columns:1fr; } aside { border-right:0; border-bottom:1px solid var(--line); } .metrics, .grid.two, .grid.three, .detail, .memory-grid, .rag-grid, .trace-grid, .gold-coverage { grid-template-columns:1fr; } }
+@media (max-width: 900px) { body { grid-template-columns:1fr; } aside { border-right:0; border-bottom:1px solid var(--line); } .metrics, .grid.two, .grid.three, .detail, .memory-grid, .rag-grid, .trace-grid, .gold-coverage, .benchmark-output-grid, .benchmark-score-grid { grid-template-columns:1fr; } }
 """

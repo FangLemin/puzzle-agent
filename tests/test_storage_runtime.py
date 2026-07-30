@@ -347,3 +347,34 @@ def test_feishu_factory_falls_back_to_mock_without_credentials(tmp_path, monkeyp
     assert isinstance(client, MockFeishuClient)
     assert result.success
     assert Path(result.data["path"]).exists()
+
+
+def test_description_benchmark_scores_are_persisted_and_summarized(tmp_path):
+    repo = PuzzleRepository(tmp_path / "puzzle.db")
+
+    record_id = repo.add_description_benchmark_score(
+        {
+            "country": "日本",
+            "actor": "jp_ops",
+            "image_name": "猫咪鲤鱼",
+            "operation_tag": "常规_日本_猫咪鲤鱼0605",
+            "template_scores": {"subject_accuracy": 4, "production_actionability": 2, "conciseness": 1, "market_fit": 3, "remark_usefulness": 1},
+            "prompt_scores": {"subject_accuracy": 4, "production_actionability": 3, "conciseness": 4, "market_fit": 3, "remark_usefulness": 4},
+            "template_label": "需要大改",
+            "prompt_label": "轻微修改",
+            "template_output": "主体内容：猫咪鲤鱼；色彩氛围：浅粉；构图环境：庭院。",
+            "prompt_output": "主体内容：猫咪与锦鲤池；色彩氛围：浅粉、湖蓝、明亮治愈；构图环境：日式庭院近景。",
+        }
+    )
+
+    rows = repo.description_benchmark_scores("日本")
+    summary = repo.description_benchmark_summary("日本")
+
+    assert record_id > 0
+    assert len(rows) == 1
+    assert rows[0]["operation_tag"] == "常规_日本_猫咪鲤鱼0605"
+    assert rows[0]["prompt_label"] == "轻微修改"
+    assert summary["count"] == 1
+    assert summary["template_average"] == 2.2
+    assert summary["prompt_average"] == 3.6
+    assert summary["prompt_light_or_direct_rate"] == 1.0

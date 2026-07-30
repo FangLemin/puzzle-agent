@@ -1,0 +1,3156 @@
+{
+  "mode": "rag_hard_negative_eval",
+  "main_prediction_change_allowed": false,
+  "countries": [
+    "日本",
+    "法国"
+  ],
+  "case_count": 57,
+  "threshold": 0.8,
+  "metrics": {
+    "hit@5": 1.0,
+    "mrr@5": 0.9693,
+    "precision@5": 0.2,
+    "recall@5": 1.0,
+    "ndcg@5": 0.9771,
+    "hard_negative_top1_rate": 0.0,
+    "hard_negative_topk_rate": 0.2222
+  },
+  "passed_threshold": false,
+  "country_metrics": {
+    "日本": {
+      "case_count": 31,
+      "hit@5": 1.0,
+      "mrr@5": 0.9596774193548387,
+      "precision@5": 0.2000000000000001,
+      "recall@5": 1.0,
+      "ndcg@5": 0.9697292358595113,
+      "hard_negative_top1_rate": 0.0,
+      "hard_negative_topk_rate": 0.16
+    },
+    "法国": {
+      "case_count": 26,
+      "hit@5": 1.0,
+      "mrr@5": 0.9807692307692307,
+      "precision@5": 0.20000000000000007,
+      "recall@5": 1.0,
+      "ndcg@5": 0.9858049905219791,
+      "hard_negative_top1_rate": 0.0,
+      "hard_negative_topk_rate": 0.3
+    }
+  },
+  "failure_types": {
+    "passed": 47,
+    "passed_with_hard_negative_noise": 10
+  },
+  "failed_cases": [
+    {
+      "query": "游客 清新插画风（类似《旅行青蛙》或《千与千寻》概念美术），高饱和度清透蓝+暖米白主调，中等明度，竖向构图，强调前中后景层次与光影对比 日本广岛县宫岛（严岛）海岸悬崖步道，晴朗日间海景，含潮间带、飞鸟、远山与城镇轮廓 本土文化符号 low_cultural_confusion no_france_elements no_copyright_risk no_ip_violation A 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b811-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c27",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": true,
+      "failure_type": "passed_with_hard_negative_noise",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 60,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c27",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+          "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14"
+        ]
+      }
+    },
+    {
+      "query": "橘白相间的家猫日 清新治愈系插画风摄影合成图像 阳光明媚的沙滩海岸线，海浪轻拍岸边，沙粒细腻，散落贝壳 季节感治愈 low_copyright_risk no_ip_infringement no_cultural_misappropriation no_france_japan_confusion B 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c23",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c23"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c23",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c18",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": true,
+      "failure_type": "passed_with_hard_negative_noise",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 59,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c23",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c18",
+          "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8"
+        ]
+      }
+    },
+    {
+      "query": "日式寿喜烧Suk 高饱和暖色调静物摄影，方形构图，前中后景层次分明（锅体近景清晰、食材中景丰富、背景虚化木质纹理），电影感光影，强调食物质感与热气动态 木质餐桌上的铜锅寿喜烧，置于传统木制便携炉（七轮/コンロ）上，蒸汽升腾，背景为暖调木质环境 本土文化符号 无 B 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c24",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c24"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c24",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c21"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": true,
+      "failure_type": "passed_with_hard_negative_noise",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 60,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c24",
+          "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c21"
+        ]
+      }
+    },
+    {
+      "query": "严岛神社Itsu 写实摄影风格，高动态范围（HDR）自然光处理，横向构图强调空间纵深 日本广岛县宫岛，春季樱花盛开时节的山海环绕神社景观 本土文化符号 季节感治愈 无 A 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c27",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c27"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c27",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c26",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c28"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": true,
+      "failure_type": "passed_with_hard_negative_noise",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 59,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c27",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c26",
+          "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c28"
+        ]
+      }
+    },
+    {
+      "query": "切片牛排配土豆泥 高饱和暖色调静物摄影风格，方形构图，中等明度，深色背景衬托主体，强调前中后景层次与食材质感 木质餐桌上的法式浪漫晚餐场景，背景为丰盛花卉布置（玫瑰、郁金香、洋桔梗等），暖光氛围 生活艺术 复古优雅 自然治愈 低风险：无明显IP/版权元素（如品牌标识 知名菜品特写） 低风险：文化元素明确指向法国（红酒+牛排+花卉礼仪） 无日式混淆 注意：芝士蛋糕形态较通用 非特定法国传统甜点（如tarte Tatin） 但整体语境仍属法式餐饮美学 C 价值观 审核 风险 真实业务样本",
+      "country": "法国",
+      "expected_parent_id": "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+      "relevant_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31"
+      ],
+      "hard_negative_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c32"
+      ],
+      "retrieved_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c44"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": true,
+      "failure_type": "passed_with_hard_negative_noise",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 59,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c44"
+        ]
+      }
+    },
+    {
+      "query": "海滨餐厅餐桌上的 清新自然主义摄影风格，高动态范围光照，浅景深突出主体，方形构图，中等明度与中饱和度，暖米白+清透蓝主色调 阳光明媚的法国地中海沿岸露天餐厅，木质桌椅配白色藤编座椅，背景为波光粼粼的蓝色海面与金属栏杆 生活艺术 自然治愈 低风险：无版权IP元素（如品牌标识 知名地标如埃菲尔铁塔） 无文化混淆：食材与餐具符合法国南部/地中海饮食文化特征 未混入日式元素（如寿司 酱油碟 竹器） 无敏感符号：无宗教 政治或争议性图像 S 价值观 审核 风险 真实业务样本",
+      "country": "法国",
+      "expected_parent_id": "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+      "relevant_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c32"
+      ],
+      "hard_negative_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31"
+      ],
+      "retrieved_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": true,
+      "failure_type": "passed_with_hard_negative_noise",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 57,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45"
+        ]
+      }
+    },
+    {
+      "query": "一位身着碎花连衣 印象派后期写实油画风格，厚涂笔触（impasto），暖光渲染，强调光影过渡与氛围感；构图采用方形画幅，主体居左，窗框形成天然画中画结构 乡村农舍窗景：木质窗框、阳光洒落的室内角落与开阔田野构成前中后景层次；远处可见石砌农舍、绿丘与树林，属典型的法国乡村（如诺曼底或普罗旺斯边缘）风光 法式乡村 自然治愈 无版权风险（原创风格绘画 无明确IP人物/地标） 无文化混淆（元素纯属西欧乡村语境 无日式符号） 无敏感内容（非政治/宗教/暴力主题） S 价值观 审核 风险 真实业务样本",
+      "country": "法国",
+      "expected_parent_id": "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+      "relevant_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38"
+      ],
+      "hard_negative_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31"
+      ],
+      "retrieved_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c42"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": true,
+      "failure_type": "passed_with_hard_negative_noise",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 60,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c42"
+        ]
+      }
+    },
+    {
+      "query": "白人男孩演奏小提 印象派后期写实油画风格，厚涂笔触（impasto），暖光渲染，注重光影层次与质感表现 室内画室，阳光从右侧窗户照入，背景挂有多幅装裱画作 待人工确认价值观 low_copyright_risk no_ip_violation no_cultural_confusion A 价值观 审核 风险 真实业务样本",
+      "country": "法国",
+      "expected_parent_id": "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c42",
+      "relevant_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c42"
+      ],
+      "hard_negative_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31"
+      ],
+      "retrieved_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c42",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c35",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": true,
+      "failure_type": "passed_with_hard_negative_noise",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 63,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c42",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c35",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47"
+        ]
+      }
+    },
+    {
+      "query": "复古白色皮卡货车 暖色调插画风，高饱和、中等明度，方形构图，清晰主体边界与前中后景层次，类似儿童绘本或旅游宣传插画 法国乡村秋日田园风光：干草堆、成熟麦田、橘子树（实为柑橘类果树）、南瓜、远山与木栅栏 法式乡村 复古优雅 低风险：无明显版权/IP元素（车辆为通用复古设计 非特定品牌商标） 文化混淆风险：低——橘子树在法国南部（如科西嘉 普罗旺斯）真实存在 非日本特有 南瓜与麦田为泛欧洲秋季意象 地域真实性：需注意——法国主产苹果/梨/葡萄 柑橘类多限南部地中海沿岸 但作为艺术化表现可接受 B 价值观 审核 风险 真实业务样本",
+      "country": "法国",
+      "expected_parent_id": "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c44",
+      "relevant_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c44"
+      ],
+      "hard_negative_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31"
+      ],
+      "retrieved_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c44",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": true,
+      "failure_type": "passed_with_hard_negative_noise",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 59,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c44",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30"
+        ]
+      }
+    },
+    {
+      "query": "马卡龙Macar 高质感美食摄影风格；暖米白/暖红主色调；中等明度、中饱和度；方形构图；主体清晰边界，强调酥皮裂纹与夹心层次 浅色背景上的多色马卡龙静物特写，前中后景层次分明，柔和布光 待人工确认价值观 AI生成标识需移除以避免版权/真实性争议 无明显文化混淆风险（马卡龙明确属法国文化符号 非日本） 需注意：若用于商业拼图产品 应确保马卡龙造型不仿冒特定品牌（如Ladurée）专属配色/纹理 D 价值观 审核 风险 真实业务样本",
+      "country": "法国",
+      "expected_parent_id": "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45",
+      "relevant_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45"
+      ],
+      "hard_negative_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31"
+      ],
+      "retrieved_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c35",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": true,
+      "failure_type": "passed_with_hard_negative_noise",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 64,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c35",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47"
+        ]
+      }
+    }
+  ],
+  "cases": [
+    {
+      "query": "日本寿司图是否符合本土饮食文化价值观",
+      "country": "日本",
+      "expected_parent_id": "JP_KB_SUSHI_FOOD",
+      "relevant_parent_ids": [
+        "JP_KB_SUSHI_FOOD"
+      ],
+      "hard_negative_parent_ids": [],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+        "JP_KB_SUSHI_FOOD",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25"
+      ],
+      "hit": true,
+      "rank": 4,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 0.43067655807339306,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 60,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+          "JP_KB_SUSHI_FOOD",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25"
+        ]
+      }
+    },
+    {
+      "query": "抹茶和和果子桌面图适合日本市场吗",
+      "country": "日本",
+      "expected_parent_id": "JP_KB_SUSHI_FOOD",
+      "relevant_parent_ids": [
+        "JP_KB_SUSHI_FOOD"
+      ],
+      "hard_negative_parent_ids": [],
+      "retrieved_parent_ids": [
+        "JP_KB_SUSHI_FOOD",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 60,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_KB_SUSHI_FOOD",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11"
+        ]
+      }
+    },
+    {
+      "query": "温泉街浴衣灯笼图片是否符合日本治愈旅行价值观",
+      "country": "日本",
+      "expected_parent_id": "JP_KB_ONSEN_TRAVEL",
+      "relevant_parent_ids": [
+        "JP_KB_ONSEN_TRAVEL"
+      ],
+      "hard_negative_parent_ids": [],
+      "retrieved_parent_ids": [
+        "JP_KB_ONSEN_TRAVEL",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c10"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 60,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_KB_ONSEN_TRAVEL",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c10"
+        ]
+      }
+    },
+    {
+      "query": "樱花红叶夏祭这些季节元素适合日本提需吗",
+      "country": "日本",
+      "expected_parent_id": "JP_KB_ONSEN_TRAVEL",
+      "relevant_parent_ids": [
+        "JP_KB_ONSEN_TRAVEL"
+      ],
+      "hard_negative_parent_ids": [],
+      "retrieved_parent_ids": [
+        "JP_KB_ONSEN_TRAVEL",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c19",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 60,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_KB_ONSEN_TRAVEL",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c19",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11"
+        ]
+      }
+    },
+    {
+      "query": "日式建筑木质纹理主体清晰度应该如何判断",
+      "country": "日本",
+      "expected_parent_id": "JP_KB_CRAFT_CLEAR_SUBJECT",
+      "relevant_parent_ids": [
+        "JP_KB_CRAFT_CLEAR_SUBJECT"
+      ],
+      "hard_negative_parent_ids": [],
+      "retrieved_parent_ids": [
+        "GLOBAL_KB_AUDIT_CULTURE_QUALITY",
+        "JP_KB_CRAFT_CLEAR_SUBJECT",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c24",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "hit": true,
+      "rank": 2,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 0.6309297535714575,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 62,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "GLOBAL_KB_AUDIT_CULTURE_QUALITY",
+          "JP_KB_CRAFT_CLEAR_SUBJECT",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c24",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8"
+        ]
+      }
+    },
+    {
+      "query": "试新图片出现文字水印商标热门IP角色有什么风险",
+      "country": "日本",
+      "expected_parent_id": "GLOBAL_KB_AUDIT_IP_TEXT",
+      "relevant_parent_ids": [
+        "GLOBAL_KB_AUDIT_IP_TEXT"
+      ],
+      "hard_negative_parent_ids": [],
+      "retrieved_parent_ids": [
+        "GLOBAL_KB_AUDIT_IP_TEXT",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+        "GLOBAL_KB_AUDIT_CULTURE_QUALITY",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+        "JP_VALUE_009"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 62,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "GLOBAL_KB_AUDIT_IP_TEXT",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+          "GLOBAL_KB_AUDIT_CULTURE_QUALITY",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+          "JP_VALUE_009"
+        ]
+      }
+    },
+    {
+      "query": "招财猫与锦鲤 日式浮世绘风格插画，扁平化线条+装饰性图案，暖色调手绘感 海浪与樱花飘落的水景 本土文化符号 季节感治愈 无 S 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b811-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c19",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c15"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 60,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c19",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c15"
+        ]
+      }
+    },
+    {
+      "query": "游客 清新插画风（类似《旅行青蛙》或《千与千寻》概念美术），高饱和度清透蓝+暖米白主调，中等明度，竖向构图，强调前中后景层次与光影对比 日本广岛县宫岛（严岛）海岸悬崖步道，晴朗日间海景，含潮间带、飞鸟、远山与城镇轮廓 本土文化符号 low_cultural_confusion no_france_elements no_copyright_risk no_ip_violation A 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b811-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c27",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": true,
+      "failure_type": "passed_with_hard_negative_noise",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 60,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c27",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+          "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14"
+        ]
+      }
+    },
+    {
+      "query": "寿司拼盘 高质感美食摄影风格，竖向构图，中等明度暖色调，中饱和度，强调食材纹理与光泽，前中后景层次清晰 黑色分格陶瓷寿司盘，酱油滴落动态效果，微距美食摄影场景 本土饮食文化 无 B 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b811-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c24",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c19"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 59,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c24",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c19"
+        ]
+      }
+    },
+    {
+      "query": "穿水手服的日本女 日系插画风（类似吉卜力+现代治愈系绘本），柔和笔触，暖色调渲染，竖向构图强调前中后景层次（学生→茶铺→电车→远景建筑） 昭和时代东京街头，有轨电车（标‘东京1960’）停靠在传统木结构町屋茶铺旁，地面散落木质招牌，背景为低层日式建筑与电线杆 本土文化符号 季节感治愈 无 C 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_6ba7b811-9dad-11d1-80b4-00c04fd430c8",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b811-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b811-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c15",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c28"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 59,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_6ba7b811-9dad-11d1-80b4-00c04fd430c8",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c15",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c28"
+        ]
+      }
+    },
+    {
+      "query": "抹茶 清新水彩插画风，柔和笔触，高细节食物质感表现，竖向构图，中等明度暖黄绿色调 日式茶点静物摆拍，浅绿背景配樱花枝，木质桌面衬托，前中后景层次分明 本土饮食文化 本土文化符号 季节感治愈 无版权风险（原创插画） 无文化混淆（明确日本元素） 无IP侵权（未出现品牌Logo或角色） D 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c21",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c16"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 69,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c21",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c16"
+        ]
+      }
+    },
+    {
+      "query": "日本通勤电车JR 新海诚式动画电影美学：高细节渲染、柔焦光晕、动态花瓣粒子、低对比暖调、电影级景深 春季清晨/黄昏的郊外铁路线，两侧为成排樱花树，轨道铺满落樱，前景虚化花瓣飘落，中景电车主体清晰，背景光晕朦胧 本土文化符号 季节感治愈 低风险：无版权IP（未见特定列车型号如E235/E233可辨识特征 车身无企业Logo） 低风险：无法国元素混淆（无埃菲尔铁塔 梧桐道 法式建筑等） 中低风险：需确认列车涂装是否仿制真实运营车型（当前为通用粉白条纹 非专属配色） 无文化误用：樱花+电车属广泛接受的日本意象组合 非宗教/敏感符号 A 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c9",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c9"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c9",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c19",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c28",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c10"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 59,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c9",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c19",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c28",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c10"
+        ]
+      }
+    },
+    {
+      "query": "年轻日本女性 日系插画风（Anime-inspired digital illustration），柔和光影、细腻皮肤质感、低饱和暖调、写实与美化结合 夜晚都市街道（疑似东京涩谷或新宿商圈），霓虹灯广告牌林立，现代商业街背景 待人工确认价值观 低风险：无明确IP角色（非知名动漫/游戏人物） 低风险：无宗教/政治敏感符号 中低风险：背景广告牌含模糊日文标识 但未使用真实商标（如麦当劳 7-11等可识别品牌） 建议进一步确认是否构成商标侵权隐患 无法国文化元素混淆 无文化误用（场景 服饰 行为均符合日本当代都市语境） S 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c10",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c10"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c10",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c22",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c12",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c26"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 68,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c10",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c22",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c12",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c26"
+        ]
+      }
+    },
+    {
+      "query": "橘白相间短毛幼猫 写实摄影风格，柔焦背景+清晰主体，日系生活感静物摄影（类似《ねこあつめ》或日本宠物杂志视觉调性） 室内居家场景，浅色地毯上，柔和自然光照射，背景虚化呈现温馨家居氛围 本土文化符号 季节感治愈 无版权风险（真实动物拍摄 无IP角色特征） 无文化混淆（未使用法国符号 猫种非日本特有但属全球常见 不构成文化误植） 低风险：未出现神社 和服 樱花等强文化符号 避免刻板印象 B 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c19",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c9",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c20"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 60,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c19",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c9",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c20"
+        ]
+      }
+    },
+    {
+      "query": "两位老年男性正在 纪实摄影风格，自然光下中等明度暖色调，方形构图，清晰主体边界与前中后景层次，强调生活化与运动专注感 阳光明媚的户外门球场，绿色人工草坪，白色标线，远处有绿树与围网，属典型日本社区/公园运动场景 待人工确认价值观 低风险：无明显版权/IP风险（'gateball'为通用运动术语 非注册商标 球杆/球门为标准器材） 低风险：无文化混淆（门球为日本原创运动 非法国槌球Croquet 服饰与场景具明确日式特征） 无宗教/政治敏感元素 C 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c12",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c12"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c12",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c19",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c10",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 59,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c12",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c19",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c10",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11"
+        ]
+      }
+    },
+    {
+      "query": "黑色漆面高台草履 写实主义静物摄影风格，低角度微距构图，柔和逆光，强调材质反光与自然肌理对比 日式枯山水庭院小径，含石板路、苔藓、修剪灌木、木质灯笼与微型瀑布 本土文化符号 无 B 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c13",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c13"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c13",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c19",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c28",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c20"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 59,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c13",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c19",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c28",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c20"
+        ]
+      }
+    },
+    {
+      "query": "抹茶 写实主义摄影风格，暖调高饱和光影，方形构图，前中后景层次分明，主体清晰边界保留 传统日式室内榻榻米房间，含竹帘、障子窗、花瓶插枝（樱花/梅花） 本土饮食文化 本土文化符号 季节感治愈 无 B 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c17",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c21",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c19"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 59,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c17",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c21",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c19"
+        ]
+      }
+    },
+    {
+      "query": "日本女性身着樱花 新古典日系插画风格，柔和光影，细腻笔触，暖色调渲染，强调氛围感与静谧美学 传统日式室内（和室），含格子纸拉门（障子）、木质地板、飘落的樱花枝 本土文化符号 季节感治愈 无 A 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c15",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c15"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c15",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c17",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 59,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c15",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c17",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8"
+        ]
+      }
+    },
+    {
+      "query": "日本小女孩 日系插画风，柔和光影，高细节手绘感，暖色调渲染，中等明度与饱和度，方形构图，前中后景层次清晰 樱花盛开的庭院或公园，春日户外场景，背景有模糊传统日式建筑与绿植 本土文化符号 季节感治愈 无 S 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c16"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+        "JP_HARNESS_GOLD_6ba7b811-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c15"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 59,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+          "JP_HARNESS_GOLD_6ba7b811-9dad-11d1-80b4-00c04fd430c8",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c15"
+        ]
+      }
+    },
+    {
+      "query": "三代同堂日式家庭 温馨插画风，柔和光影，暖色调渲染，细腻生活场景叙事，类似日本绘本或NHK晨间剧视觉风格 传统日式和室（榻榻米房间），连接厨房与庭院，窗外可见樱花飘落，室内有障子门、挂轴家影、茶具与餐具陈设 本土饮食文化 本土文化符号 季节感治愈 无 A 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c17",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c17"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c17",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c15",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c16"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 59,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c17",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c15",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c16"
+        ]
+      }
+    },
+    {
+      "query": "五名身穿日本水手 清新治愈系日系摄影风格 春日户外公园/校园绿地，背景为盛放的樱花树，地面铺满粉色花瓣 季节感治愈 low_copyright_risk no_ip_violation no_cultural_confusion ai_generated_disclaimer_needed D 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c18",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c18"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c18",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c23",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c9"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 60,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c18",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c23",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c9"
+        ]
+      }
+    },
+    {
+      "query": "招财猫Manek 写实摄影风格，高饱和暖色调，中等明度，方形构图，景深层次分明（前中后景清晰） 日式庭院（枯山水风格），含石灯笼、樱花树、苔藓、砾石与飘落的樱花瓣 本土文化符号 季节感治愈 低风险：无法国文化元素混入 低风险：招财猫为日本广泛接受的民俗符号 非特定IP（通用造型） 注意：AI生成图像需确认无版权争议 当前无明显侵权特征 B 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c19",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c19"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c19",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c9",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 59,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c19",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c9",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14"
+        ]
+      }
+    },
+    {
+      "query": "抹茶 日式侘寂（wabi-sabi）美学风格：简约、自然材质、留白、不对称构图、温润质感 室内静物摄影，柔和自然光下的茶道准备场景，背景为素色亚麻布 本土饮食文化 本土文化符号 季节感治愈 无 A 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c20",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c20"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c20",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c21"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 59,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c20",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c21"
+        ]
+      }
+    },
+    {
+      "query": "樱花白百合紫鸢尾 现代日式静物摄影风格，柔和光影，中饱和暖色调，方形构图强调前中后景层次 室内静物摆拍，浅暖米色背景，竹编花器置于浅绿桌面，旁置刺绣布巾 本土文化符号 季节感治愈 无 A 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c21",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c21"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c21",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c24"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 59,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c21",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c24"
+        ]
+      }
+    },
+    {
+      "query": "日本女性弓道练习 新日系插画风格（Neo-Japanese Illustration），柔和暖光渲染，细腻皮肤与布料质感，动态发丝表现张力 日式木质弓道场（Kyudojo），背景含榻榻米地板、障子窗、悬挂的‘礼’字匾额与书法卷轴 本土文化符号 AI生成标识需移除 无版权IP风险（非知名角色/作品） 无文化混淆（明确日本弓道元素 无法国符号） 无宗教敏感（‘礼’为儒家/武道伦理通用概念 非特定宗教） A 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c22",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c22"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c22",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c10",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 69,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c22",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c10",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25"
+        ]
+      }
+    },
+    {
+      "query": "橘白相间的家猫日 清新治愈系插画风摄影合成图像 阳光明媚的沙滩海岸线，海浪轻拍岸边，沙粒细腻，散落贝壳 季节感治愈 low_copyright_risk no_ip_infringement no_cultural_misappropriation no_france_japan_confusion B 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c23",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c23"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c23",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c18",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": true,
+      "failure_type": "passed_with_hard_negative_noise",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 59,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c23",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c18",
+          "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8"
+        ]
+      }
+    },
+    {
+      "query": "日式寿喜烧Suk 高饱和暖色调静物摄影，方形构图，前中后景层次分明（锅体近景清晰、食材中景丰富、背景虚化木质纹理），电影感光影，强调食物质感与热气动态 木质餐桌上的铜锅寿喜烧，置于传统木制便携炉（七轮/コンロ）上，蒸汽升腾，背景为暖调木质环境 本土文化符号 无 B 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c24",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c24"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c24",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c21"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": true,
+      "failure_type": "passed_with_hard_negative_noise",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 60,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c24",
+          "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c21"
+        ]
+      }
+    },
+    {
+      "query": "游客 写实摄影风格，暖调黄金时刻光影，中等明度与饱和度，方形构图强调纵深层次与主体边界清晰 东京浅草寺仲见世通商业街，雷门前广场，日落时分 季节感治愈 低风险：无明显版权侵权（雷门为公共地标 灯笼文字属通用汉字标识） 低风险：文化元素准确（和服款式 建筑形制 文字书写符合日本传统） 无法国元素混淆 无IP冲突（未出现动漫角色 品牌商标或虚构形象） 注意：AI生成水印需移除以避免‘AI生成’标签影响产品可信度 C 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+        "JP_HARNESS_GOLD_6ba7b811-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c19",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c12",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c10",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c26"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 60,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c19",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c12",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c10",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c26"
+        ]
+      }
+    },
+    {
+      "query": "金阁寺鹿苑寺舍利 写实摄影风格，高动态范围（HDR）光影处理，横向广角构图，强调前中后景层次（前景松石→中景金阁→背景山林），暖金色调主导，中饱和度，偏暗但细节保留 京都府京都市北区，金阁寺庭园池塘畔，晨光/夕照下的镜湖池倒影景观 本土文化符号 低风险：真实地标无版权争议（公共领域图像可商用 但需确认拍摄授权） 无文化混淆：明确为日本京都金阁寺 非法国或其他国家元素 无IP冲突：建筑本身为历史遗产 非现代商业IP 注意：过暗区域可能导致拼图裁切时细节丢失（质量风险） A 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c26",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c26"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c26",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c19",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c10",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c27"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 59,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c26",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c19",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c10",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c27"
+        ]
+      }
+    },
+    {
+      "query": "严岛神社Itsu 写实摄影风格，高动态范围（HDR）自然光处理，横向构图强调空间纵深 日本广岛县宫岛，春季樱花盛开时节的山海环绕神社景观 本土文化符号 季节感治愈 无 A 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c27",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c27"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c27",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c26",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c28"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": true,
+      "failure_type": "passed_with_hard_negative_noise",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 59,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c27",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c26",
+          "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c28"
+        ]
+      }
+    },
+    {
+      "query": "樱花树下的传统日 写实唯美摄影风，柔焦光晕+浅景深，暖调低饱和胶片感，方形构图强调纵深与对称层次 春季清晨或傍晚的日本町屋街区，铺满落樱的石板路，两侧为木质结构传统民居（町家），背景有低矮瓦顶建筑与柔和逆光 本土文化符号 季节感治愈 无 A 价值观 审核 风险 真实业务样本",
+      "country": "日本",
+      "expected_parent_id": "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c28",
+      "relevant_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c28"
+      ],
+      "hard_negative_parent_ids": [
+        "JP_HARNESS_GOLD_550e8400-e29b-41d4-a716-446655440000",
+        "JP_HARNESS_GOLD_f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "JP_HARNESS_GOLD_6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "retrieved_parent_ids": [
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c28",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c9",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+        "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+        "JP_HARNESS_GOLD_6ba7b811-9dad-11d1-80b4-00c04fd430c8"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 60,
+        "eligible_chunk_count": 104,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c28",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c9",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+          "JP_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+          "JP_HARNESS_GOLD_6ba7b811-9dad-11d1-80b4-00c04fd430c8"
+        ]
+      }
+    },
+    {
+      "query": "法国薰衣草风车石屋是否符合生活艺术价值观",
+      "country": "法国",
+      "expected_parent_id": "FR_KB_LAVENDER_COUNTRYSIDE",
+      "relevant_parent_ids": [
+        "FR_KB_LAVENDER_COUNTRYSIDE"
+      ],
+      "hard_negative_parent_ids": [],
+      "retrieved_parent_ids": [
+        "FR_KB_LAVENDER_COUNTRYSIDE",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c35",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 59,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_KB_LAVENDER_COUNTRYSIDE",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c35",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45"
+        ]
+      }
+    },
+    {
+      "query": "普罗旺斯乡村小路陶罐花束适合法国吗",
+      "country": "法国",
+      "expected_parent_id": "FR_KB_LAVENDER_COUNTRYSIDE",
+      "relevant_parent_ids": [
+        "FR_KB_LAVENDER_COUNTRYSIDE"
+      ],
+      "hard_negative_parent_ids": [],
+      "retrieved_parent_ids": [
+        "FR_KB_LAVENDER_COUNTRYSIDE",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c33",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+        "GLOBAL_KB_AUDIT_CULTURE_QUALITY"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 58,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_KB_LAVENDER_COUNTRYSIDE",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c33",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+          "GLOBAL_KB_AUDIT_CULTURE_QUALITY"
+        ]
+      }
+    },
+    {
+      "query": "法国海滩野餐面包奶酪玻璃杯是否符合精致生活方式",
+      "country": "法国",
+      "expected_parent_id": "FR_KB_PICNIC_LIFESTYLE",
+      "relevant_parent_ids": [
+        "FR_KB_PICNIC_LIFESTYLE"
+      ],
+      "hard_negative_parent_ids": [],
+      "retrieved_parent_ids": [
+        "FR_KB_PICNIC_LIFESTYLE",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+        "GLOBAL_KB_AUDIT_CULTURE_QUALITY"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 59,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_KB_PICNIC_LIFESTYLE",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+          "GLOBAL_KB_AUDIT_CULTURE_QUALITY"
+        ]
+      }
+    },
+    {
+      "query": "法式窗台庭院餐桌甜点图可以怎么判断价值观",
+      "country": "法国",
+      "expected_parent_id": "FR_KB_PICNIC_LIFESTYLE",
+      "relevant_parent_ids": [
+        "FR_KB_PICNIC_LIFESTYLE"
+      ],
+      "hard_negative_parent_ids": [],
+      "retrieved_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c35",
+        "FR_KB_PICNIC_LIFESTYLE",
+        "GLOBAL_KB_AUDIT_CULTURE_QUALITY",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+        "GLOBAL_KB_AUDIT_IP_TEXT"
+      ],
+      "hit": true,
+      "rank": 2,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 0.6309297535714575,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 61,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c35",
+          "FR_KB_PICNIC_LIFESTYLE",
+          "GLOBAL_KB_AUDIT_CULTURE_QUALITY",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+          "GLOBAL_KB_AUDIT_IP_TEXT"
+        ]
+      }
+    },
+    {
+      "query": "法式庄园石屋窗台花艺构图层次如何判断",
+      "country": "法国",
+      "expected_parent_id": "FR_KB_ARCHITECTURE_FLORAL",
+      "relevant_parent_ids": [
+        "FR_KB_ARCHITECTURE_FLORAL"
+      ],
+      "hard_negative_parent_ids": [],
+      "retrieved_parent_ids": [
+        "FR_KB_ARCHITECTURE_FLORAL",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+        "GLOBAL_KB_AUDIT_CULTURE_QUALITY",
+        "FR_VALUE_001",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c35"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 59,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_KB_ARCHITECTURE_FLORAL",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+          "GLOBAL_KB_AUDIT_CULTURE_QUALITY",
+          "FR_VALUE_001",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c35"
+        ]
+      }
+    },
+    {
+      "query": "图片有文化混淆宗教符号和AI畸形质量问题怎么办",
+      "country": "法国",
+      "expected_parent_id": "GLOBAL_KB_AUDIT_CULTURE_QUALITY",
+      "relevant_parent_ids": [
+        "GLOBAL_KB_AUDIT_CULTURE_QUALITY"
+      ],
+      "hard_negative_parent_ids": [],
+      "retrieved_parent_ids": [
+        "GLOBAL_KB_AUDIT_CULTURE_QUALITY",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c39",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 60,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "GLOBAL_KB_AUDIT_CULTURE_QUALITY",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c39",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37"
+        ]
+      }
+    },
+    {
+      "query": "F1赛车Haas 高动态摄影写实风格，高速运动模糊+烟雾渲染，中等明度低饱和暖调，方形构图强调主体边界与前中后景层次 专业赛车场（沥青赛道+红白路肩+观众看台背景），晴朗日间环境，动态烟雾效果 待人工确认价值观 版权风险：Haas车队官方涂装及F1商标（F1 logo 'HAAS'字样）受严格IP保护 'ALPINE'为雷诺旗下品牌 具明确商业标识 车手头盔图案可能含个人IP 不可直接用于商品化拼图设计 需授权 B 价值观 审核 风险 真实业务样本",
+      "country": "法国",
+      "expected_parent_id": "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+      "relevant_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29"
+      ],
+      "hard_negative_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c32"
+      ],
+      "retrieved_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c35"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 71,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c35"
+        ]
+      }
+    },
+    {
+      "query": "男性身着传统巴伐 印象派油画风格，厚涂笔触（impasto），暖色调光影表现，写实主义乡村题材 乡村木屋外景，茅草屋顶，木质结构，阳光照射下的田园环境 法式乡村 文化误标风险：主体服饰与建筑为德国/奥地利巴伐利亚特征 非法国本土文化元素 地域混淆风险：易被误认为法国阿尔萨斯或孚日地区 但服饰明显属德语区传统 IP风险低：无明确可识别人物或品牌标识 但需注意AI生成标注 A 价值观 审核 风险 真实业务样本",
+      "country": "法国",
+      "expected_parent_id": "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+      "relevant_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30"
+      ],
+      "hard_negative_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c32"
+      ],
+      "retrieved_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c44",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c35"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 58,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c44",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c35"
+        ]
+      }
+    },
+    {
+      "query": "切片牛排配土豆泥 高饱和暖色调静物摄影风格，方形构图，中等明度，深色背景衬托主体，强调前中后景层次与食材质感 木质餐桌上的法式浪漫晚餐场景，背景为丰盛花卉布置（玫瑰、郁金香、洋桔梗等），暖光氛围 生活艺术 复古优雅 自然治愈 低风险：无明显IP/版权元素（如品牌标识 知名菜品特写） 低风险：文化元素明确指向法国（红酒+牛排+花卉礼仪） 无日式混淆 注意：芝士蛋糕形态较通用 非特定法国传统甜点（如tarte Tatin） 但整体语境仍属法式餐饮美学 C 价值观 审核 风险 真实业务样本",
+      "country": "法国",
+      "expected_parent_id": "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+      "relevant_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31"
+      ],
+      "hard_negative_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c32"
+      ],
+      "retrieved_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c44"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": true,
+      "failure_type": "passed_with_hard_negative_noise",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 59,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c44"
+        ]
+      }
+    },
+    {
+      "query": "海滨餐厅餐桌上的 清新自然主义摄影风格，高动态范围光照，浅景深突出主体，方形构图，中等明度与中饱和度，暖米白+清透蓝主色调 阳光明媚的法国地中海沿岸露天餐厅，木质桌椅配白色藤编座椅，背景为波光粼粼的蓝色海面与金属栏杆 生活艺术 自然治愈 低风险：无版权IP元素（如品牌标识 知名地标如埃菲尔铁塔） 无文化混淆：食材与餐具符合法国南部/地中海饮食文化特征 未混入日式元素（如寿司 酱油碟 竹器） 无敏感符号：无宗教 政治或争议性图像 S 价值观 审核 风险 真实业务样本",
+      "country": "法国",
+      "expected_parent_id": "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+      "relevant_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c32"
+      ],
+      "hard_negative_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31"
+      ],
+      "retrieved_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": true,
+      "failure_type": "passed_with_hard_negative_noise",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 57,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45"
+        ]
+      }
+    },
+    {
+      "query": "石砌茅草屋 自然主义摄影风格，暖色调、中等明度与饱和度，横向构图强调景深层次 普罗旺斯薰衣草田与麦田交界处的乡村田园风光 法式乡村 自然治愈 A 价值观 审核 风险 真实业务样本",
+      "country": "法国",
+      "expected_parent_id": "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c33",
+      "relevant_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c33"
+      ],
+      "hard_negative_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31"
+      ],
+      "retrieved_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c33",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c43",
+        "FR_KB_LAVENDER_COUNTRYSIDE",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c44"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 58,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c33",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c43",
+          "FR_KB_LAVENDER_COUNTRYSIDE",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c44"
+        ]
+      }
+    },
+    {
+      "query": "停泊在白色沙滩边 自然主义风光摄影，低饱和明亮色调，横向构图，前中后景分明（沙滩-渔船-岩岛-海天） 地中海风格海岸线，浅滩+清澈碧蓝海水+岩石小岛+晴朗天空 自然治愈 low_cultural_confusion no_ip_risk no_copyright_red_flag C 价值观 审核 风险 真实业务样本",
+      "country": "法国",
+      "expected_parent_id": "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c34",
+      "relevant_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c34"
+      ],
+      "hard_negative_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31"
+      ],
+      "retrieved_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c34",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c33",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c43"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 61,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c34",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c33",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c43"
+        ]
+      }
+    },
+    {
+      "query": "芭蕾舞者 新古典写实油画风格，暖色调厚涂技法，强调光影层次与织物质感 华丽歌剧院舞台（多层包厢式古典剧场，观众席空置，金色雕饰穹顶） 待人工确认价值观 AI生成标识可见（左上角'AI生成'水印） 无明确IP版权风险（非特定人物/剧目） 文化元素纯属法国语境 无日法混淆 B 价值观 审核 风险 真实业务样本",
+      "country": "法国",
+      "expected_parent_id": "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c35",
+      "relevant_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c35"
+      ],
+      "hard_negative_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31"
+      ],
+      "retrieved_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c35",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 60,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c35",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38"
+        ]
+      }
+    },
+    {
+      "query": "阳台铁艺栏杆上的 写实摄影风格，中等明度暖调，方形构图，浅景深突出主体，前中后景层次清晰 巴黎典型奥斯曼风格建筑的临街阳台，背景为虚化的城市街道与建筑群 法式乡村 自然治愈 B 价值观 审核 风险 真实业务样本",
+      "country": "法国",
+      "expected_parent_id": "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c36",
+      "relevant_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c36"
+      ],
+      "hard_negative_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31"
+      ],
+      "retrieved_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c36",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c41",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c46"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 61,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c36",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c41",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c46"
+        ]
+      }
+    },
+    {
+      "query": "巴黎街角面包店P 暖调写实插画风格，柔和光影渲染，略带怀旧感；构图方形，主体边界清晰，明度中等、饱和度中等，符合‘暖红-暖米白’主色调特征 法国巴黎典型石砌街道转角，阳光斜照下的日常街景，前中后景层次清晰：前景为自行车与盆栽，中景为店铺门面与橱窗，背景为相邻建筑立面 复古优雅 AI生成标识（左上角'AI生成'水印需在最终素材中移除） 无版权风险（未出现真实品牌/人物/IP） 无文化混淆（纯法国元素 无日式符号） 无敏感内容 A 价值观 审核 风险 真实业务样本",
+      "country": "法国",
+      "expected_parent_id": "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+      "relevant_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37"
+      ],
+      "hard_negative_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31"
+      ],
+      "retrieved_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c36",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c32"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 60,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c36",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c32"
+        ]
+      }
+    },
+    {
+      "query": "一位身着碎花连衣 印象派后期写实油画风格，厚涂笔触（impasto），暖光渲染，强调光影过渡与氛围感；构图采用方形画幅，主体居左，窗框形成天然画中画结构 乡村农舍窗景：木质窗框、阳光洒落的室内角落与开阔田野构成前中后景层次；远处可见石砌农舍、绿丘与树林，属典型的法国乡村（如诺曼底或普罗旺斯边缘）风光 法式乡村 自然治愈 无版权风险（原创风格绘画 无明确IP人物/地标） 无文化混淆（元素纯属西欧乡村语境 无日式符号） 无敏感内容（非政治/宗教/暴力主题） S 价值观 审核 风险 真实业务样本",
+      "country": "法国",
+      "expected_parent_id": "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+      "relevant_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38"
+      ],
+      "hard_negative_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31"
+      ],
+      "retrieved_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c42"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": true,
+      "failure_type": "passed_with_hard_negative_noise",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 60,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c42"
+        ]
+      }
+    },
+    {
+      "query": "女性肖像复古风格 复古拼贴（Collage Art），混合摄影、手绘撕纸、印刷文本与织物纹理；受20世纪初巴黎先锋派（如达达主义、超现实主义拼贴）影响；非日本风格 拼贴艺术构图，背景为粗麻布纹理基底，叠加多层撕纸、手写文字片段与色块 复古优雅 低版权风险（图像为合成拼贴 无明确可识别现代IP人物） 无文化混淆（明确法国符号 无日式元素） 无敏感内容（无政治/宗教/暴力） A 价值观 审核 风险 真实业务样本",
+      "country": "法国",
+      "expected_parent_id": "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c39",
+      "relevant_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c39"
+      ],
+      "hard_negative_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31"
+      ],
+      "retrieved_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c39",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+        "GLOBAL_KB_AUDIT_CULTURE_QUALITY",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 60,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c39",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+          "GLOBAL_KB_AUDIT_CULTURE_QUALITY",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38"
+        ]
+      }
+    },
+    {
+      "query": "白兔与金毛幼犬互 soft digital illustration, warm-toned anime-inspired children's book style, gentle lighting, rounded character design, shallow depth of field 阳光森林草地，有野花、红白斑点蘑菇（毒蝇伞）、树木与光斑 自然治愈 low_cultural_misappropriation no_ip_infringement_detected mushroom_symbolism_caution S 价值观 审核 风险 真实业务样本",
+      "country": "法国",
+      "expected_parent_id": "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c40",
+      "relevant_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c40"
+      ],
+      "hard_negative_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31"
+      ],
+      "retrieved_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c40",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c34",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 60,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c40",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c34",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38"
+        ]
+      }
+    },
+    {
+      "query": "旋转木马 浪漫主义夜景摄影风格，高饱和暖光照明，方形构图，前中后景层次分明，主体边界清晰 巴黎夜晚城市广场，背景为埃菲尔铁塔与典型奥斯曼风格建筑 复古优雅 D 价值观 审核 风险 真实业务样本",
+      "country": "法国",
+      "expected_parent_id": "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c41",
+      "relevant_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c41"
+      ],
+      "hard_negative_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31"
+      ],
+      "retrieved_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c41",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c36",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 60,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c41",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c36",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45"
+        ]
+      }
+    },
+    {
+      "query": "白人男孩演奏小提 印象派后期写实油画风格，厚涂笔触（impasto），暖光渲染，注重光影层次与质感表现 室内画室，阳光从右侧窗户照入，背景挂有多幅装裱画作 待人工确认价值观 low_copyright_risk no_ip_violation no_cultural_confusion A 价值观 审核 风险 真实业务样本",
+      "country": "法国",
+      "expected_parent_id": "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c42",
+      "relevant_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c42"
+      ],
+      "hard_negative_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31"
+      ],
+      "retrieved_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c42",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c35",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": true,
+      "failure_type": "passed_with_hard_negative_noise",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 63,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c42",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c35",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47"
+        ]
+      }
+    },
+    {
+      "query": "法国乡村城堡式酒 写实摄影风格，自然主义构图，暖调光影，中等明度与饱和度，方形画幅强调主体对称性与纵深感 秋季葡萄园中的石砌城堡，前景为成行葡萄藤与成熟葡萄串，中景为城堡主体，背景为起伏丘陵与晴朗天空 生活艺术 法式乡村 自然治愈 A 价值观 审核 风险 真实业务样本",
+      "country": "法国",
+      "expected_parent_id": "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c43",
+      "relevant_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c43"
+      ],
+      "hard_negative_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31"
+      ],
+      "retrieved_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c43",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c33",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c36",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 59,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c43",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c33",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c36",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38"
+        ]
+      }
+    },
+    {
+      "query": "复古白色皮卡货车 暖色调插画风，高饱和、中等明度，方形构图，清晰主体边界与前中后景层次，类似儿童绘本或旅游宣传插画 法国乡村秋日田园风光：干草堆、成熟麦田、橘子树（实为柑橘类果树）、南瓜、远山与木栅栏 法式乡村 复古优雅 低风险：无明显版权/IP元素（车辆为通用复古设计 非特定品牌商标） 文化混淆风险：低——橘子树在法国南部（如科西嘉 普罗旺斯）真实存在 非日本特有 南瓜与麦田为泛欧洲秋季意象 地域真实性：需注意——法国主产苹果/梨/葡萄 柑橘类多限南部地中海沿岸 但作为艺术化表现可接受 B 价值观 审核 风险 真实业务样本",
+      "country": "法国",
+      "expected_parent_id": "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c44",
+      "relevant_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c44"
+      ],
+      "hard_negative_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31"
+      ],
+      "retrieved_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c44",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": true,
+      "failure_type": "passed_with_hard_negative_noise",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 59,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c44",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30"
+        ]
+      }
+    },
+    {
+      "query": "马卡龙Macar 高质感美食摄影风格；暖米白/暖红主色调；中等明度、中饱和度；方形构图；主体清晰边界，强调酥皮裂纹与夹心层次 浅色背景上的多色马卡龙静物特写，前中后景层次分明，柔和布光 待人工确认价值观 AI生成标识需移除以避免版权/真实性争议 无明显文化混淆风险（马卡龙明确属法国文化符号 非日本） 需注意：若用于商业拼图产品 应确保马卡龙造型不仿冒特定品牌（如Ladurée）专属配色/纹理 D 价值观 审核 风险 真实业务样本",
+      "country": "法国",
+      "expected_parent_id": "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45",
+      "relevant_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45"
+      ],
+      "hard_negative_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31"
+      ],
+      "retrieved_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c35",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": true,
+      "failure_type": "passed_with_hard_negative_noise",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 64,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c45",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c35",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47"
+        ]
+      }
+    },
+    {
+      "query": "法式古典单人扶手 法式乡村（French Country）/ 巴黎左岸阳台美学，柔和暖调、自然光影、生活化静物构图 阳光明媚的巴黎式阳台，木质栏杆、石板地面、背景隐约可见欧式建筑立面 法式乡村 复古优雅 自然治愈 A 价值观 审核 风险 真实业务样本",
+      "country": "法国",
+      "expected_parent_id": "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c46",
+      "relevant_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c46"
+      ],
+      "hard_negative_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31"
+      ],
+      "retrieved_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c46",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c36",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 59,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c46",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c36",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38"
+        ]
+      }
+    },
+    {
+      "query": "年轻男性在阳台浇 柔和插画风，暖调写实主义，受法国印象派光影影响；构图方形，前中后景层次清晰，主体边界明确 巴黎典型奥斯曼风格公寓阳台，背景可见连排屋顶与烟囱，阳光明媚的午后 自然治愈 AI生成标识（左上角'AI生成'水印） 无版权IP风险（无知名人物/品牌/角色） 无文化混淆（明确法国场景 无日式元素） B 价值观 审核 风险 真实业务样本",
+      "country": "法国",
+      "expected_parent_id": "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+      "relevant_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47"
+      ],
+      "hard_negative_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31"
+      ],
+      "retrieved_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c35",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c36",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 65,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c35",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c36",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c38"
+        ]
+      }
+    },
+    {
+      "query": "螺旋式大理石楼梯 高饱和暖色调古典写实摄影风格，方形构图，强调光影层次与建筑细节，类似高端家居杂志封面质感 法国古典主义宫殿内部，典型18世纪凡尔赛宫风格的宏伟大厅 自然治愈 C 价值观 审核 风险 真实业务样本",
+      "country": "法国",
+      "expected_parent_id": "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c48",
+      "relevant_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c48"
+      ],
+      "hard_negative_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c31"
+      ],
+      "retrieved_parent_ids": [
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c48",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c35",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c36",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c41",
+        "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47"
+      ],
+      "hit": true,
+      "rank": 1,
+      "precision@5": 0.2,
+      "recall@5": 1.0,
+      "ndcg@5": 1.0,
+      "hard_negative_top1": false,
+      "hard_negative_in_top_k": false,
+      "failure_type": "passed",
+      "failure_reason": "",
+      "suggested_action": "",
+      "route_evidence": {
+        "bm25_has_expected": true,
+        "vector_has_expected": true,
+        "exact_has_expected": true,
+        "final_has_expected": true,
+        "merged_candidate_count": 61,
+        "eligible_chunk_count": 99,
+        "bm25_candidate_count": 30,
+        "vector_candidate_count": 30,
+        "final_parent_ids": [
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c48",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c35",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c36",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c41",
+          "FR_HARNESS_GOLD_6ba7b812-9dad-11d1-80b4-00c04fd430c47"
+        ]
+      }
+    }
+  ],
+  "decision": {
+    "status": "keep_shadow_repair",
+    "next_action": "人工复核 failed_cases；把 confirmed hard-negative 反馈沉淀为 approved_rag_patch 后再重建索引。",
+    "resume_positioning": "可写 RAG 评测与 hard-negative 治理闭环；未通过前不写价值观预测效果已稳定。"
+  }
+}

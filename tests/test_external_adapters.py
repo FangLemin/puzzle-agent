@@ -19,16 +19,42 @@ def test_mock_cms_queries_inventory_and_low_stock_tags(tmp_path):
     assert all(item["stock"] < 5 for item in low_stock.data["items"])
 
 
-def test_mcp_like_adapter_registers_cms_tools(tmp_path):
-    cms = MockCMSClient.with_synthetic_assets(tmp_path, "日本", weeks=1)
+def test_mcp_like_adapter_registers_production_tools_without_cms(tmp_path):
     adapter = MCPToolAdapter()
-    adapter.register_cms(cms)
+    adapter.register_production_tools("日本")
 
-    result = adapter.registry.call("cms.query_inventory", tag="常规_日本_猫咪鲤鱼0401")
+    tag_result = adapter.registry.call(
+        "asset.search_by_tag",
+        country="日本",
+        actor="jp_owner",
+        skill_id="regular_demand_skill",
+        operation_tag="常规_日本_猫咪鲤鱼0401",
+    )
+    vector_result = adapter.registry.call(
+        "vector.search_value_master",
+        country="日本",
+        actor="jp_owner",
+        skill_id="regular_demand_skill",
+        query="猫咪鲤鱼",
+    )
+    blocked_upload = adapter.registry.call(
+        "asset.upload_reference",
+        country="日本",
+        actor="jp_owner",
+        skill_id="trial_parse_skill",
+        file_path="ref.png",
+    )
 
-    assert result.success
-    assert result.data["tag"] == "常规_日本_猫咪鲤鱼0401"
-    assert "cms.query_inventory" in adapter.manifest()["tools"]
+    manifest_tools = adapter.manifest()["tools"]
+    assert tag_result.success
+    assert tag_result.data["operation_tag"] == "常规_日本_猫咪鲤鱼0401"
+    assert vector_result.success
+    assert vector_result.data["filters"]["country"] == "日本"
+    assert blocked_upload.error == "APPROVAL_REQUIRED"
+    assert "asset.search_by_tag" in manifest_tools
+    assert "warehouse.tag_performance" in manifest_tools
+    assert "vector.search_value_master" in manifest_tools
+    assert not any(str(name).startswith("cms.") for name in manifest_tools)
 
 
 def test_real_feishu_client_builds_official_values_append_request():
@@ -109,7 +135,7 @@ def test_real_feishu_client_omits_plain_text_attachment_fields_for_bitable():
     captured = {}
 
     def transport(method, url, headers, json_body):
-        captured.update(json_body=json_body)
+        captured["json_body"] = json_body
         return {"code": 0, "msg": "success", "data": {"records": []}}
 
     client = RealFeishuClient(
@@ -397,6 +423,89 @@ def test_real_feishu_client_uploads_local_image_before_bitable_create(tmp_path):
     assert calls[2]["json_body"]["records"] == [
         {"fields": {"图片本身": [{"file_token": "boxcn_sushi"}], "运营tag": "试新_日本_寿司0609"}}
     ]
+
+
+def test_real_feishu_client_preserves_image_extension_when_attachment_label_has_no_suffix(tmp_path):
+    image_path = tmp_path / "real-reference.png"
+    image_path.write_bytes(b"fake-png")
+    calls = []
+
+    def transport(method, url, headers, json_body):
+        calls.append({"kind": "json", "url": url, "json_body": json_body})
+        if url.endswith("/fields?page_size=200"):
+            return {"code": 0, "data": {"items": [{"field_name": "图片本身"}, {"field_name": "运营tag"}]}}
+        return {"code": 0, "msg": "success", "data": {"records": []}}
+
+    def media_transport(method, url, headers, data, files):
+        calls.append({"kind": "media", "url": url, "data": data, "files": files})
+        return {"code": 0, "data": {"file_token": "boxcn_reference"}}
+
+    client = RealFeishuClient(
+        app_id="cli_xxx",
+        app_secret="secret",
+        spreadsheet_token="app_token",
+        sheet_range="tbl_table_id",
+        access_token="t-token",
+        transport=transport,
+        media_transport=media_transport,
+        bitable_app_token="app_token",
+    )
+
+    result = client.write_table(
+        "提需表",
+        [
+            {
+                "图片本身": [{"text": "日本幼猫"}],
+                "_reference_image_path": str(image_path),
+                "_reference_image_content_type": "image/png",
+                "运营tag": "常规_日本_幼猫0715",
+            }
+        ],
+    )
+
+    assert result.success
+    assert calls[0]["kind"] == "media"
+    assert calls[0]["data"]["file_name"] == "日本幼猫.png"
+    assert calls[0]["files"]["file"][0] == "日本幼猫.png"
+    assert calls[2]["json_body"]["records"] == [
+        {"fields": {"图片本身": [{"file_token": "boxcn_reference"}], "运营tag": "常规_日本_幼猫0715"}}
+    ]
+
+
+def test_real_feishu_client_converts_request_date_for_bitable_datetime_field():
+    captured = {}
+
+    def transport(method, url, headers, json_body):
+        if url.endswith("/fields?page_size=200"):
+            return {
+                "code": 0,
+                "data": {
+                    "items": [
+                        {"field_name": "运营tag", "type": 1, "ui_type": "Text"},
+                        {"field_name": "提需日期", "type": 5, "ui_type": "DateTime"},
+                    ]
+                },
+            }
+        captured.update(json_body=json_body)
+        return {"code": 0, "msg": "success", "data": {"records": []}}
+
+    client = RealFeishuClient(
+        app_id="cli_xxx",
+        app_secret="secret",
+        spreadsheet_token="app_token",
+        sheet_range="tbl_table_id",
+        access_token="t-token",
+        transport=transport,
+        bitable_app_token="app_token",
+    )
+
+    result = client.write_table(
+        "提需表",
+        [{"运营tag": "常规_日本_幼猫0715", "提需日期": "20260715"}],
+    )
+
+    assert result.success
+    assert captured["json_body"]["records"][0]["fields"]["提需日期"] == 1784044800000
 
 
 def test_real_feishu_client_does_not_upload_unsyncable_placeholder_image(tmp_path):

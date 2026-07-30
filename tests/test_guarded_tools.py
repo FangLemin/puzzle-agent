@@ -26,26 +26,86 @@ def _valid_feishu_payload(country: str = "日本") -> dict[str, object]:
     }
 
 
-def test_tool_registry_blocks_external_write_without_approved_proposal():
-    registry = ToolRegistry()
+def test_tool_registry_blocks_external_write_without_approved_proposal(tmp_path):
+    repository = PuzzleRepository(tmp_path / "tools.db")
+    registry = ToolRegistry(repository=repository)
     registry.register(
         "feishu.write_table",
         lambda table_name, rows: {"row_count": len(rows), "table_name": table_name},
-        spec=ToolSpec("feishu.write_table", side_effect="external_write", approval_required=True),
+        spec=ToolSpec(
+            "feishu.write_table",
+            display_name="写入飞书",
+            target_system="feishu",
+            side_effect="external_write",
+            approval_required=True,
+            allowed_skill_ids=("regular_demand_skill",),
+        ),
     )
 
-    blocked = registry.call("feishu.write_table", table_name="提需表", rows=[{"国家": "日本"}])
+    blocked = registry.call(
+        "feishu.write_table",
+        country="日本",
+        actor="jp_owner",
+        skill_id="regular_demand_skill",
+        table_name="提需表",
+        rows=[{"国家": "日本"}],
+    )
     allowed = registry.call(
         "feishu.write_table",
+        country="日本",
+        actor="jp_owner",
+        skill_id="regular_demand_skill",
         table_name="提需表",
         rows=[{"国家": "日本"}],
         approved_proposal_id="gap-1",
     )
+    invocations = repository.tool_invocations(country="日本")
 
     assert not blocked.success
     assert blocked.error == "APPROVAL_REQUIRED"
     assert allowed.success
     assert allowed.data["row_count"] == 1
+    assert [item["tool_name"] for item in invocations] == ["feishu.write_table", "feishu.write_table"]
+    assert invocations[0]["proposal_id"] == "gap-1"
+    assert invocations[1]["success"] is False
+
+
+def test_tool_registry_rejects_tools_outside_skill_contract_and_audits_read_calls(tmp_path):
+    repository = PuzzleRepository(tmp_path / "tools.db")
+    registry = ToolRegistry(repository=repository)
+    registry.register(
+        "warehouse.tag_performance",
+        lambda country, operation_tag: {"country": country, "operation_tag": operation_tag, "sa_rate": 0.42},
+        spec=ToolSpec(
+            "warehouse.tag_performance",
+            display_name="Tag 表现",
+            target_system="warehouse",
+            country_scoped=True,
+            allowed_skill_ids=("regular_demand_skill",),
+        ),
+    )
+
+    rejected = registry.call(
+        "warehouse.tag_performance",
+        country="日本",
+        actor="jp_owner",
+        skill_id="trial_parse_skill",
+        operation_tag="常规_日本_猫咪0713",
+    )
+    allowed = registry.call(
+        "warehouse.tag_performance",
+        country="日本",
+        actor="jp_owner",
+        skill_id="regular_demand_skill",
+        operation_tag="常规_日本_猫咪0713",
+    )
+    invocations = repository.tool_invocations(country="日本")
+
+    assert rejected.error == "TOOL_NOT_ALLOWED"
+    assert allowed.success
+    assert invocations[0]["tool_name"] == "warehouse.tag_performance"
+    assert invocations[0]["skill_id"] == "regular_demand_skill"
+    assert invocations[1]["success"] is False
 
 
 def test_guarded_policy_blocks_missing_feishu_fields_and_country_mismatch():

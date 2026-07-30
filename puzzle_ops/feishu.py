@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+from datetime import datetime, timezone, timedelta
 import os
 from pathlib import Path
 import requests
@@ -59,6 +60,7 @@ class RealFeishuClient:
         self.media_transport = media_transport or _default_media_transport
         self._canonical_app_token = bitable_app_token or os.getenv("FEISHU_BITABLE_APP_TOKEN", "")
         self._bitable_field_names: set[str] | None = None
+        self._bitable_field_metadata: dict[str, dict[str, object]] | None = None
 
     @property
     def is_real(self) -> bool:
@@ -133,7 +135,7 @@ class RealFeishuClient:
         token = self.access_token or self._fetch_tenant_access_token()
         app_token = self._canonical_bitable_app_token()
         rows = [self._prepare_bitable_attachments(row, token) for row in rows]
-        field_names = self._remote_bitable_field_names(app_token, token)
+        remote_fields = self._remote_bitable_field_metadata(app_token, token) or None
         url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{app_token}/tables/{self.sheet_range}/records/batch_create"
         response = self.transport(
             "POST",
@@ -142,12 +144,17 @@ class RealFeishuClient:
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json; charset=utf-8",
             },
-            {"records": [{"fields": _bitable_fields(row, field_names)} for row in rows]},
+            {"records": [{"fields": _bitable_fields(row, remote_fields)} for row in rows]},
         )
         success = response.get("code") == 0
+        record_ids = tuple(
+            str(record.get("record_id") or record.get("id") or "")
+            for record in response.get("data", {}).get("records", [])
+            if isinstance(record, dict) and (record.get("record_id") or record.get("id"))
+        )
         return ToolResult(
             success,
-            {"mode": "real_bitable", "table_name": table_name, "row_count": len(rows), "response": response},
+            {"mode": "real_bitable", "table_name": table_name, "row_count": len(rows), "record_ids": record_ids, "response": response},
             f"飞书多维表格真实同步{'成功' if success else '失败'}：{table_name}",
             error=None if success else str(response),
         )
@@ -178,6 +185,13 @@ class RealFeishuClient:
     def _remote_bitable_field_names(self, app_token: str, token: str) -> set[str] | None:
         if self._bitable_field_names is not None:
             return self._bitable_field_names
+        metadata = self._remote_bitable_field_metadata(app_token, token)
+        self._bitable_field_names = set(metadata) or None
+        return self._bitable_field_names
+
+    def _remote_bitable_field_metadata(self, app_token: str, token: str) -> dict[str, dict[str, object]]:
+        if self._bitable_field_metadata is not None:
+            return self._bitable_field_metadata
         response = self.transport(
             "GET",
             f"https://open.feishu.cn/open-apis/bitable/v1/apps/{app_token}/tables/{self.sheet_range}/fields?page_size=200",
@@ -185,13 +199,15 @@ class RealFeishuClient:
             {},
         )
         items = response.get("data", {}).get("items", [])
-        names = {
-            str(item.get("field_name") or item.get("name") or "")
-            for item in items
-            if isinstance(item, dict) and (item.get("field_name") or item.get("name"))
-        }
-        self._bitable_field_names = names or None
-        return self._bitable_field_names
+        metadata = {}
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("field_name") or item.get("name") or "")
+            if name:
+                metadata[name] = item
+        self._bitable_field_metadata = metadata
+        return self._bitable_field_metadata
 
     def _prepare_bitable_attachments(self, row: dict[str, object], token: str) -> dict[str, object]:
         if row.get("_reference_image_syncable") is False:
@@ -268,8 +284,9 @@ def _ordered_fields(rows: list[dict[str, object]]) -> list[str]:
     return fields
 
 
-def _bitable_fields(row: dict[str, object], remote_field_names: set[str] | None = None) -> dict[str, object]:
+def _bitable_fields(row: dict[str, object], remote_fields: set[str] | dict[str, dict[str, object]] | None = None) -> dict[str, object]:
     fields = {}
+    remote_field_names = set(remote_fields) if remote_fields is not None else None
     for key, value in row.items():
         if key not in BITABLE_FIELD_ALLOWLIST:
             continue
@@ -277,7 +294,8 @@ def _bitable_fields(row: dict[str, object], remote_field_names: set[str] | None 
             continue
         if key == "图片本身" and not _is_bitable_attachment(value):
             continue
-        fields[key] = value
+        metadata = remote_fields.get(key, {}) if isinstance(remote_fields, dict) else {}
+        fields[key] = _bitable_value(key, value, metadata)
     return fields
 
 
@@ -285,18 +303,57 @@ def _is_bitable_attachment(value: object) -> bool:
     return isinstance(value, list) and all(isinstance(item, dict) and item.get("file_token") for item in value)
 
 
+def _bitable_value(key: str, value: object, metadata: dict[str, object]) -> object:
+    if key == "提需日期" and _is_bitable_datetime_field(metadata):
+        return _bitable_date_millis(value)
+    return value
+
+
+def _is_bitable_datetime_field(metadata: dict[str, object]) -> bool:
+    ui_type = str(metadata.get("ui_type") or "").lower()
+    return metadata.get("type") == 5 or ui_type in {"date", "datetime"}
+
+
+def _bitable_date_millis(value: object) -> object:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text:
+        return value
+    for fmt in ("%Y%m%d", "%Y-%m-%d", "%Y/%m/%d"):
+        try:
+            date_value = datetime.strptime(text, fmt).replace(tzinfo=timezone(timedelta(hours=8)))
+            return int(date_value.timestamp() * 1000)
+        except ValueError:
+            continue
+    return value
+
+
 def _attachment_file_name(row: dict[str, object], path: str) -> str:
     image_name = row.get("图片名称")
     if isinstance(image_name, str) and image_name:
-        return image_name
+        return _ensure_file_suffix(image_name, path)
     value = row.get("图片本身")
     if isinstance(value, str) and value:
-        return value
+        return _ensure_file_suffix(value, path)
     if isinstance(value, list) and value and isinstance(value[0], dict):
         text = value[0].get("text")
         if isinstance(text, str) and text:
-            return text
+            return _ensure_file_suffix(text, path)
     return Path(path).name
+
+
+def _ensure_file_suffix(file_name: str, path: str) -> str:
+    if Path(file_name).suffix:
+        return file_name
+    suffix = Path(path).suffix
+    if suffix:
+        return file_name + suffix
+    return file_name
 
 
 def _ensure_url_scheme(url: str) -> str:
@@ -316,6 +373,7 @@ BITABLE_FIELD_ALLOWLIST = {
     "张数",
     "需求等级",
     "加工方式",
+    "提需日期",
     "交付日期",
     "主体描述",
     "备注",

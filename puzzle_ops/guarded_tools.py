@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from datetime import datetime
+import hashlib
+import json
 from pathlib import Path
 from uuid import uuid4
 
@@ -151,6 +153,25 @@ class GuardedToolExecutor:
         except Exception as exc:
             result = ToolResult(False, {"proposal_id": proposal.proposal_id}, f"{proposal.action_type} 执行失败", error=str(exc))
         status = "executed" if result.success else "failed"
+        recorder = getattr(self.repository, "record_tool_invocation", None)
+        if recorder is not None:
+            recorder(
+                invocation_id=f"tool-{uuid4().hex[:10]}",
+                tool_name=proposal.action_type,
+                country=proposal.country,
+                actor=str(actor),
+                skill_id=str(proposal.payload.get("skill_id", "")),
+                source_trace_id=proposal.source_trace_id,
+                proposal_id=proposal.proposal_id,
+                side_effect="external_write",
+                input_hash=_payload_hash(proposal.payload),
+                input_preview=proposal.payload_preview,
+                output_preview=result.data,
+                success=result.success,
+                error_code=result.error or "",
+                error_message=result.message if not result.success else "",
+                latency_ms=0,
+            )
         updated = replace(
             proposal,
             guard_status=status,
@@ -230,3 +251,8 @@ def _rollback_strategy(action_type: str, payload: dict[str, object]) -> str:
 
 def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
+
+
+def _payload_hash(payload: dict[str, object]) -> str:
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()

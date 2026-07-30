@@ -1,0 +1,2811 @@
+{
+  "mode": "shadow_history_rerank",
+  "main_prediction_change_allowed": false,
+  "countries": [
+    "日本",
+    "法国"
+  ],
+  "case_count": 45,
+  "top_k": 3,
+  "metrics": {
+    "top1_changed_rate": 0.6889,
+    "legacy_top1_subject_overlap_rate": 0.0,
+    "shadow_top1_subject_overlap_rate": 0.1111
+  },
+  "cases": [
+    {
+      "sample_id": "550e8400-e29b-41d4-a716-446655440000",
+      "country": "日本",
+      "operation_tag": "常规_日本_猫咪鲤鱼0605",
+      "gold_grade": "S",
+      "gold_subject": "招财猫与锦鲤",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+        "operation_tag": "常规_日本_幼猫0608",
+        "grade": "B",
+        "js_category": "animal",
+        "subject": "日本幼猫",
+        "score": 6.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+        "operation_tag": "试新_日本_儿童节鲤鱼旗0527",
+        "grade": "S",
+        "js_category": "drawing",
+        "subject": "日本孩童 + 鲤鱼旗",
+        "score": 2.292,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+          "operation_tag": "试新_日本_儿童节鲤鱼旗0527",
+          "grade": "S",
+          "js_category": "drawing",
+          "subject": "日本孩童 + 鲤鱼旗",
+          "score": 2.292,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c26",
+          "operation_tag": "常规_日本_金阁寺0623",
+          "grade": "A",
+          "js_category": "travel",
+          "subject": "京都金阁寺",
+          "score": 2.258,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c28",
+          "operation_tag": "常规_日本_樱花大道0625",
+          "grade": "A",
+          "js_category": "travel",
+          "subject": "樱花大道",
+          "score": 2.241,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+      "country": "日本",
+      "operation_tag": "常规_日本_天桥立0421",
+      "gold_grade": "A",
+      "gold_subject": "游客",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c9",
+        "operation_tag": "常规_日本_樱花列车0605",
+        "grade": "A",
+        "js_category": "travel",
+        "subject": "樱花列车",
+        "score": 7.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c26",
+        "operation_tag": "常规_日本_金阁寺0623",
+        "grade": "A",
+        "js_category": "travel",
+        "subject": "京都金阁寺",
+        "score": 3.258,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c26",
+          "operation_tag": "常规_日本_金阁寺0623",
+          "grade": "A",
+          "js_category": "travel",
+          "subject": "京都金阁寺",
+          "score": 3.258,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c28",
+          "operation_tag": "常规_日本_樱花大道0625",
+          "grade": "A",
+          "js_category": "travel",
+          "subject": "樱花大道",
+          "score": 3.241,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c27",
+          "operation_tag": "常规_日本_清水寺0624",
+          "grade": "A",
+          "js_category": "travel",
+          "subject": "京都清水寺",
+          "score": 3.174,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+      "country": "日本",
+      "operation_tag": "常规_日本_寿司0521",
+      "gold_grade": "B",
+      "gold_subject": "寿司拼盘",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c24",
+        "operation_tag": "常规_日本_寿喜锅0621",
+        "grade": "B",
+        "js_category": "food",
+        "subject": "日式寿喜锅美食",
+        "score": 6.5,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c24",
+        "operation_tag": "常规_日本_寿喜锅0621",
+        "grade": "B",
+        "js_category": "food",
+        "subject": "日式寿喜锅美食",
+        "score": 2.0897,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": false,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c24",
+          "operation_tag": "常规_日本_寿喜锅0621",
+          "grade": "B",
+          "js_category": "food",
+          "subject": "日式寿喜锅美食",
+          "score": 2.0897,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+          "operation_tag": "常规_日本_茶艺美女0417",
+          "grade": "B",
+          "js_category": "drawing",
+          "subject": "日本茶艺美女",
+          "score": 1.143,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c13",
+          "operation_tag": "常规_日本_二木屐0510",
+          "grade": "B",
+          "js_category": "objects",
+          "subject": "日式庭院摆放木屐",
+          "score": 1.115,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b811-9dad-11d1-80b4-00c04fd430c8",
+      "country": "日本",
+      "operation_tag": "试新_日本_怀旧场景0408",
+      "gold_grade": "C",
+      "gold_subject": "穿水手服的日本女",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+        "operation_tag": "常规_日本_街道0622",
+        "grade": "C",
+        "js_category": "travel",
+        "subject": "东京浅草寺",
+        "score": 6.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+        "operation_tag": "常规_日本_街道0622",
+        "grade": "C",
+        "js_category": "travel",
+        "subject": "东京浅草寺",
+        "score": 3.049,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": false,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+          "operation_tag": "常规_日本_街道0622",
+          "grade": "C",
+          "js_category": "travel",
+          "subject": "东京浅草寺",
+          "score": 3.049,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c12",
+          "operation_tag": "试新_日本_门球0509",
+          "grade": "C",
+          "js_category": "objects",
+          "subject": "日本门球 gateball",
+          "score": 2.049,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+          "operation_tag": "常规_日本_抹茶0405",
+          "grade": "D",
+          "js_category": "food",
+          "subject": "抹茶",
+          "score": 2.0214,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+      "country": "日本",
+      "operation_tag": "常规_日本_抹茶0405",
+      "gold_grade": "D",
+      "gold_subject": "抹茶",
+      "legacy_top": {
+        "image_id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+        "operation_tag": "常规_日本_寿司0521",
+        "grade": "B",
+        "js_category": "food",
+        "subject": "寿司",
+        "score": 6.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c12",
+        "operation_tag": "试新_日本_门球0509",
+        "grade": "C",
+        "js_category": "objects",
+        "subject": "日本门球 gateball",
+        "score": 2.049,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c12",
+          "operation_tag": "试新_日本_门球0509",
+          "grade": "C",
+          "js_category": "objects",
+          "subject": "日本门球 gateball",
+          "score": 2.049,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+          "operation_tag": "常规_日本_街道0622",
+          "grade": "C",
+          "js_category": "travel",
+          "subject": "东京浅草寺",
+          "score": 2.049,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b811-9dad-11d1-80b4-00c04fd430c8",
+          "operation_tag": "试新_日本_怀旧场景0408",
+          "grade": "C",
+          "js_category": "travel",
+          "subject": "景观",
+          "score": 2.0468,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c9",
+      "country": "日本",
+      "operation_tag": "常规_日本_樱花列车0605",
+      "gold_grade": "A",
+      "gold_subject": "日本通勤电车JR",
+      "legacy_top": {
+        "image_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "operation_tag": "常规_日本_天桥立0421",
+        "grade": "A",
+        "js_category": "travel",
+        "subject": "景观",
+        "score": 7.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c26",
+        "operation_tag": "常规_日本_金阁寺0623",
+        "grade": "A",
+        "js_category": "travel",
+        "subject": "京都金阁寺",
+        "score": 3.258,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c26",
+          "operation_tag": "常规_日本_金阁寺0623",
+          "grade": "A",
+          "js_category": "travel",
+          "subject": "京都金阁寺",
+          "score": 3.258,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c28",
+          "operation_tag": "常规_日本_樱花大道0625",
+          "grade": "A",
+          "js_category": "travel",
+          "subject": "樱花大道",
+          "score": 3.241,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+          "operation_tag": "常规_日本_天桥立0421",
+          "grade": "A",
+          "js_category": "travel",
+          "subject": "景观",
+          "score": 3.2109,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c10",
+      "country": "日本",
+      "operation_tag": "常规_日本_二次元动漫少女0607",
+      "gold_grade": "S",
+      "gold_subject": "年轻日本女性",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c15",
+        "operation_tag": "常规_日本_传统浴袍美女0510",
+        "grade": "A",
+        "js_category": "drawing",
+        "subject": "和服浴衣传统美女",
+        "score": 7.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+        "operation_tag": "试新_日本_儿童节鲤鱼旗0527",
+        "grade": "S",
+        "js_category": "drawing",
+        "subject": "日本孩童 + 鲤鱼旗",
+        "score": 3.292,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+          "operation_tag": "试新_日本_儿童节鲤鱼旗0527",
+          "grade": "S",
+          "js_category": "drawing",
+          "subject": "日本孩童 + 鲤鱼旗",
+          "score": 3.292,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c15",
+          "operation_tag": "常规_日本_传统浴袍美女0510",
+          "grade": "A",
+          "js_category": "drawing",
+          "subject": "和服浴衣传统美女",
+          "score": 3.228,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c22",
+          "operation_tag": "常规_日本_弓道动漫少女0619",
+          "grade": "A",
+          "js_category": "drawing",
+          "subject": "动漫日本弓道人物",
+          "score": 3.188,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+      "country": "日本",
+      "operation_tag": "常规_日本_幼猫0608",
+      "gold_grade": "B",
+      "gold_subject": "橘白相间短毛幼猫",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c23",
+        "operation_tag": "常规_日本_翻包猫咪0620",
+        "grade": "B",
+        "js_category": "animal",
+        "subject": "海边背包与猫咪",
+        "score": 6.5,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "550e8400-e29b-41d4-a716-446655440000",
+        "operation_tag": "常规_日本_猫咪鲤鱼0605",
+        "grade": "S",
+        "js_category": "animal",
+        "subject": "猫",
+        "score": 9.2845,
+        "subject_overlap": 1.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 1.0,
+      "shadow_top_k": [
+        {
+          "image_id": "550e8400-e29b-41d4-a716-446655440000",
+          "operation_tag": "常规_日本_猫咪鲤鱼0605",
+          "grade": "S",
+          "js_category": "animal",
+          "subject": "猫",
+          "score": 9.2845,
+          "subject_overlap": 1.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c23",
+          "operation_tag": "常规_日本_翻包猫咪0620",
+          "grade": "B",
+          "js_category": "animal",
+          "subject": "海边背包与猫咪",
+          "score": 2.094,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+          "operation_tag": "常规_日本_茶艺美女0417",
+          "grade": "B",
+          "js_category": "drawing",
+          "subject": "日本茶艺美女",
+          "score": 1.143,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c12",
+      "country": "日本",
+      "operation_tag": "试新_日本_门球0509",
+      "gold_grade": "C",
+      "gold_subject": "两位老年男性正在",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c13",
+        "operation_tag": "常规_日本_二木屐0510",
+        "grade": "B",
+        "js_category": "objects",
+        "subject": "日式庭院摆放木屐",
+        "score": 5.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+        "operation_tag": "常规_日本_街道0622",
+        "grade": "C",
+        "js_category": "travel",
+        "subject": "东京浅草寺",
+        "score": 2.049,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+          "operation_tag": "常规_日本_街道0622",
+          "grade": "C",
+          "js_category": "travel",
+          "subject": "东京浅草寺",
+          "score": 2.049,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b811-9dad-11d1-80b4-00c04fd430c8",
+          "operation_tag": "试新_日本_怀旧场景0408",
+          "grade": "C",
+          "js_category": "travel",
+          "subject": "景观",
+          "score": 2.0468,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+          "operation_tag": "常规_日本_抹茶0405",
+          "grade": "D",
+          "js_category": "food",
+          "subject": "抹茶",
+          "score": 2.0214,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c13",
+      "country": "日本",
+      "operation_tag": "常规_日本_二木屐0510",
+      "gold_grade": "B",
+      "gold_subject": "黑色漆面高台草履",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c19",
+        "operation_tag": "常规_日本_招财猫0429",
+        "grade": "B",
+        "js_category": "objects",
+        "subject": "日式庭院招财猫",
+        "score": 6.5,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c19",
+        "operation_tag": "常规_日本_招财猫0429",
+        "grade": "B",
+        "js_category": "objects",
+        "subject": "日式庭院招财猫",
+        "score": 2.099,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": false,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c19",
+          "operation_tag": "常规_日本_招财猫0429",
+          "grade": "B",
+          "js_category": "objects",
+          "subject": "日式庭院招财猫",
+          "score": 2.099,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c20",
+          "operation_tag": "常规_日本_禅意茶具0503",
+          "grade": "A",
+          "js_category": "objects",
+          "subject": "日式禅意茶具",
+          "score": 1.163,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+          "operation_tag": "常规_日本_茶艺美女0417",
+          "grade": "B",
+          "js_category": "drawing",
+          "subject": "日本茶艺美女",
+          "score": 1.143,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+      "country": "日本",
+      "operation_tag": "常规_日本_茶艺美女0417",
+      "gold_grade": "B",
+      "gold_subject": "抹茶",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c10",
+        "operation_tag": "常规_日本_二次元动漫少女0607",
+        "grade": "S",
+        "js_category": "drawing",
+        "subject": "二次元动漫都市女性",
+        "score": 6.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+        "operation_tag": "常规_日本_抹茶0405",
+        "grade": "D",
+        "js_category": "food",
+        "subject": "抹茶",
+        "score": 14.0214,
+        "subject_overlap": 1.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 1.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+          "operation_tag": "常规_日本_抹茶0405",
+          "grade": "D",
+          "js_category": "food",
+          "subject": "抹茶",
+          "score": 14.0214,
+          "subject_overlap": 1.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+          "operation_tag": "试新_日本_儿童节鲤鱼旗0527",
+          "grade": "S",
+          "js_category": "drawing",
+          "subject": "日本孩童 + 鲤鱼旗",
+          "score": 1.292,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c15",
+          "operation_tag": "常规_日本_传统浴袍美女0510",
+          "grade": "A",
+          "js_category": "drawing",
+          "subject": "和服浴衣传统美女",
+          "score": 1.228,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c15",
+      "country": "日本",
+      "operation_tag": "常规_日本_传统浴袍美女0510",
+      "gold_grade": "A",
+      "gold_subject": "日本女性身着樱花",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c10",
+        "operation_tag": "常规_日本_二次元动漫少女0607",
+        "grade": "S",
+        "js_category": "drawing",
+        "subject": "二次元动漫都市女性",
+        "score": 7.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+        "operation_tag": "试新_日本_儿童节鲤鱼旗0527",
+        "grade": "S",
+        "js_category": "drawing",
+        "subject": "日本孩童 + 鲤鱼旗",
+        "score": 3.292,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+          "operation_tag": "试新_日本_儿童节鲤鱼旗0527",
+          "grade": "S",
+          "js_category": "drawing",
+          "subject": "日本孩童 + 鲤鱼旗",
+          "score": 3.292,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c22",
+          "operation_tag": "常规_日本_弓道动漫少女0619",
+          "grade": "A",
+          "js_category": "drawing",
+          "subject": "动漫日本弓道人物",
+          "score": 3.188,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c10",
+          "operation_tag": "常规_日本_二次元动漫少女0607",
+          "grade": "S",
+          "js_category": "drawing",
+          "subject": "二次元动漫都市女性",
+          "score": 3.187,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+      "country": "日本",
+      "operation_tag": "试新_日本_儿童节鲤鱼旗0527",
+      "gold_grade": "S",
+      "gold_subject": "日本小女孩",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c17",
+        "operation_tag": "试新_日本_儿童节团圆0530",
+        "grade": "A",
+        "js_category": "drawing",
+        "subject": "动漫风日本家庭团聚",
+        "score": 7.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c15",
+        "operation_tag": "常规_日本_传统浴袍美女0510",
+        "grade": "A",
+        "js_category": "drawing",
+        "subject": "和服浴衣传统美女",
+        "score": 3.228,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c15",
+          "operation_tag": "常规_日本_传统浴袍美女0510",
+          "grade": "A",
+          "js_category": "drawing",
+          "subject": "和服浴衣传统美女",
+          "score": 3.228,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c22",
+          "operation_tag": "常规_日本_弓道动漫少女0619",
+          "grade": "A",
+          "js_category": "drawing",
+          "subject": "动漫日本弓道人物",
+          "score": 3.188,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c10",
+          "operation_tag": "常规_日本_二次元动漫少女0607",
+          "grade": "S",
+          "js_category": "drawing",
+          "subject": "二次元动漫都市女性",
+          "score": 3.187,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c17",
+      "country": "日本",
+      "operation_tag": "试新_日本_儿童节团圆0530",
+      "gold_grade": "A",
+      "gold_subject": "三代同堂日式家庭",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+        "operation_tag": "试新_日本_儿童节鲤鱼旗0527",
+        "grade": "S",
+        "js_category": "drawing",
+        "subject": "日本孩童 + 鲤鱼旗",
+        "score": 7.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+        "operation_tag": "试新_日本_儿童节鲤鱼旗0527",
+        "grade": "S",
+        "js_category": "drawing",
+        "subject": "日本孩童 + 鲤鱼旗",
+        "score": 3.292,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": false,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+          "operation_tag": "试新_日本_儿童节鲤鱼旗0527",
+          "grade": "S",
+          "js_category": "drawing",
+          "subject": "日本孩童 + 鲤鱼旗",
+          "score": 3.292,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c15",
+          "operation_tag": "常规_日本_传统浴袍美女0510",
+          "grade": "A",
+          "js_category": "drawing",
+          "subject": "和服浴衣传统美女",
+          "score": 3.228,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c22",
+          "operation_tag": "常规_日本_弓道动漫少女0619",
+          "grade": "A",
+          "js_category": "drawing",
+          "subject": "动漫日本弓道人物",
+          "score": 3.188,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c18",
+      "country": "日本",
+      "operation_tag": "试新_日本_黄金周郊游0426",
+      "gold_grade": "D",
+      "gold_subject": "五名身穿日本水手",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+        "operation_tag": "试新_日本_儿童节鲤鱼旗0527",
+        "grade": "S",
+        "js_category": "drawing",
+        "subject": "日本孩童 + 鲤鱼旗",
+        "score": 6.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c12",
+        "operation_tag": "试新_日本_门球0509",
+        "grade": "C",
+        "js_category": "objects",
+        "subject": "日本门球 gateball",
+        "score": 2.049,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c12",
+          "operation_tag": "试新_日本_门球0509",
+          "grade": "C",
+          "js_category": "objects",
+          "subject": "日本门球 gateball",
+          "score": 2.049,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+          "operation_tag": "常规_日本_街道0622",
+          "grade": "C",
+          "js_category": "travel",
+          "subject": "东京浅草寺",
+          "score": 2.049,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b811-9dad-11d1-80b4-00c04fd430c8",
+          "operation_tag": "试新_日本_怀旧场景0408",
+          "grade": "C",
+          "js_category": "travel",
+          "subject": "景观",
+          "score": 2.0468,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c19",
+      "country": "日本",
+      "operation_tag": "常规_日本_招财猫0429",
+      "gold_grade": "B",
+      "gold_subject": "招财猫Manek",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c13",
+        "operation_tag": "常规_日本_二木屐0510",
+        "grade": "B",
+        "js_category": "objects",
+        "subject": "日式庭院摆放木屐",
+        "score": 6.5,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "550e8400-e29b-41d4-a716-446655440000",
+        "operation_tag": "常规_日本_猫咪鲤鱼0605",
+        "grade": "S",
+        "js_category": "animal",
+        "subject": "猫",
+        "score": 8.2845,
+        "subject_overlap": 1.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 1.0,
+      "shadow_top_k": [
+        {
+          "image_id": "550e8400-e29b-41d4-a716-446655440000",
+          "operation_tag": "常规_日本_猫咪鲤鱼0605",
+          "grade": "S",
+          "js_category": "animal",
+          "subject": "猫",
+          "score": 8.2845,
+          "subject_overlap": 1.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c13",
+          "operation_tag": "常规_日本_二木屐0510",
+          "grade": "B",
+          "js_category": "objects",
+          "subject": "日式庭院摆放木屐",
+          "score": 2.115,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c20",
+          "operation_tag": "常规_日本_禅意茶具0503",
+          "grade": "A",
+          "js_category": "objects",
+          "subject": "日式禅意茶具",
+          "score": 1.163,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c20",
+      "country": "日本",
+      "operation_tag": "常规_日本_禅意茶具0503",
+      "gold_grade": "A",
+      "gold_subject": "抹茶",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c13",
+        "operation_tag": "常规_日本_二木屐0510",
+        "grade": "B",
+        "js_category": "objects",
+        "subject": "日式庭院摆放木屐",
+        "score": 6.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+        "operation_tag": "常规_日本_抹茶0405",
+        "grade": "D",
+        "js_category": "food",
+        "subject": "抹茶",
+        "score": 14.0214,
+        "subject_overlap": 1.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 1.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+          "operation_tag": "常规_日本_抹茶0405",
+          "grade": "D",
+          "js_category": "food",
+          "subject": "抹茶",
+          "score": 14.0214,
+          "subject_overlap": 1.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+          "operation_tag": "试新_日本_儿童节鲤鱼旗0527",
+          "grade": "S",
+          "js_category": "drawing",
+          "subject": "日本孩童 + 鲤鱼旗",
+          "score": 2.292,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "550e8400-e29b-41d4-a716-446655440000",
+          "operation_tag": "常规_日本_猫咪鲤鱼0605",
+          "grade": "S",
+          "js_category": "animal",
+          "subject": "猫",
+          "score": 2.2845,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c21",
+      "country": "日本",
+      "operation_tag": "常规_日本_花卉0519",
+      "gold_grade": "A",
+      "gold_subject": "樱花白百合紫鸢尾",
+      "legacy_top": {
+        "image_id": "550e8400-e29b-41d4-a716-446655440000",
+        "operation_tag": "常规_日本_猫咪鲤鱼0605",
+        "grade": "S",
+        "js_category": "animal",
+        "subject": "猫",
+        "score": 3.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+        "operation_tag": "试新_日本_儿童节鲤鱼旗0527",
+        "grade": "S",
+        "js_category": "drawing",
+        "subject": "日本孩童 + 鲤鱼旗",
+        "score": 2.292,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+          "operation_tag": "试新_日本_儿童节鲤鱼旗0527",
+          "grade": "S",
+          "js_category": "drawing",
+          "subject": "日本孩童 + 鲤鱼旗",
+          "score": 2.292,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "550e8400-e29b-41d4-a716-446655440000",
+          "operation_tag": "常规_日本_猫咪鲤鱼0605",
+          "grade": "S",
+          "js_category": "animal",
+          "subject": "猫",
+          "score": 2.2845,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c26",
+          "operation_tag": "常规_日本_金阁寺0623",
+          "grade": "A",
+          "js_category": "travel",
+          "subject": "京都金阁寺",
+          "score": 2.258,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c22",
+      "country": "日本",
+      "operation_tag": "常规_日本_弓道动漫少女0619",
+      "gold_grade": "A",
+      "gold_subject": "日本女性弓道练习",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c10",
+        "operation_tag": "常规_日本_二次元动漫少女0607",
+        "grade": "S",
+        "js_category": "drawing",
+        "subject": "二次元动漫都市女性",
+        "score": 7.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+        "operation_tag": "试新_日本_儿童节鲤鱼旗0527",
+        "grade": "S",
+        "js_category": "drawing",
+        "subject": "日本孩童 + 鲤鱼旗",
+        "score": 3.292,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c16",
+          "operation_tag": "试新_日本_儿童节鲤鱼旗0527",
+          "grade": "S",
+          "js_category": "drawing",
+          "subject": "日本孩童 + 鲤鱼旗",
+          "score": 3.292,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c15",
+          "operation_tag": "常规_日本_传统浴袍美女0510",
+          "grade": "A",
+          "js_category": "drawing",
+          "subject": "和服浴衣传统美女",
+          "score": 3.228,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c10",
+          "operation_tag": "常规_日本_二次元动漫少女0607",
+          "grade": "S",
+          "js_category": "drawing",
+          "subject": "二次元动漫都市女性",
+          "score": 3.187,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c23",
+      "country": "日本",
+      "operation_tag": "常规_日本_翻包猫咪0620",
+      "gold_grade": "B",
+      "gold_subject": "橘白相间的家猫日",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+        "operation_tag": "常规_日本_幼猫0608",
+        "grade": "B",
+        "js_category": "animal",
+        "subject": "日本幼猫",
+        "score": 6.5,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "550e8400-e29b-41d4-a716-446655440000",
+        "operation_tag": "常规_日本_猫咪鲤鱼0605",
+        "grade": "S",
+        "js_category": "animal",
+        "subject": "猫",
+        "score": 9.2845,
+        "subject_overlap": 1.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 1.0,
+      "shadow_top_k": [
+        {
+          "image_id": "550e8400-e29b-41d4-a716-446655440000",
+          "operation_tag": "常规_日本_猫咪鲤鱼0605",
+          "grade": "S",
+          "js_category": "animal",
+          "subject": "猫",
+          "score": 9.2845,
+          "subject_overlap": 1.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c11",
+          "operation_tag": "常规_日本_幼猫0608",
+          "grade": "B",
+          "js_category": "animal",
+          "subject": "日本幼猫",
+          "score": 2.084,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+          "operation_tag": "常规_日本_茶艺美女0417",
+          "grade": "B",
+          "js_category": "drawing",
+          "subject": "日本茶艺美女",
+          "score": 1.143,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c24",
+      "country": "日本",
+      "operation_tag": "常规_日本_寿喜锅0621",
+      "gold_grade": "B",
+      "gold_subject": "日式寿喜烧Suk",
+      "legacy_top": {
+        "image_id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+        "operation_tag": "常规_日本_寿司0521",
+        "grade": "B",
+        "js_category": "food",
+        "subject": "寿司",
+        "score": 6.5,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+        "operation_tag": "常规_日本_寿司0521",
+        "grade": "B",
+        "js_category": "food",
+        "subject": "寿司",
+        "score": 2.1097,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": false,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+          "operation_tag": "常规_日本_寿司0521",
+          "grade": "B",
+          "js_category": "food",
+          "subject": "寿司",
+          "score": 2.1097,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c14",
+          "operation_tag": "常规_日本_茶艺美女0417",
+          "grade": "B",
+          "js_category": "drawing",
+          "subject": "日本茶艺美女",
+          "score": 1.143,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c13",
+          "operation_tag": "常规_日本_二木屐0510",
+          "grade": "B",
+          "js_category": "objects",
+          "subject": "日式庭院摆放木屐",
+          "score": 1.115,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c25",
+      "country": "日本",
+      "operation_tag": "常规_日本_街道0622",
+      "gold_grade": "C",
+      "gold_subject": "游客",
+      "legacy_top": {
+        "image_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "operation_tag": "常规_日本_天桥立0421",
+        "grade": "A",
+        "js_category": "travel",
+        "subject": "景观",
+        "score": 6.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b811-9dad-11d1-80b4-00c04fd430c8",
+        "operation_tag": "试新_日本_怀旧场景0408",
+        "grade": "C",
+        "js_category": "travel",
+        "subject": "景观",
+        "score": 3.0468,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b811-9dad-11d1-80b4-00c04fd430c8",
+          "operation_tag": "试新_日本_怀旧场景0408",
+          "grade": "C",
+          "js_category": "travel",
+          "subject": "景观",
+          "score": 3.0468,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c12",
+          "operation_tag": "试新_日本_门球0509",
+          "grade": "C",
+          "js_category": "objects",
+          "subject": "日本门球 gateball",
+          "score": 2.049,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c8",
+          "operation_tag": "常规_日本_抹茶0405",
+          "grade": "D",
+          "js_category": "food",
+          "subject": "抹茶",
+          "score": 2.0214,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c26",
+      "country": "日本",
+      "operation_tag": "常规_日本_金阁寺0623",
+      "gold_grade": "A",
+      "gold_subject": "金阁寺鹿苑寺舍利",
+      "legacy_top": {
+        "image_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "operation_tag": "常规_日本_天桥立0421",
+        "grade": "A",
+        "js_category": "travel",
+        "subject": "景观",
+        "score": 7.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c28",
+        "operation_tag": "常规_日本_樱花大道0625",
+        "grade": "A",
+        "js_category": "travel",
+        "subject": "樱花大道",
+        "score": 3.241,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c28",
+          "operation_tag": "常规_日本_樱花大道0625",
+          "grade": "A",
+          "js_category": "travel",
+          "subject": "樱花大道",
+          "score": 3.241,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+          "operation_tag": "常规_日本_天桥立0421",
+          "grade": "A",
+          "js_category": "travel",
+          "subject": "景观",
+          "score": 3.2109,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c27",
+          "operation_tag": "常规_日本_清水寺0624",
+          "grade": "A",
+          "js_category": "travel",
+          "subject": "京都清水寺",
+          "score": 3.174,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c27",
+      "country": "日本",
+      "operation_tag": "常规_日本_清水寺0624",
+      "gold_grade": "A",
+      "gold_subject": "严岛神社Itsu",
+      "legacy_top": {
+        "image_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "operation_tag": "常规_日本_天桥立0421",
+        "grade": "A",
+        "js_category": "travel",
+        "subject": "景观",
+        "score": 7.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c26",
+        "operation_tag": "常规_日本_金阁寺0623",
+        "grade": "A",
+        "js_category": "travel",
+        "subject": "京都金阁寺",
+        "score": 3.258,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c26",
+          "operation_tag": "常规_日本_金阁寺0623",
+          "grade": "A",
+          "js_category": "travel",
+          "subject": "京都金阁寺",
+          "score": 3.258,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c28",
+          "operation_tag": "常规_日本_樱花大道0625",
+          "grade": "A",
+          "js_category": "travel",
+          "subject": "樱花大道",
+          "score": 3.241,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+          "operation_tag": "常规_日本_天桥立0421",
+          "grade": "A",
+          "js_category": "travel",
+          "subject": "景观",
+          "score": 3.2109,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c28",
+      "country": "日本",
+      "operation_tag": "常规_日本_樱花大道0625",
+      "gold_grade": "A",
+      "gold_subject": "樱花树下的传统日",
+      "legacy_top": {
+        "image_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "operation_tag": "常规_日本_天桥立0421",
+        "grade": "A",
+        "js_category": "travel",
+        "subject": "景观",
+        "score": 7.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c26",
+        "operation_tag": "常规_日本_金阁寺0623",
+        "grade": "A",
+        "js_category": "travel",
+        "subject": "京都金阁寺",
+        "score": 3.258,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c26",
+          "operation_tag": "常规_日本_金阁寺0623",
+          "grade": "A",
+          "js_category": "travel",
+          "subject": "京都金阁寺",
+          "score": 3.258,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+          "operation_tag": "常规_日本_天桥立0421",
+          "grade": "A",
+          "js_category": "travel",
+          "subject": "景观",
+          "score": 3.2109,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c27",
+          "operation_tag": "常规_日本_清水寺0624",
+          "grade": "A",
+          "js_category": "travel",
+          "subject": "京都清水寺",
+          "score": 3.174,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+      "country": "法国",
+      "operation_tag": "试新_法国_赛车0526",
+      "gold_grade": "B",
+      "gold_subject": "F1赛车Haas",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c35",
+        "operation_tag": "试新_法国_芭蕾舞女0531",
+        "grade": "B",
+        "js_category": "drawing",
+        "subject": "芭蕾舞者",
+        "score": 2.5,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c36",
+        "operation_tag": "常规_法国_铁艺窗台0423",
+        "grade": "B",
+        "js_category": "travel",
+        "subject": "阳台铁艺栏杆上的",
+        "score": 1.165,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c36",
+          "operation_tag": "常规_法国_铁艺窗台0423",
+          "grade": "B",
+          "js_category": "travel",
+          "subject": "阳台铁艺栏杆上的",
+          "score": 1.165,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c44",
+          "operation_tag": "常规_法国_丰收皮卡0131",
+          "grade": "B",
+          "js_category": "travel",
+          "subject": "复古白色皮卡货车",
+          "score": 1.124,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+          "operation_tag": "常规_法国_生活帅哥0427",
+          "grade": "B",
+          "js_category": "drawing",
+          "subject": "年轻男性在阳台浇",
+          "score": 1.089,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+      "country": "法国",
+      "operation_tag": "常规_法国_德国巴伐利亚服饰0421",
+      "gold_grade": "A",
+      "gold_subject": "男性身着传统巴伐",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+        "operation_tag": "试新_法国_乡村女性0531",
+        "grade": "S",
+        "js_category": "drawing",
+        "subject": "一位身着碎花连衣",
+        "score": 6.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+        "operation_tag": "试新_法国_乡村女性0531",
+        "grade": "S",
+        "js_category": "drawing",
+        "subject": "一位身着碎花连衣",
+        "score": 3.245,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": false,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+          "operation_tag": "试新_法国_乡村女性0531",
+          "grade": "S",
+          "js_category": "drawing",
+          "subject": "一位身着碎花连衣",
+          "score": 3.245,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c42",
+          "operation_tag": "试新_法国_艺术小孩0521",
+          "grade": "A",
+          "js_category": "drawing",
+          "subject": "白人男孩演奏小提",
+          "score": 3.189,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c39",
+          "operation_tag": "常规_法国_材质拼贴0421",
+          "grade": "A",
+          "js_category": "handcrafted",
+          "subject": "女性肖像复古风格",
+          "score": 2.227,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+      "country": "法国",
+      "operation_tag": "常规_法国_牛排0528",
+      "gold_grade": "C",
+      "gold_subject": "切片牛排配土豆泥",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c45",
+        "operation_tag": "常规_法国_马卡龙0423",
+        "grade": "D",
+        "js_category": "food",
+        "subject": "马卡龙Macar",
+        "score": 7.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c45",
+        "operation_tag": "常规_法国_马卡龙0423",
+        "grade": "D",
+        "js_category": "food",
+        "subject": "马卡龙Macar",
+        "score": 3.027,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": false,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c45",
+          "operation_tag": "常规_法国_马卡龙0423",
+          "grade": "D",
+          "js_category": "food",
+          "subject": "马卡龙Macar",
+          "score": 3.027,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c48",
+          "operation_tag": "常规_法国_楼梯0419",
+          "grade": "C",
+          "js_category": "home",
+          "subject": "螺旋式大理石楼梯",
+          "score": 2.042,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c34",
+          "operation_tag": "常规_法国_海边0531",
+          "grade": "C",
+          "js_category": "travel",
+          "subject": "停泊在白色沙滩边",
+          "score": 2.031,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+      "country": "法国",
+      "operation_tag": "常规_法国_海边湖边餐厅0329",
+      "gold_grade": "S",
+      "gold_subject": "海滨餐厅餐桌上的",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+        "operation_tag": "常规_法国_店铺0421",
+        "grade": "A",
+        "js_category": "travel",
+        "subject": "巴黎街角面包店P",
+        "score": 7.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c33",
+        "operation_tag": "试新_法国_动态场景0530",
+        "grade": "A",
+        "js_category": "travel",
+        "subject": "石砌茅草屋",
+        "score": 3.213,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c33",
+          "operation_tag": "试新_法国_动态场景0530",
+          "grade": "A",
+          "js_category": "travel",
+          "subject": "石砌茅草屋",
+          "score": 3.213,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+          "operation_tag": "常规_法国_店铺0421",
+          "grade": "A",
+          "js_category": "travel",
+          "subject": "巴黎街角面包店P",
+          "score": 3.198,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+          "operation_tag": "试新_法国_乡村女性0531",
+          "grade": "S",
+          "js_category": "drawing",
+          "subject": "一位身着碎花连衣",
+          "score": 2.245,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c33",
+      "country": "法国",
+      "operation_tag": "试新_法国_动态场景0530",
+      "gold_grade": "A",
+      "gold_subject": "石砌茅草屋",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+        "operation_tag": "常规_法国_海边湖边餐厅0329",
+        "grade": "S",
+        "js_category": "travel",
+        "subject": "海滨餐厅餐桌上的",
+        "score": 6.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+        "operation_tag": "常规_法国_海边湖边餐厅0329",
+        "grade": "S",
+        "js_category": "travel",
+        "subject": "海滨餐厅餐桌上的",
+        "score": 3.219,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": false,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+          "operation_tag": "常规_法国_海边湖边餐厅0329",
+          "grade": "S",
+          "js_category": "travel",
+          "subject": "海滨餐厅餐桌上的",
+          "score": 3.219,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+          "operation_tag": "常规_法国_店铺0421",
+          "grade": "A",
+          "js_category": "travel",
+          "subject": "巴黎街角面包店P",
+          "score": 3.198,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+          "operation_tag": "试新_法国_乡村女性0531",
+          "grade": "S",
+          "js_category": "drawing",
+          "subject": "一位身着碎花连衣",
+          "score": 2.245,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c34",
+      "country": "法国",
+      "operation_tag": "常规_法国_海边0531",
+      "gold_grade": "C",
+      "gold_subject": "停泊在白色沙滩边",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+        "operation_tag": "常规_法国_海边湖边餐厅0329",
+        "grade": "S",
+        "js_category": "travel",
+        "subject": "海滨餐厅餐桌上的",
+        "score": 6.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c41",
+        "operation_tag": "试新_法国_旋转木马0521",
+        "grade": "D",
+        "js_category": "travel",
+        "subject": "旋转木马",
+        "score": 3.016,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c41",
+          "operation_tag": "试新_法国_旋转木马0521",
+          "grade": "D",
+          "js_category": "travel",
+          "subject": "旋转木马",
+          "score": 3.016,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+          "operation_tag": "常规_法国_牛排0528",
+          "grade": "C",
+          "js_category": "food",
+          "subject": "切片牛排配土豆泥",
+          "score": 2.048,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c48",
+          "operation_tag": "常规_法国_楼梯0419",
+          "grade": "C",
+          "js_category": "home",
+          "subject": "螺旋式大理石楼梯",
+          "score": 2.042,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c35",
+      "country": "法国",
+      "operation_tag": "试新_法国_芭蕾舞女0531",
+      "gold_grade": "B",
+      "gold_subject": "芭蕾舞者",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+        "operation_tag": "试新_法国_乡村女性0531",
+        "grade": "S",
+        "js_category": "drawing",
+        "subject": "一位身着碎花连衣",
+        "score": 6.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+        "operation_tag": "常规_法国_生活帅哥0427",
+        "grade": "B",
+        "js_category": "drawing",
+        "subject": "年轻男性在阳台浇",
+        "score": 2.089,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+          "operation_tag": "常规_法国_生活帅哥0427",
+          "grade": "B",
+          "js_category": "drawing",
+          "subject": "年轻男性在阳台浇",
+          "score": 2.089,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+          "operation_tag": "试新_法国_乡村女性0531",
+          "grade": "S",
+          "js_category": "drawing",
+          "subject": "一位身着碎花连衣",
+          "score": 1.245,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c42",
+          "operation_tag": "试新_法国_艺术小孩0521",
+          "grade": "A",
+          "js_category": "drawing",
+          "subject": "白人男孩演奏小提",
+          "score": 1.189,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c36",
+      "country": "法国",
+      "operation_tag": "常规_法国_铁艺窗台0423",
+      "gold_grade": "B",
+      "gold_subject": "阳台铁艺栏杆上的",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c44",
+        "operation_tag": "常规_法国_丰收皮卡0131",
+        "grade": "B",
+        "js_category": "travel",
+        "subject": "复古白色皮卡货车",
+        "score": 6.5,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c44",
+        "operation_tag": "常规_法国_丰收皮卡0131",
+        "grade": "B",
+        "js_category": "travel",
+        "subject": "复古白色皮卡货车",
+        "score": 2.124,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": false,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c44",
+          "operation_tag": "常规_法国_丰收皮卡0131",
+          "grade": "B",
+          "js_category": "travel",
+          "subject": "复古白色皮卡货车",
+          "score": 2.124,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+          "operation_tag": "常规_法国_海边湖边餐厅0329",
+          "grade": "S",
+          "js_category": "travel",
+          "subject": "海滨餐厅餐桌上的",
+          "score": 1.219,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c33",
+          "operation_tag": "试新_法国_动态场景0530",
+          "grade": "A",
+          "js_category": "travel",
+          "subject": "石砌茅草屋",
+          "score": 1.213,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c37",
+      "country": "法国",
+      "operation_tag": "常规_法国_店铺0421",
+      "gold_grade": "A",
+      "gold_subject": "巴黎街角面包店P",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+        "operation_tag": "常规_法国_海边湖边餐厅0329",
+        "grade": "S",
+        "js_category": "travel",
+        "subject": "海滨餐厅餐桌上的",
+        "score": 7.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+        "operation_tag": "常规_法国_海边湖边餐厅0329",
+        "grade": "S",
+        "js_category": "travel",
+        "subject": "海滨餐厅餐桌上的",
+        "score": 3.219,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": false,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+          "operation_tag": "常规_法国_海边湖边餐厅0329",
+          "grade": "S",
+          "js_category": "travel",
+          "subject": "海滨餐厅餐桌上的",
+          "score": 3.219,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c33",
+          "operation_tag": "试新_法国_动态场景0530",
+          "grade": "A",
+          "js_category": "travel",
+          "subject": "石砌茅草屋",
+          "score": 3.213,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+          "operation_tag": "试新_法国_乡村女性0531",
+          "grade": "S",
+          "js_category": "drawing",
+          "subject": "一位身着碎花连衣",
+          "score": 2.245,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+      "country": "法国",
+      "operation_tag": "试新_法国_乡村女性0531",
+      "gold_grade": "S",
+      "gold_subject": "一位身着碎花连衣",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c42",
+        "operation_tag": "试新_法国_艺术小孩0521",
+        "grade": "A",
+        "js_category": "drawing",
+        "subject": "白人男孩演奏小提",
+        "score": 7.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c42",
+        "operation_tag": "试新_法国_艺术小孩0521",
+        "grade": "A",
+        "js_category": "drawing",
+        "subject": "白人男孩演奏小提",
+        "score": 3.189,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": false,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c42",
+          "operation_tag": "试新_法国_艺术小孩0521",
+          "grade": "A",
+          "js_category": "drawing",
+          "subject": "白人男孩演奏小提",
+          "score": 3.189,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+          "operation_tag": "常规_法国_德国巴伐利亚服饰0421",
+          "grade": "A",
+          "js_category": "drawing",
+          "subject": "男性身着传统巴伐",
+          "score": 3.177,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c39",
+          "operation_tag": "常规_法国_材质拼贴0421",
+          "grade": "A",
+          "js_category": "handcrafted",
+          "subject": "女性肖像复古风格",
+          "score": 2.227,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c39",
+      "country": "法国",
+      "operation_tag": "常规_法国_材质拼贴0421",
+      "gold_grade": "A",
+      "gold_subject": "女性肖像复古风格",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "operation_tag": "常规_法国_德国巴伐利亚服饰0421",
+        "grade": "A",
+        "js_category": "drawing",
+        "subject": "男性身着传统巴伐",
+        "score": 3.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+        "operation_tag": "试新_法国_乡村女性0531",
+        "grade": "S",
+        "js_category": "drawing",
+        "subject": "一位身着碎花连衣",
+        "score": 2.245,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+          "operation_tag": "试新_法国_乡村女性0531",
+          "grade": "S",
+          "js_category": "drawing",
+          "subject": "一位身着碎花连衣",
+          "score": 2.245,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+          "operation_tag": "常规_法国_海边湖边餐厅0329",
+          "grade": "S",
+          "js_category": "travel",
+          "subject": "海滨餐厅餐桌上的",
+          "score": 2.219,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c33",
+          "operation_tag": "试新_法国_动态场景0530",
+          "grade": "A",
+          "js_category": "travel",
+          "subject": "石砌茅草屋",
+          "score": 2.213,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c40",
+      "country": "法国",
+      "operation_tag": "常规_法国_互动动物0521",
+      "gold_grade": "S",
+      "gold_subject": "白兔与金毛幼犬互",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "operation_tag": "常规_法国_德国巴伐利亚服饰0421",
+        "grade": "A",
+        "js_category": "drawing",
+        "subject": "男性身着传统巴伐",
+        "score": 3.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+        "operation_tag": "试新_法国_乡村女性0531",
+        "grade": "S",
+        "js_category": "drawing",
+        "subject": "一位身着碎花连衣",
+        "score": 2.245,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+          "operation_tag": "试新_法国_乡村女性0531",
+          "grade": "S",
+          "js_category": "drawing",
+          "subject": "一位身着碎花连衣",
+          "score": 2.245,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c39",
+          "operation_tag": "常规_法国_材质拼贴0421",
+          "grade": "A",
+          "js_category": "handcrafted",
+          "subject": "女性肖像复古风格",
+          "score": 2.227,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+          "operation_tag": "常规_法国_海边湖边餐厅0329",
+          "grade": "S",
+          "js_category": "travel",
+          "subject": "海滨餐厅餐桌上的",
+          "score": 2.219,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c41",
+      "country": "法国",
+      "operation_tag": "试新_法国_旋转木马0521",
+      "gold_grade": "D",
+      "gold_subject": "旋转木马",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c33",
+        "operation_tag": "试新_法国_动态场景0530",
+        "grade": "A",
+        "js_category": "travel",
+        "subject": "石砌茅草屋",
+        "score": 6.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c34",
+        "operation_tag": "常规_法国_海边0531",
+        "grade": "C",
+        "js_category": "travel",
+        "subject": "停泊在白色沙滩边",
+        "score": 3.031,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c34",
+          "operation_tag": "常规_法国_海边0531",
+          "grade": "C",
+          "js_category": "travel",
+          "subject": "停泊在白色沙滩边",
+          "score": 3.031,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+          "operation_tag": "常规_法国_牛排0528",
+          "grade": "C",
+          "js_category": "food",
+          "subject": "切片牛排配土豆泥",
+          "score": 2.048,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c48",
+          "operation_tag": "常规_法国_楼梯0419",
+          "grade": "C",
+          "js_category": "home",
+          "subject": "螺旋式大理石楼梯",
+          "score": 2.042,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c42",
+      "country": "法国",
+      "operation_tag": "试新_法国_艺术小孩0521",
+      "gold_grade": "A",
+      "gold_subject": "白人男孩演奏小提",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+        "operation_tag": "试新_法国_乡村女性0531",
+        "grade": "S",
+        "js_category": "drawing",
+        "subject": "一位身着碎花连衣",
+        "score": 7.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+        "operation_tag": "试新_法国_乡村女性0531",
+        "grade": "S",
+        "js_category": "drawing",
+        "subject": "一位身着碎花连衣",
+        "score": 3.245,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": false,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+          "operation_tag": "试新_法国_乡村女性0531",
+          "grade": "S",
+          "js_category": "drawing",
+          "subject": "一位身着碎花连衣",
+          "score": 3.245,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+          "operation_tag": "常规_法国_德国巴伐利亚服饰0421",
+          "grade": "A",
+          "js_category": "drawing",
+          "subject": "男性身着传统巴伐",
+          "score": 3.177,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c39",
+          "operation_tag": "常规_法国_材质拼贴0421",
+          "grade": "A",
+          "js_category": "handcrafted",
+          "subject": "女性肖像复古风格",
+          "score": 2.227,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c43",
+      "country": "法国",
+      "operation_tag": "常规_法国_石头城堡0221",
+      "gold_grade": "A",
+      "gold_subject": "法国乡村城堡式酒",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "operation_tag": "常规_法国_德国巴伐利亚服饰0421",
+        "grade": "A",
+        "js_category": "drawing",
+        "subject": "男性身着传统巴伐",
+        "score": 3.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+        "operation_tag": "试新_法国_乡村女性0531",
+        "grade": "S",
+        "js_category": "drawing",
+        "subject": "一位身着碎花连衣",
+        "score": 2.245,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+          "operation_tag": "试新_法国_乡村女性0531",
+          "grade": "S",
+          "js_category": "drawing",
+          "subject": "一位身着碎花连衣",
+          "score": 2.245,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c39",
+          "operation_tag": "常规_法国_材质拼贴0421",
+          "grade": "A",
+          "js_category": "handcrafted",
+          "subject": "女性肖像复古风格",
+          "score": 2.227,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+          "operation_tag": "常规_法国_海边湖边餐厅0329",
+          "grade": "S",
+          "js_category": "travel",
+          "subject": "海滨餐厅餐桌上的",
+          "score": 2.219,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c44",
+      "country": "法国",
+      "operation_tag": "常规_法国_丰收皮卡0131",
+      "gold_grade": "B",
+      "gold_subject": "复古白色皮卡货车",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c36",
+        "operation_tag": "常规_法国_铁艺窗台0423",
+        "grade": "B",
+        "js_category": "travel",
+        "subject": "阳台铁艺栏杆上的",
+        "score": 6.5,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c36",
+        "operation_tag": "常规_法国_铁艺窗台0423",
+        "grade": "B",
+        "js_category": "travel",
+        "subject": "阳台铁艺栏杆上的",
+        "score": 2.165,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": false,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c36",
+          "operation_tag": "常规_法国_铁艺窗台0423",
+          "grade": "B",
+          "js_category": "travel",
+          "subject": "阳台铁艺栏杆上的",
+          "score": 2.165,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+          "operation_tag": "常规_法国_海边湖边餐厅0329",
+          "grade": "S",
+          "js_category": "travel",
+          "subject": "海滨餐厅餐桌上的",
+          "score": 1.219,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c33",
+          "operation_tag": "试新_法国_动态场景0530",
+          "grade": "A",
+          "js_category": "travel",
+          "subject": "石砌茅草屋",
+          "score": 1.213,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c45",
+      "country": "法国",
+      "operation_tag": "常规_法国_马卡龙0423",
+      "gold_grade": "D",
+      "gold_subject": "马卡龙Macar",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+        "operation_tag": "常规_法国_牛排0528",
+        "grade": "C",
+        "js_category": "food",
+        "subject": "切片牛排配土豆泥",
+        "score": 7.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+        "operation_tag": "常规_法国_牛排0528",
+        "grade": "C",
+        "js_category": "food",
+        "subject": "切片牛排配土豆泥",
+        "score": 3.048,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": false,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+          "operation_tag": "常规_法国_牛排0528",
+          "grade": "C",
+          "js_category": "food",
+          "subject": "切片牛排配土豆泥",
+          "score": 3.048,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c48",
+          "operation_tag": "常规_法国_楼梯0419",
+          "grade": "C",
+          "js_category": "home",
+          "subject": "螺旋式大理石楼梯",
+          "score": 2.042,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c34",
+          "operation_tag": "常规_法国_海边0531",
+          "grade": "C",
+          "js_category": "travel",
+          "subject": "停泊在白色沙滩边",
+          "score": 2.031,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c46",
+      "country": "法国",
+      "operation_tag": "常规_法国_阳台沙发0425",
+      "gold_grade": "A",
+      "gold_subject": "法式古典单人扶手",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c48",
+        "operation_tag": "常规_法国_楼梯0419",
+        "grade": "C",
+        "js_category": "home",
+        "subject": "螺旋式大理石楼梯",
+        "score": 6.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+        "operation_tag": "试新_法国_乡村女性0531",
+        "grade": "S",
+        "js_category": "drawing",
+        "subject": "一位身着碎花连衣",
+        "score": 2.245,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+          "operation_tag": "试新_法国_乡村女性0531",
+          "grade": "S",
+          "js_category": "drawing",
+          "subject": "一位身着碎花连衣",
+          "score": 2.245,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c39",
+          "operation_tag": "常规_法国_材质拼贴0421",
+          "grade": "A",
+          "js_category": "handcrafted",
+          "subject": "女性肖像复古风格",
+          "score": 2.227,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c32",
+          "operation_tag": "常规_法国_海边湖边餐厅0329",
+          "grade": "S",
+          "js_category": "travel",
+          "subject": "海滨餐厅餐桌上的",
+          "score": 2.219,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c47",
+      "country": "法国",
+      "operation_tag": "常规_法国_生活帅哥0427",
+      "gold_grade": "B",
+      "gold_subject": "年轻男性在阳台浇",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+        "operation_tag": "常规_法国_德国巴伐利亚服饰0421",
+        "grade": "A",
+        "js_category": "drawing",
+        "subject": "男性身着传统巴伐",
+        "score": 6.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c35",
+        "operation_tag": "试新_法国_芭蕾舞女0531",
+        "grade": "B",
+        "js_category": "drawing",
+        "subject": "芭蕾舞者",
+        "score": 2.074,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c35",
+          "operation_tag": "试新_法国_芭蕾舞女0531",
+          "grade": "B",
+          "js_category": "drawing",
+          "subject": "芭蕾舞者",
+          "score": 2.074,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c38",
+          "operation_tag": "试新_法国_乡村女性0531",
+          "grade": "S",
+          "js_category": "drawing",
+          "subject": "一位身着碎花连衣",
+          "score": 1.245,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c42",
+          "operation_tag": "试新_法国_艺术小孩0521",
+          "grade": "A",
+          "js_category": "drawing",
+          "subject": "白人男孩演奏小提",
+          "score": 1.189,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    },
+    {
+      "sample_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c48",
+      "country": "法国",
+      "operation_tag": "常规_法国_楼梯0419",
+      "gold_grade": "C",
+      "gold_subject": "螺旋式大理石楼梯",
+      "legacy_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c46",
+        "operation_tag": "常规_法国_阳台沙发0425",
+        "grade": "A",
+        "js_category": "home",
+        "subject": "法式古典单人扶手",
+        "score": 6.0,
+        "subject_overlap": 0.0,
+        "mode": "legacy"
+      },
+      "shadow_top": {
+        "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+        "operation_tag": "常规_法国_牛排0528",
+        "grade": "C",
+        "js_category": "food",
+        "subject": "切片牛排配土豆泥",
+        "score": 2.048,
+        "subject_overlap": 0.0,
+        "mode": "shadow"
+      },
+      "top_changed": true,
+      "legacy_top_subject_overlap": 0.0,
+      "shadow_top_subject_overlap": 0.0,
+      "shadow_top_k": [
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c31",
+          "operation_tag": "常规_法国_牛排0528",
+          "grade": "C",
+          "js_category": "food",
+          "subject": "切片牛排配土豆泥",
+          "score": 2.048,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c34",
+          "operation_tag": "常规_法国_海边0531",
+          "grade": "C",
+          "js_category": "travel",
+          "subject": "停泊在白色沙滩边",
+          "score": 2.031,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        },
+        {
+          "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c45",
+          "operation_tag": "常规_法国_马卡龙0423",
+          "grade": "D",
+          "js_category": "food",
+          "subject": "马卡龙Macar",
+          "score": 2.027,
+          "subject_overlap": 0.0,
+          "mode": "shadow"
+        }
+      ]
+    }
+  ],
+  "acceptance": {
+    "promote_to_main_chain_when": "shadow_top1_subject_overlap_rate >= legacy_top1_subject_overlap_rate 且人工 history_evidence_fit_avg >= 3.5/5",
+    "current_action": "继续停留在影子评测，不改主预测缓存。"
+  }
+}

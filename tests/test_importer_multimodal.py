@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from puzzle_ops.excel_importer import ExcelImageExtractor, import_history_workbook
+from puzzle_ops.excel_importer import import_undistributed_candidate_workbook
 from puzzle_ops.grading import classify_dimension, expected_grade
 from puzzle_ops.models import JS_CATEGORIES
 
@@ -33,11 +34,55 @@ def test_import_history_workbook_preserves_real_business_columns_and_images(tmp_
     assert first.thumbnail_path == first.local_image_path
 
 
+def test_import_undistributed_candidate_workbook_extracts_wps_dispimg_images(tmp_path):
+    workbook = Path("/Users/fanglemin/Desktop/未分发候选拼图_价值观大师填写模板.xlsx")
+    candidates = import_undistributed_candidate_workbook(workbook, "日本", tmp_path)
+
+    assert len(candidates) == 15
+    first = candidates[0]
+    assert first["candidate_id"] == "JP_CAND_001"
+    assert first["country"] == "日本"
+    assert first["js_category"] == "travel"
+    assert first["operation_tag"] == "常规_日本_庭院0721"
+    assert first["include_for_prediction"] is True
+    assert first["local_image_path"]
+    assert Path(str(first["local_image_path"])).exists()
+    assert first["image_hash"]
+
+
+def test_import_undistributed_candidate_workbook_normalizes_js_category_aliases(tmp_path):
+    workbook = Path("/Users/fanglemin/Desktop/未分发候选拼图_价值观大师填写模板.xlsx")
+    candidates = import_undistributed_candidate_workbook(workbook, "法国", tmp_path)
+
+    assert len(candidates) == 15
+    assert candidates[-1]["candidate_id"] == "FR_CAND_015"
+    assert candidates[-1]["js_category"] == "objects"
+
+
 def test_import_history_workbook_validates_allowed_js_categories(tmp_path):
     records = import_history_workbook(FIXTURE, "日本", tmp_path)
 
     assert {record.js_category for record in records}.issubset(JS_CATEGORIES)
     assert {"animal", "travel", "food"}.issubset({record.js_category for record in records})
+
+
+def test_js_categories_match_business_taxonomy_exactly():
+    assert JS_CATEGORIES == {
+        "houses",
+        "home",
+        "food",
+        "flowers",
+        "pets",
+        "animal",
+        "travel",
+        "ontheway",
+        "zen",
+        "objects",
+        "patterns",
+        "handcrafted",
+        "streetview",
+        "drawing",
+    }
 
 
 def test_country_grade_thresholds_match_user_business_rules():

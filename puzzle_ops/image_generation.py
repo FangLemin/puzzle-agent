@@ -437,6 +437,16 @@ def _https_context() -> ssl.SSLContext:
         return ssl.create_default_context()
 
 
+DASHSCOPE_HTTP_BASE_URL = "https://dashscope.aliyuncs.com/api/v1"
+
+
+def _normalize_dashscope_http_base_url() -> None:
+    import dashscope
+
+    os.environ["DASHSCOPE_HTTP_BASE_URL"] = DASHSCOPE_HTTP_BASE_URL
+    dashscope.base_http_api_url = DASHSCOPE_HTTP_BASE_URL
+
+
 def _dashscope_sdk_generate(
     *, model: str, api_key: str, reference_image: str, prompt: str,
     negative_prompt: str, count: int, seed: int, style_constraints: dict[str, str],
@@ -446,6 +456,7 @@ def _dashscope_sdk_generate(
         from dashscope.api_entities.dashscope_response import Message, Role
     except ImportError as exc:
         raise RuntimeError("缺少 dashscope Python SDK，请安装 requirements.txt") from exc
+    _normalize_dashscope_http_base_url()
 
     if not reference_image.strip():
         raise ValueError("参考图路径或 URL 不能为空")

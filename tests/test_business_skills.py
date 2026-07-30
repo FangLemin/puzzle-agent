@@ -36,11 +36,11 @@ def test_business_skill_input_schema_validation_rejects_missing_required_fields(
 def test_business_skill_rejects_tools_outside_contract():
     library = BusinessSkillLibrary.default()
 
-    with_tool = library.assert_tool_allowed("regular_demand_skill", "cms.query_inventory")
+    with_tool = library.assert_tool_allowed("regular_demand_skill", "warehouse.tag_performance")
     assert with_tool is None
 
     try:
-        library.assert_tool_allowed("regular_demand_skill", "memory.review_approve")
+        library.assert_tool_allowed("regular_demand_skill", "cms.query_inventory")
     except SkillExecutionError as exc:
         assert "不允许调用工具" in str(exc)
     else:
@@ -54,8 +54,8 @@ def test_agent_runs_regular_demand_skill_as_draft_and_guarded_proposal(tmp_path)
         "regular_demand_skill",
         {
             "country": "日本",
-            "operation_tag": "常规_日本_传统浴袍美女0604",
-            "js_category": "人物",
+            "operation_tag": "常规_日本_传统浴袍美女0510",
+            "js_category": "drawing",
             "stock": 2,
             "historical_metrics": {"open_rate": 0.31, "completion_rate": 0.91},
             "delivery_constraints": "本周",
@@ -69,11 +69,16 @@ def test_agent_runs_regular_demand_skill_as_draft_and_guarded_proposal(tmp_path)
     assert result.guarded_action_proposals
     assert result.draft_output["draft_rows"]
     assert result.draft_output["missing_fields"] == ()
-    assert "cms.query_inventory" in result.tool_calls
+    assert "warehouse.tag_performance" in result.tool_calls
+    assert "asset.search_by_tag" in result.tool_calls
+    assert "vector.search_value_master" in result.tool_calls
+    assert "cms.query_inventory" not in result.tool_calls
     assert "feishu.write_table" not in result.tool_calls
     assert result.rag_citations
     assert result.memory_refs
     assert any(memory["memory_type"] == "regular_demand_draft" for memory in agent.repository.layered_memories("日本", layer="working"))
+    assert any(invocation["tool_name"] == "warehouse.tag_performance" for invocation in agent.repository.tool_invocations(country="日本"))
+    assert any(invocation["tool_name"] == "asset.search_by_tag" for invocation in agent.repository.tool_invocations(country="日本"))
 
 
 def test_agent_runs_value_audit_skill_with_value_and_audit_rag_sources(tmp_path):
@@ -94,6 +99,9 @@ def test_agent_runs_value_audit_skill_with_value_and_audit_rag_sources(tmp_path)
     assert result.skill_id == "value_audit_skill"
     assert result.draft_output["sabcd_prediction"] in {"S", "A", "B", "C", "D"}
     assert "risk_points" in result.draft_output
+    assert "image.audit_value_fit" in result.tool_calls
+    assert "image.detect_ip_risk" in result.tool_calls
+    assert "vector.search_value_master" in result.tool_calls
     assert result.rag_citations
     assert result.human_review_required is True
     assert any(memory["memory_type"] == "value_audit_draft" for memory in agent.repository.layered_memories("日本", layer="working"))

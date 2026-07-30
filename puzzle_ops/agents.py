@@ -1,11 +1,13 @@
 from dataclasses import replace
-from datetime import date, datetime
-from collections import defaultdict
+from datetime import date, datetime, timedelta
+from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor
 import csv
 import json
 import os
 from pathlib import Path
 import re
+import sys
 import time
 from tempfile import gettempdir
 import uuid
@@ -13,19 +15,19 @@ import uuid
 from puzzle_ops.data import COUNTRIES, SYNC_ROWS
 from puzzle_ops.adapters import DeepEvalAdapter, MCPToolAdapter, PhoenixExporter, PromptfooExporter
 from puzzle_ops.audit import AuditPolicyRetriever, AuditRuleEngine
-from puzzle_ops.cms import MockCMSClient
-from puzzle_ops.excel_importer import import_history_workbook
+from puzzle_ops.excel_importer import import_history_workbook, import_undistributed_candidate_workbook
 from puzzle_ops.feishu import FeishuClientFactory, MockFeishuClient
 from puzzle_ops.guarded_tools import GuardedToolExecutor, GuardedToolPolicy
-from puzzle_ops.models import AgentTrace, AnalysisReport, AnalysisRow, DemandRow, HolidayRecommendation, ImageProfile, ScheduleItem, TagMeta, ToolResult, ValuePredictionCard, ValueRuleCandidate
+from puzzle_ops.models import AgentTrace, AnalysisReport, AnalysisRow, DemandRow, HolidayRecommendation, ImageAsset, ImageProfile, JS_CATEGORIES, ScheduleItem, TagMeta, Task, ToolResult, ValuePredictionCard, ValueRuleCandidate
 from puzzle_ops.multimodal import ImageFeatureExtractor, SimilarImageRetriever, ValueInsightMiner
-from puzzle_ops.rag import FeedbackAwareRerankProvider, FileDocumentLoaderAdapter, HybridRagRetriever, LocalEmbeddingProvider, MilvusVectorStore, MilvusVectorStoreRetriever, MissingRagAnswerGenerator, QdrantVectorStore, QdrantVectorStoreRetriever, QwenRagAnswerGenerator, RagChunk, RagChunkingConfig, RagDocument, RagGeneratedAnswer, RagPrompt, RagProviderConfig, RagRetrievalCase, RagRuntimeStats, RagVectorStoreConfig, RetrievalCaseLoaderAdapter, StaticDocumentLoaderAdapter, build_processed_documents_from_raw, build_rag_prompt, chunk_document, evaluate_rag_quality_report, evaluate_retrieval_report, export_offline_rag_index, export_rag_acceptance_report, prepare_qdrant_points, providers_from_config, rewrite_rag_query
+from puzzle_ops.production import configured_runtime_dir, create_runtime_backup, is_truthy_env, resolve_runtime_dir, start_daily_runtime_backup
+from puzzle_ops.rag import FeedbackAwareRerankProvider, FileDocumentLoaderAdapter, HybridRagRetriever, LocalEmbeddingProvider, MilvusVectorStore, MilvusVectorStoreRetriever, MissingRagAnswerGenerator, QdrantVectorStore, QdrantVectorStoreRetriever, QwenRagAnswerGenerator, RagChunk, RagChunkingConfig, RagDocument, RagGeneratedAnswer, RagPrompt, RagProviderConfig, RagRetrievalCase, RagRuntimeStats, RagVectorStoreConfig, RetrievalCaseLoaderAdapter, StaticDocumentLoaderAdapter, build_processed_documents_from_raw, build_rag_prompt, chunk_document, evaluate_rag_quality_report, evaluate_retrieval_report, export_offline_rag_index, export_rag_acceptance_report, prepare_qdrant_points, providers_from_config, rewrite_rag_query, _qwen_chat_transport, _extract_chat_completion_text
 from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.skills import BusinessSkillLibrary, SkillExecutionError, SkillRunResult
 from puzzle_ops.trulens_eval import TruLensRAGEvaluator
 from puzzle_ops.trial_upload import TrialImageUploadService, _compact_tag_subject
 from puzzle_ops.eval_suite import AgentEvalSuite
-from puzzle_ops.harness import AgentHarness, EVAL_SAMPLE_CSV_FIELDS, load_eval_samples_csv
+from puzzle_ops.harness import AgentHarness, EVAL_SAMPLE_CSV_FIELDS, load_eval_samples_csv, _predict_grade as _harness_predict_grade
 from puzzle_ops.image_generation import DerivativeImage, ImageGenerationProviderFactory
 from puzzle_ops.visual_analysis import LocalImageAnalyzer
 from puzzle_ops.visual_assets import image_bytes
@@ -64,6 +66,15 @@ RAG_TASK_INDEX_SOURCE_TYPES: dict[str, tuple[str, ...] | None] = {
     ),
 }
 
+VALUE_CANDIDATE_WORKBOOK = Path("/Users/fanglemin/Desktop/未分发候选拼图_价值观大师填写模板.xlsx")
+
+
+def _default_repository_path(runtime_dir: Path) -> Path:
+    if os.environ.get("PYTEST_CURRENT_TEST") or "pytest" in Path(sys.argv[0]).name:
+        return runtime_dir / f"puzzle_ops_{os.getpid()}.db"
+    return runtime_dir / "puzzle_ops.db"
+
+
 RAG_TASK_INDEX_LABELS = {
     "all": "全量兼容索引",
     "value_master": "价值观大师",
@@ -90,18 +101,25 @@ class PuzzleOpsAgent:
         *,
         today: date | None = None,
         enable_regular_vision: bool = False,
+        holiday_llm_transport=None,
+        description_prompt_transport=None,
+        analysis_llm_transport=None,
     ):
-        runtime_dir = Path(gettempdir()) / "puzzle_ops_agent_runtime"
-        self.repository = repository or PuzzleRepository(runtime_dir / f"puzzle_ops_{os.getpid()}.db")
+        runtime_dir = resolve_runtime_dir()
+        repository_path = runtime_dir / "puzzle_ops.db" if configured_runtime_dir() else _default_repository_path(runtime_dir)
+        self.repository = repository or PuzzleRepository(repository_path)
         self._runtime_dir = runtime_dir
         self.today = today or date.today()
         self.enable_regular_vision = enable_regular_vision
+        self._holiday_llm_transport = holiday_llm_transport
+        self._description_prompt_transport = description_prompt_transport
+        self._analysis_llm_transport = analysis_llm_transport
+        self._holiday_recommendation_cache: dict[tuple[str, str, str, str], HolidayRecommendation] = {}
         self.local_image_analyzer = LocalImageAnalyzer()
         self._history_cache: dict[str, tuple] = {}
         self._approved_candidates: dict[str, ValueRuleCandidate] = {}
-        self.cms = MockCMSClient.with_synthetic_assets(runtime_dir / "cms", "日本", weeks=1)
-        self.adapter = MCPToolAdapter()
-        self.adapter.register_cms(self.cms)
+        self.adapter = MCPToolAdapter(repository=self.repository)
+        self.adapter.register_production_tools("日本")
         self.feishu = FeishuClientFactory.create(runtime_dir / "feishu_mock")
         self.trial_uploads = TrialImageUploadService(runtime_dir / "trial_uploads")
         self.image_generator = ImageGenerationProviderFactory.create(runtime_dir / "trial_uploads")
@@ -111,6 +129,10 @@ class PuzzleOpsAgent:
         self._last_rag_rewritten_query = ""
         self._last_rag_trace: dict[str, object] = {}
         self.business_skills = BusinessSkillLibrary.default()
+        self._daily_backup_status = start_daily_runtime_backup(runtime_dir) if is_truthy_env("PUZZLEOPS_PRODUCTION_MODE") else {}
+
+    def create_production_backup(self, *, label: str = "") -> dict[str, object]:
+        return create_runtime_backup(self._runtime_dir, label=label)
 
     def countries(self) -> tuple[str, ...]:
         return tuple(COUNTRIES.keys())
@@ -121,19 +143,75 @@ class PuzzleOpsAgent:
             "country": country,
             "country_label": f"{data['flag']} {country}",
             "owner": data["owner"],
-            "sa": data["sa"],
+            "sa": _dashboard_sa_ratio(country),
             "ai": data["ai"],
-            "tasks": [{"title": task.title, "body": task.body} for task in data["tasks"]],
+            "tasks": [{"title": task.title, "body": task.body} for task in self.dashboard_tasks(country)],
         }
 
+    def dashboard_tasks(self, country: str) -> tuple[Task, ...]:
+        tasks: list[Task] = []
+        records = self._history_records(country)
+        if records:
+            reusable = _tag_summaries(records, positive=True)
+            risky = _tag_summaries(records, positive=False)
+            if reusable:
+                primary = reusable[0]
+                tasks.append(
+                    Task(
+                        "历史好图提需方向",
+                        f"{primary['operation_tag']} 历史 S/A 表现较好，JS分类 {primary['js_category']}，可作为常规提需参考；当前未接入真实库存数量，不生成低库存结论。",
+                    )
+                )
+            if risky:
+                primary_risk = risky[0]
+                tasks.append(
+                    Task(
+                        "历史风险复盘",
+                        f"{primary_risk['subject']} 所在 JS分类 {primary_risk['js_category']} 出现 C/D 表现，建议复盘主体、文化语境和构图后再决定是否继续提需。",
+                    )
+                )
+        else:
+            low_stock = [
+                tag
+                for tags in self.categories(country).values()
+                for tag in tags
+                if tag.stock <= 5
+            ]
+            low_stock = sorted(low_stock, key=lambda tag: (0 if tag.hot else 1, tag.stock, tag.tag))
+            if low_stock:
+                primary = low_stock[0]
+                extra = "、".join(f"{tag.tag} 库存 {tag.stock}" for tag in low_stock[1:4])
+                body = f"{primary.tag} 库存 {primary.stock}，低库存{'爆款' if primary.hot else '素材'}，需要优先提需。"
+                if extra:
+                    body += f" 其他待补：{extra}。"
+                tasks.append(Task("低库存爆款", body))
+        holiday = self.upcoming_holiday(country)
+        if holiday:
+            tasks.append(
+                Task(
+                    "节日营销",
+                    f"{holiday.name}将在{holiday.date_range}进入营销窗口，建议提前补充{holiday.ai_themes[0]}、{holiday.ai_themes[1]}和{holiday.elements[0]}元素。",
+                )
+            )
+        if self.today.weekday() == 2:
+            tasks.append(Task("周三复盘", "今天需要复盘上上周三到上周二数据，重点看 S/A 增长、C/D 风险和低库存提需方向。"))
+        return tuple(tasks)
+
     def categories(self, country: str) -> dict[str, tuple[TagMeta, ...]]:
+        records = self._history_records(country)
+        if records:
+            return _categories_from_history_records(records)
         return self._country(country)["categories"]
 
     def sorted_tags(self, country: str, category: str) -> tuple[TagMeta, ...]:
         tags = self.categories(country)[category]
-        return tuple(sorted(tags, key=lambda tag: (self.stock_rank(tag), tag.stock)))
+        return tuple(sorted(tags, key=lambda tag: (self.stock_rank(tag), tag.stock, tag.tag)))
 
     def stock_rank(self, tag: TagMeta) -> int:
+        if "爆款缺库存" in tag.risk:
+            return 0
+        if "C/D" in tag.risk and not tag.hot:
+            return 1
         if tag.hot and tag.stock <= 5:
             return 0
         if not tag.hot and tag.stock <= 5:
@@ -144,7 +222,18 @@ class PuzzleOpsAgent:
         return ("stock-hot", "stock-low", "stock-normal")[self.stock_rank(tag)]
 
     def images_for_tag(self, country: str, operation_tag: str):
-        return self._country(country)["images"].get(operation_tag, ())
+        records = self._history_records(country)
+        real_images = _real_inventory_images_for_tag(records, country, operation_tag, self._tag_subject(country, operation_tag), limit=5)
+        if real_images:
+            return real_images
+        return tuple(_unverified_metric_image(image) for image in self._country(country)["images"].get(operation_tag, ()))
+
+    def _tag_subject(self, country: str, operation_tag: str) -> str:
+        for tags in self.categories(country).values():
+            for tag in tags:
+                if tag.tag == operation_tag:
+                    return tag.subject
+        return ""
 
     def add_regular_demand(self, country: str, category: str, operation_tag: str, image_index: int) -> DemandRow:
         tag_meta = self._tag_meta(country, category, operation_tag)
@@ -159,10 +248,12 @@ class PuzzleOpsAgent:
             subject=tag_meta.subject,
             count=7,
             priority="P1",
-            method="限素材网" if image.source == "素材网" else "纯AI",
+            method="纯AI" if image.source == "AI" else "限素材网",
             delivery_date="",
             subject_description="",
-            remark=image.remark or tag_meta.risk,
+            remark="",
+            reference_image_path=image.thumb if Path(str(image.thumb)).expanduser().is_file() else "",
+            reference_image_content_type=_image_content_type_from_path(image.thumb) if Path(str(image.thumb)).expanduser().is_file() else "",
         )
 
     def edit_demand_row(
@@ -201,8 +292,13 @@ class PuzzleOpsAgent:
         return row.edited(**changes)
 
     def generate_subject_description(self, row: DemandRow) -> DemandRow:
-        visual_bytes = image_bytes(row.image_name, row.subject)
-        visual = self.local_image_analyzer.summarize_bytes((visual_bytes,))
+        if row.reference_image_path and Path(row.reference_image_path).expanduser().is_file():
+            feature = self.local_image_analyzer.analyze_path(row.reference_image_path)
+            visual = self.local_image_analyzer.summarize_features((feature,) if feature else ())
+            visual_bytes = Path(row.reference_image_path).expanduser().read_bytes()
+        else:
+            visual_bytes = image_bytes(row.image_name, row.subject)
+            visual = self.local_image_analyzer.summarize_bytes((visual_bytes,))
         semantic = None
         if self.enable_regular_vision and self.trial_uploads.vision_client:
             try:
@@ -222,10 +318,59 @@ class PuzzleOpsAgent:
                 semantic = None
         subject = semantic.subject if semantic and semantic.subject else row.subject
         description = _business_subject_description(subject, row.country, visual, semantic)
-        remark = row.remark
-        if semantic:
-            remark = (remark + "；" if remark else "") + f"视觉LLM：真实{semantic.provider}，置信度{semantic.confidence:.2f}。"
+        remark = _append_description_source_remark(row.remark, semantic, self.trial_uploads.vision_client if semantic else None)
         return row.edited(subject=subject, subject_description=description, remark=remark)
+
+    def generate_subject_description_prompt_baseline(
+        self,
+        row: DemandRow,
+        *,
+        template_row: DemandRow | None = None,
+    ) -> dict[str, str]:
+        template_row = template_row or self.generate_subject_description(row)
+        visual = _regular_visual_summary(self, row)[0]
+        prompt = _description_prompt_baseline_prompt(row, template_row, visual)
+        api_key = _first_nonempty_env("DESCRIPTION_PROMPT_API_KEY", "QWEN_API_KEY", "DASHSCOPE_API_KEY")
+        model = os.getenv("DESCRIPTION_PROMPT_MODEL", "qwen-plus").strip() or "qwen-plus"
+        endpoint = os.getenv("QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")
+        if not api_key:
+            return {
+                "status": "missing_config",
+                "provider": "qwen",
+                "model": model,
+                "prompt": prompt,
+                "subject_description": "",
+                "remark": "缺少 QWEN_API_KEY，未调用强 Prompt baseline。",
+                "raw_output": "",
+            }
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "response_format": {"type": "json_object"},
+        }
+        try:
+            response = (self._description_prompt_transport or _qwen_chat_transport)(payload, api_key, endpoint)
+            output_text = _extract_chat_completion_text(response)
+            data = _json_object_from_text(output_text)
+            return {
+                "status": "ok",
+                "provider": "qwen",
+                "model": model,
+                "prompt": prompt,
+                "subject_description": str(data.get("subject_description", "")).strip(),
+                "remark": str(data.get("remark", "")).strip(),
+                "raw_output": output_text,
+            }
+        except Exception as exc:
+            return {
+                "status": "failed",
+                "provider": "qwen",
+                "model": model,
+                "prompt": prompt,
+                "subject_description": "",
+                "remark": f"强 Prompt baseline 调用失败：{exc}",
+                "raw_output": "",
+            }
 
     def create_trial_demand(self, country: str, category: str, mode: str) -> DemandRow:
         data = self._country(country)["trial"]
@@ -237,7 +382,7 @@ class PuzzleOpsAgent:
         return DemandRow(
             need_type="试新",
             country=country,
-            js_category=category,
+            js_category="",
             image_name=image_name,
             operation_tag=tag,
             subject=data["subject"],
@@ -267,6 +412,27 @@ class PuzzleOpsAgent:
     def parse_trial_uploads(self, country: str, category: str, mode: str, files: list[dict[str, object]]) -> tuple[DemandRow, tuple[dict[str, str], ...]]:
         row = self.create_trial_demand(country, category, mode)
         parsed, previews = self.trial_uploads.parse(row, files, mode, business_date=self.today)
+        self._record_trial_parse_memories(country, mode, parsed, previews)
+        return parsed, previews
+
+    def save_trial_uploads(self, files: list[dict[str, object]]) -> tuple[dict[str, str], ...]:
+        return self.trial_uploads.save_uploads(files)
+
+    def parse_saved_trial_uploads(
+        self,
+        country: str,
+        category: str,
+        mode: str,
+        uploads: list[dict[str, object]] | tuple[dict[str, object], ...],
+        *,
+        run_vision: bool = True,
+    ) -> tuple[DemandRow, tuple[dict[str, str], ...]]:
+        row = self.create_trial_demand(country, category, mode)
+        parsed, previews = self.trial_uploads.parse_saved(row, uploads, mode, business_date=self.today, run_vision=run_vision)
+        self._record_trial_parse_memories(country, mode, parsed, previews)
+        return parsed, previews
+
+    def _record_trial_parse_memories(self, country: str, mode: str, parsed: DemandRow, previews: tuple[dict[str, str], ...]) -> None:
         if previews:
             self.record_perception_memory(
                 country,
@@ -292,47 +458,92 @@ class PuzzleOpsAgent:
                     "reference_image_path": parsed.reference_image_path,
                 },
             )
-        return parsed, previews
 
     def generation_provider_status(self) -> dict[str, object]:
         if self.image_generator:
             return self.image_generator.healthcheck()
         return {"provider": "not_configured", "configured": False, "message": "生成 provider 未配置"}
 
-    def generate_trial_derivatives(self, row: DemandRow) -> tuple[DemandRow, tuple[DemandRow, ...], tuple[dict[str, str], ...]]:
+    def derivative_generation_prompts(self, row: DemandRow) -> tuple[str, str]:
+        if row.country == "日本":
+            prompt = _japan_derivative_prompt(row)
+            negative_prompt = _japan_derivative_negative_prompt()
+        elif row.country == "法国":
+            prompt = _france_derivative_prompt(row)
+            negative_prompt = _france_derivative_negative_prompt()
+        else:
+            prompt = (
+                f"基于参考图衍生2张{row.country}市场拼图参考图；每张都是单张完整画面，只呈现一个主场景、一个季节氛围、一个清晰主体。"
+                f"保留{row.subject}的核心吸引力、色彩氛围和构图层次，变化具体场景、道具组合或人物/动物动作，"
+                "画面必须像一张可直接生产的拼图参考图，适合中老年用户拼图。"
+            )
+            negative_prompt = _required_derivative_negative_prompt()
+        return prompt, negative_prompt
+
+    def generate_trial_derivatives(
+        self,
+        row: DemandRow,
+        *,
+        prompt: str = "",
+        negative_prompt: str = "",
+    ) -> tuple[DemandRow, tuple[DemandRow, ...], tuple[dict[str, str], ...]]:
         provider = self.image_generator
-        if provider is None:
+        if not row.reference_image_path or not Path(row.reference_image_path).expanduser().is_file():
             return (
-                row.edited(remark=(row.remark + "；" if row.remark else "") + "生成 provider 未配置：当前只保留衍生方向，不伪造新参考图。"),
+                row.edited(remark=(row.remark + "；" if row.remark else "") + "请先上传并解析一张真实历史好图，再生成衍生参考图。"),
                 (),
                 (),
             )
-        prompt = (
-            f"基于参考图衍生2张{row.country}市场拼图参考图；保留{row.subject}的核心吸引力、色彩氛围和构图层次，"
-            "变化具体场景、季节元素、道具组合，并保持主体清晰、适合中老年用户拼图。"
-        )
-        negative_prompt = "避免品牌logo、文字水印、知名动漫/IP风格、宗教政治风险、文化混淆、低清晰度。"
-        derivatives = provider.generate_derivatives(
-            reference_image=row.reference_image_path or row.image_name,
-            prompt=prompt,
-            negative_prompt=negative_prompt,
-            count=2,
-            seed=int(self.today.strftime("%m%d")),
-            style_constraints={
-                "source_sample_id": row.operation_tag,
-                "retained_features": f"{row.subject}；{row.subject_description}",
-                "changed_features": "季节元素；场景道具；人物/动物动作",
-                "risk_notes": "生成图必须经过二次 VLM 解析与审核后才能同步飞书",
-            },
-        )
+        width, height = _image_dimensions(row.reference_image_path)
+        if width and height and (width < 240 or height < 240 or width > 8000 or height > 8000):
+            return (
+                row.edited(
+                    remark=(
+                        (row.remark + "；" if row.remark else "")
+                        + f"Qwen 图像生成要求参考图宽高在 240-8000 像素之间；当前图片为 {width}x{height}，请换一张更清晰的历史好图。"
+                    )
+                ),
+                (),
+                (),
+            )
+        if provider is None:
+            return (
+                row.edited(remark=(row.remark + "；" if row.remark else "") + "Qwen 图像生成未配置：当前只保留衍生方向，不伪造新参考图。"),
+                (),
+                (),
+            )
+        default_prompt, default_negative_prompt = self.derivative_generation_prompts(row)
+        prompt = str(prompt or "").strip() or default_prompt
+        negative_prompt = _ensure_required_derivative_negative_prompt(str(negative_prompt or "").strip() or default_negative_prompt)
+        style_constraints = {
+            "source_sample_id": row.operation_tag,
+            "retained_features": f"{row.subject}；{row.subject_description}",
+            "changed_features": "单一场景氛围；光线天气；少量点缀；远景氛围",
+            "risk_notes": "生成图必须经过二次 VLM 解析与审核后才能同步飞书",
+        }
+        seeds = tuple(int(self.today.strftime("%m%d")) + index for index in range(2))
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = tuple(
+                executor.submit(
+                    provider.generate_derivatives,
+                    reference_image=row.reference_image_path or row.image_name,
+                    prompt=prompt,
+                    negative_prompt=negative_prompt,
+                    count=1,
+                    seed=seed,
+                    style_constraints=style_constraints,
+                )
+                for seed in seeds
+            )
+            derivatives = tuple(image for future in futures for image in future.result())
         rows: list[DemandRow] = []
         previews: list[dict[str, str]] = []
         for index, image in enumerate(derivatives, 1):
             path = Path(image.local_image_path)
-            image_name = f"衍生参考图{index}_{path.name}"
+            image_name = f"衍生参考图{index}.png"
             second_review_passed, review_status, reviewed_subject, reviewed_description = self._review_generated_derivative(row, image)
             remark = (
-                f"{row.remark}；生成provider={image.provider}，seed={image.seed}；"
+                f"{row.remark}；Qwen图像生成 seed={image.seed}；"
                 f"{review_status}，通过后才能同步飞书；"
                 f"Prompt：{image.prompt}；Negative：{image.negative_prompt}"
             )
@@ -398,6 +609,9 @@ class PuzzleOpsAgent:
         if semantic.risk_tags or audit.risk_level == "高":
             risks = "、".join(semantic.risk_tags) or audit.reason
             return False, f"二次 VLM 解析未通过：{risks}；{audit.reason}", subject, description
+        drift_reason = _derivative_subject_drift_reason(row, semantic)
+        if drift_reason:
+            return False, f"二次 VLM 解析未通过：主体偏离参考图；{drift_reason}", subject, description
         return True, f"二次 VLM 解析与审核通过（{semantic.provider}，置信度{semantic.confidence:.2f}）", subject, description
 
     def apply_value_master(self, row: DemandRow) -> DemandRow:
@@ -406,17 +620,151 @@ class PuzzleOpsAgent:
             value_match = _missing_value_llm_message(self.trial_uploads.vision_config_error)
         else:
             try:
-                rag_evidence = self._rag_evidence_for_value_master(row)
+                row_for_judgement, vision_note = self._row_with_fresh_value_vision(row, client)
+                rag_evidence = self._rag_evidence_for_value_master(row_for_judgement)
                 rag_rules = rag_evidence["rules"]
-                value_match = client.judge_value_match(_value_row_payload(row), rag_rules)
+                value_match = client.judge_value_match(_value_row_payload(row_for_judgement), rag_rules)
+                if vision_note:
+                    value_match = f"{vision_note}；{value_match}"
                 value_match = _append_system_rag_trace(value_match, rag_rules)
                 value_match = _append_generated_rag_evidence(value_match, rag_evidence.get("generated_answer", ""))
+                return row_for_judgement.edited(value_match=value_match)
             except Exception as exc:
                 value_match = f"价值观大师：真实视觉 LLM 调用失败，暂不生成匹配结论；请检查模型配置后重试。错误：{exc}"
         return row.edited(value_match=value_match)
 
+    def _row_with_fresh_value_vision(self, row: DemandRow, client) -> tuple[DemandRow, str]:
+        path = Path(row.reference_image_path).expanduser() if row.reference_image_path else None
+        if not path or not path.is_file():
+            return row, "价值观大师视觉输入：未找到原图文件，使用当前提需行文本判断"
+        feature = self.local_image_analyzer.analyze_path(path)
+        local_summary = self.local_image_analyzer.summarize_features((feature,) if feature else ())
+        semantic = client.analyze(
+            [{"filename": path.name, "path": str(path), "content_type": row.reference_image_content_type or image_content_type(path)}],
+            row.country,
+            row.js_category,
+            local_summary,
+        )
+        subject = semantic.subject or row.subject
+        description = _business_subject_description(subject, row.country, local_summary, semantic)
+        semantic_note = (
+            f"价值观大师视觉解析：真实{semantic.provider}，置信度{semantic.confidence:.2f}，"
+            f"主体={subject}，场景={semantic.scene or '未识别'}，风险={','.join(semantic.risk_tags) or '无明显风险'}"
+        )
+        remark = _append_unique_note(row.remark, semantic_note)
+        return row.edited(subject=subject, subject_description=description, remark=remark), semantic_note
+
+    def upcoming_holiday(self, country: str, *, window_days: int = 15) -> HolidayRecommendation | None:
+        next_holiday = self.next_holiday(country, max_days=window_days)
+        return next_holiday[1] if next_holiday else None
+
+    def next_holiday(self, country: str, *, max_days: int = 90) -> tuple[int, HolidayRecommendation] | None:
+        today = self.today
+        candidates: list[tuple[int, HolidayRecommendation]] = []
+        for year in (today.year, today.year + 1):
+            for holiday_date, holiday in _country_holidays(country, year):
+                days = (holiday_date - today).days
+                if 0 <= days <= max_days:
+                    candidates.append((days, holiday))
+        if not candidates:
+            return None
+        days, holiday = sorted(candidates, key=lambda item: item[0])[0]
+        return days, self._enrich_holiday_recommendation(country, holiday)
+
     def holiday_recommendation(self, country: str) -> HolidayRecommendation:
-        return self._country(country)["holiday"]
+        return self.upcoming_holiday(country) or self._enrich_holiday_recommendation(country, self._country(country)["holiday"])
+
+    def _enrich_holiday_recommendation(self, country: str, holiday: HolidayRecommendation) -> HolidayRecommendation:
+        cache_key = (
+            country,
+            holiday.name,
+            str(self.today),
+            "|".join(
+                (
+                    os.getenv("HOLIDAY_LLM_ENABLE_REMOTE_CALLS", ""),
+                    os.getenv("HOLIDAY_LLM_PROVIDER", ""),
+                    os.getenv("HOLIDAY_LLM_MODEL", ""),
+                )
+            ),
+        )
+        cached = self._holiday_recommendation_cache.get(cache_key)
+        if cached:
+            return cached
+        records = self._history_records(country)
+        if not records:
+            local_note = _holiday_planning_note(holiday, (), (), _holiday_value_rule_citations(self._country(country), holiday), 0)
+            planning_note, source = self._holiday_llm_planning(country, holiday, (), (), _holiday_value_rule_citations(self._country(country), holiday), 0, local_note)
+            enriched = replace(
+                holiday,
+                history_good_images=(),
+                history_bad_images=(),
+                direct_history_count=0,
+                evidence_note="当前未导入真实历史样本，节日建议仅基于维护表和国家价值观规则。",
+                value_rule_citations=_holiday_value_rule_citations(self._country(country), holiday),
+                llm_planning_note=planning_note,
+                llm_source=source,
+            )
+            self._holiday_recommendation_cache[cache_key] = enriched
+            return enriched
+        direct_matches = _holiday_direct_history_matches(records, holiday)
+        good_ranked = _rank_holiday_records(direct_matches, holiday, positive=True) if direct_matches else ()
+        bad_ranked = _rank_holiday_records(direct_matches, holiday, positive=False) if direct_matches else ()
+        if not good_ranked:
+            good_ranked = _rank_holiday_records(tuple(record for record in records if record.grade in {"S", "A"}), holiday, positive=True)
+        if not bad_ranked:
+            bad_ranked = _rank_holiday_records(records, holiday, positive=False)
+        good_images = tuple(_image_asset_from_record(record) for record in good_ranked[:4])
+        bad_images = tuple(_image_asset_from_record(record) for record in bad_ranked[:3])
+        citations = _holiday_value_rule_citations(self._country(country), holiday)
+        direct_count = len(direct_matches)
+        evidence_note = (
+            f"已匹配到 {direct_count} 张真实历史样本，优先引用该节日/相近主题的 S/A 与 C/D 表现。"
+            if direct_count
+            else "暂无该节日直接历史样本；以下引用同国家真实历史好图/坏图规律，供节日首次生产时参考。"
+        )
+        local_note = _holiday_planning_note(holiday, good_images, bad_images, citations, direct_count)
+        planning_note, source = self._holiday_llm_planning(country, holiday, good_images, bad_images, citations, direct_count, local_note)
+        enriched = replace(
+            holiday,
+            history_good_images=good_images,
+            history_bad_images=bad_images,
+            direct_history_count=direct_count,
+            evidence_note=evidence_note,
+            value_rule_citations=citations,
+            llm_planning_note=planning_note,
+            llm_source=source,
+        )
+        self._holiday_recommendation_cache[cache_key] = enriched
+        return enriched
+
+    def _holiday_llm_planning(
+        self,
+        country: str,
+        holiday: HolidayRecommendation,
+        good_images: tuple[ImageAsset, ...],
+        bad_images: tuple[ImageAsset, ...],
+        citations: tuple[str, ...],
+        direct_count: int,
+        fallback_note: str,
+    ) -> tuple[str, str]:
+        provider = os.getenv("HOLIDAY_LLM_PROVIDER", "qwen").strip().lower() or "qwen"
+        remote_enabled = os.getenv("HOLIDAY_LLM_ENABLE_REMOTE_CALLS", "").strip().lower() in {"1", "true", "yes", "on"}
+        if provider not in {"qwen", "dashscope"} or not remote_enabled:
+            return fallback_note, "本地规则 fallback"
+        api_key = _first_nonempty_env("HOLIDAY_LLM_API_KEY", "QWEN_API_KEY", "DASHSCOPE_API_KEY")
+        if not api_key:
+            return fallback_note + "（远程节日策划未调用：缺少 HOLIDAY_LLM_API_KEY/QWEN_API_KEY。）", "本地规则 fallback"
+        model = os.getenv("HOLIDAY_LLM_MODEL", "qwen3.7-plus").strip() or "qwen3.7-plus"
+        endpoint = os.getenv("HOLIDAY_LLM_ENDPOINT", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions").strip()
+        payload = _holiday_llm_payload(country, holiday, good_images, bad_images, citations, direct_count, model)
+        try:
+            response = (self._holiday_llm_transport or _qwen_chat_transport)(payload, api_key, endpoint)
+            text = _extract_chat_completion_text(response).strip()
+        except Exception as exc:
+            return fallback_note + f"（远程节日策划调用失败，已回退本地规则：{exc}）", "本地规则 fallback"
+        if not text:
+            return fallback_note + "（远程节日策划未返回文本，已回退本地规则。）", "本地规则 fallback"
+        return text, f"Qwen {model}"
 
     def analysis_report(self, country: str) -> AnalysisReport:
         data = self._country(country)["analysis"]
@@ -432,6 +780,25 @@ class PuzzleOpsAgent:
             if total
             else ""
         )
+        business_recap = _analysis_business_recap(country, records) if records else {}
+        cycle_summary = (
+            f"{sample_summary}{business_recap['cycle_summary']} 视觉维度复盘：{visual_recap}"
+            if business_recap
+            else f"{sample_summary}{data['cycle_summary']} 视觉维度复盘：{visual_recap}"
+        )
+        next_todo = (
+            str(business_recap["next_todo"])
+            if business_recap
+            else f"{data['next_todo']} 多模态建议：优先补充主体清晰、文化语境准确、质量风险低的试新参考图。"
+        )
+        if business_recap:
+            cycle_summary, next_todo = self._analysis_llm_rewrite(
+                country,
+                records,
+                cycle_summary,
+                next_todo,
+                visual_recap,
+            )
         return AnalysisReport(
             country=country,
             sa_ratio=sa_ratio,
@@ -445,10 +812,40 @@ class PuzzleOpsAgent:
             cd_history_avg=data["cd_history_avg"],
             ai_history_avg=data["ai_history_avg"],
             ai_okr=data["ai_okr"],
-            cycle_summary=f"{sample_summary}{data['cycle_summary']} 视觉维度复盘：{visual_recap}",
-            next_todo=f"{data['next_todo']} 多模态建议：优先补充主体清晰、文化语境准确、质量风险低的试新参考图。",
+            cycle_summary=cycle_summary,
+            next_todo=next_todo,
             rows=rows,
         )
+
+    def _analysis_llm_rewrite(
+        self,
+        country: str,
+        records: tuple,
+        cycle_summary: str,
+        next_todo: str,
+        visual_recap: str,
+    ) -> tuple[str, str]:
+        provider = os.getenv("ANALYSIS_LLM_PROVIDER", "qwen").strip().lower() or "qwen"
+        remote_enabled = os.getenv("ANALYSIS_LLM_ENABLE_REMOTE_CALLS", "").strip().lower() in {"1", "true", "yes", "on"}
+        if provider not in {"qwen", "dashscope"} or not remote_enabled:
+            return cycle_summary, next_todo
+        api_key = _first_nonempty_env("ANALYSIS_LLM_API_KEY", "QWEN_API_KEY", "DASHSCOPE_API_KEY")
+        if not api_key:
+            return cycle_summary, next_todo
+        model = os.getenv("ANALYSIS_LLM_MODEL", "qwen3.7-plus").strip() or "qwen3.7-plus"
+        endpoint = os.getenv("ANALYSIS_LLM_ENDPOINT", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions").strip()
+        payload = _analysis_llm_payload(country, records, cycle_summary, next_todo, visual_recap, model)
+        try:
+            response = (self._analysis_llm_transport or _qwen_chat_transport)(payload, api_key, endpoint)
+            text = _extract_chat_completion_text(response).strip()
+            parsed = _analysis_llm_output_from_text(text)
+        except Exception:
+            return cycle_summary, next_todo
+        rewritten_summary = parsed.get("cycle_summary", "").strip()
+        rewritten_todo = parsed.get("next_todo", "").strip()
+        if not rewritten_summary and not rewritten_todo:
+            return cycle_summary, next_todo
+        return rewritten_summary or cycle_summary, rewritten_todo or next_todo
 
     def weekly_review_workbench(self, country: str) -> dict[str, object]:
         records = self._history_records(country)
@@ -672,21 +1069,27 @@ class PuzzleOpsAgent:
         )
         generated = self.value_audit_rag_generated_answer(row.country, query, top_k=6)
         if generated.status == "generated" and generated.answer:
-            citation_rules = tuple((citation, "生成式RAG答案引用依据") for citation in generated.citations)
+            strong_citations = _strong_rag_citations_from_trace(self._last_rag_trace, tuple(generated.citations), max_citations=3)
+            citation_rules = tuple((citation, "生成式RAG答案引用依据") for citation in strong_citations)
             return {
                 "rules": (("生成式RAG答案", generated.answer), *citation_rules),
                 "generated_answer": generated.answer,
                 "generation_status": generated.status,
             }
         answer = self.value_audit_rag_answer(row.country, query, top_k=6)
-        if not answer.citations:
+        strong_citations = _strong_rag_citations_from_trace(self._last_rag_trace, tuple(answer.citations), max_citations=3)
+        if not strong_citations:
             return {"rules": self.value_rules(row.country), "generated_answer": "", "generation_status": generated.status}
+        allowed = set(strong_citations)
         rules = []
         for line in answer.context.splitlines():
             if not line.startswith("[") or "]" not in line:
                 continue
             citation, text = line.split("]", 1)
-            rules.append((citation.strip("["), text.strip()))
+            citation_id = citation.strip("[")
+            if citation_id not in allowed:
+                continue
+            rules.append((citation_id, text.strip()))
         return {
             "rules": tuple(rules) or self.value_rules(row.country),
             "generated_answer": "",
@@ -756,6 +1159,7 @@ class PuzzleOpsAgent:
             "rag_eval_case_evidence": self.rag_eval_case_evidence(country),
             "rag_eval_failure_feedback": self.rag_eval_failure_feedback_summary(country),
             "rag_knowledge_patch_drafts": self.rag_knowledge_patch_drafts(country),
+            "rag_quality_governance": self.rag_quality_governance_workbench(country),
             "rag_patch_ops": self.rag_patch_ops_summary(country),
             "rag_live_model_ops": self.rag_live_model_ops_summary(country),
             "latest_acceptance_summary": self.latest_rag_acceptance_summary(country),
@@ -764,6 +1168,35 @@ class PuzzleOpsAgent:
             "recent_traces": self.recent_rag_traces(country, limit=3),
             **self._last_rag_stats.as_dict(),
         }
+
+    def rag_citation_details(self, country: str, citations: tuple[str, ...] | list[str]) -> tuple[dict[str, str], ...]:
+        chunks = self.repository.rag_chunks(country)
+        chunk_by_id = {str(chunk["chunk_id"]): chunk for chunk in chunks}
+        details = []
+        for citation in citations:
+            citation_id = str(citation)
+            chunk = chunk_by_id.get(citation_id)
+            if not chunk:
+                details.append(
+                    {
+                        "chunk_id": citation_id,
+                        "parent_id": citation_id.split("#", 1)[0],
+                        "source_type": "unknown",
+                        "title": _readable_citation_label(citation_id),
+                        "text": "",
+                    }
+                )
+                continue
+            details.append(
+                {
+                    "chunk_id": citation_id,
+                    "parent_id": str(chunk["parent_id"]),
+                    "source_type": str(chunk["source_type"]),
+                    "title": str(chunk["title"]),
+                    "text": str(chunk["text"]),
+                }
+            )
+        return tuple(details)
 
     def rag_live_model_ops_summary(self, country: str) -> dict[str, object]:
         acceptance = self.latest_rag_acceptance_summary(country)
@@ -1284,6 +1717,105 @@ class PuzzleOpsAgent:
             review_status="approved",
             approved_for_rag=True,
         )
+
+    def rag_quality_governance_workbench(self, country: str) -> dict[str, object]:
+        citation_summary = self.rag_feedback_summary(country)
+        low_scores = []
+        for memory in self.repository.layered_memories(country, layer="working", include_inactive=True):
+            if memory.get("memory_type") != "value_match_human_score" or memory.get("status") != "active":
+                continue
+            payload = memory.get("payload", {})
+            if not isinstance(payload, dict):
+                continue
+            score = int(payload.get("satisfaction_score", 0) or 0)
+            if score and score <= 2:
+                low_scores.append(
+                    {
+                        "memory_id": int(memory.get("memory_id", 0) or 0),
+                        "subject": str(payload.get("subject", "")),
+                        "operation_tag": str(payload.get("operation_tag", "")),
+                        "satisfaction_score": score,
+                    }
+                )
+        failure_summary = self.rag_eval_failure_feedback_summary(country, limit=10_000)
+        patch_summary = self.rag_knowledge_patch_drafts(country, limit=10_000)
+        emergency_items = tuple(
+            {**item, "reason": "risk_keyword_or_p0"}
+            for item in patch_summary.get("items", ())
+            if isinstance(item, dict) and _is_emergency_rag_patch_candidate(item)
+        )
+        return {
+            "cadence": "monthly_with_emergency",
+            "cadence_label": "月度重建 + 紧急补丁",
+            "feedback_pool": {
+                "citation_feedback_count": int(citation_summary.get("total_feedback", 0) or 0),
+                "not_useful_count": int(citation_summary.get("not_useful_count", 0) or 0),
+                "useful_count": int(citation_summary.get("useful_count", 0) or 0),
+                "low_score_count": len(low_scores),
+                "low_scores": tuple(low_scores[:8]),
+                "failure_feedback_count": int(failure_summary.get("pending_count", 0) or 0),
+            },
+            "weekly_anomalies": {
+                "emergency_candidate_count": len(emergency_items),
+                "top_not_useful_chunks": tuple(
+                    item for item in citation_summary.get("top_chunks", ()) if isinstance(item, dict) and int(item.get("not_useful_count", 0) or 0) > 0
+                )[:8],
+                "low_score_items": tuple(low_scores[:8]),
+            },
+            "monthly_patch_plan": {
+                "draft_count": int(patch_summary.get("draft_count", 0) or 0),
+                "recommended_action": "monthly_review" if int(patch_summary.get("draft_count", 0) or 0) else "collect_more_feedback",
+                "priority_summary": patch_summary.get("priority_summary", {}),
+                "items": tuple(patch_summary.get("items", ())[:8]) if isinstance(patch_summary.get("items", ()), tuple) else tuple(patch_summary.get("items", ())),
+            },
+            "emergency_patch_flow": {
+                "items": emergency_items[:8],
+                "rule": "P0、版权/IP、文化禁忌、节日误判可走紧急补丁；其余进入月度处理。",
+            },
+        }
+
+    def mark_rag_feedback_for_monthly_review(self, country: str, memory_id: int, *, actor: str = "", note: str = "") -> int:
+        return self.record_working_memory(
+            country,
+            "rag_governance_monthly_marker",
+            {"source_memory_id": memory_id, "review_note": note.strip(), "governance_status": "monthly_review"},
+            actor=actor,
+        )
+
+    def mark_rag_feedback_for_emergency_patch(self, country: str, memory_id: int, *, actor: str = "", note: str = "") -> int:
+        return self.record_working_memory(
+            country,
+            "rag_governance_emergency_marker",
+            {"source_memory_id": memory_id, "review_note": note.strip(), "governance_status": "emergency_patch"},
+            actor=actor,
+        )
+
+    def apply_emergency_rag_patch_and_rebuild(self, country: str, memory_id: int, *, actor: str = "", note: str = "") -> dict[str, object]:
+        patch = next(
+            (
+                item
+                for item in self.rag_knowledge_patch_drafts(country, limit=10_000).get("items", ())
+                if isinstance(item, dict) and int(item.get("source_memory_id", 0) or 0) == int(memory_id)
+            ),
+            None,
+        )
+        if not patch:
+            raise ValueError(f"找不到可应用的紧急 RAG 反馈：memory_id={memory_id}")
+        self.mark_rag_feedback_for_emergency_patch(country, memory_id, actor=actor, note=note or "紧急补丁应用")
+        self.approve_rag_knowledge_patch_draft(
+            country,
+            str(patch.get("patch_id", "")),
+            human_note=note or "负责人确认紧急补丁",
+            actor=actor,
+        )
+        result = self.apply_approved_rag_patch_and_rebuild(country)
+        return {
+            **result,
+            "status": "emergency_applied",
+            "feedback_memory_id": memory_id,
+            "patch_id": str(patch.get("patch_id", "")),
+            "emergency_reason": "risk_keyword_or_p0" if _is_emergency_rag_patch_candidate(patch) else "manual_emergency",
+        }
 
     def rag_eval_failure_feedback_summary(self, country: str, *, limit: int = 8) -> dict[str, object]:
         items = []
@@ -2010,6 +2542,69 @@ class PuzzleOpsAgent:
         path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         return {"path": str(path), **report}
 
+    def export_rag_hard_negative_report(
+        self,
+        countries: tuple[str, ...] | list[str] | None = None,
+        *,
+        output_dir: Path | str | None = None,
+        k: int = 5,
+        threshold: float = 0.8,
+    ) -> dict[str, object]:
+        selected_countries = tuple(countries or self.countries())
+        country_reports: dict[str, dict[str, object]] = {}
+        all_cases: list[dict[str, object]] = []
+        for country in selected_countries:
+            documents = StaticDocumentLoaderAdapter(self.rag_documents_for_task(country, "value_master")).load()
+            chunks = tuple(
+                chunk
+                for document in documents
+                for chunk in chunk_document(document, max_chars=None, chunking=self.rag_chunking_config)
+            )
+            retriever = HybridRagRetriever(chunks)
+            file_cases = self._rag_eval_cases(country)
+            harness_cases = self._harness_gold_rag_eval_cases(country)
+            cases = (*file_cases, *harness_cases) or _rag_smoke_eval_cases(country, documents)
+            base_report = evaluate_retrieval_report(
+                retriever,
+                cases,
+                k=k,
+                threshold=threshold,
+                dataset_name=f"{country}价值观RAG hard-negative eval",
+                knowledge_version=f"{country}-hard-negative-{len(documents)}docs-{len(chunks)}chunks",
+            )
+            decorated_cases = tuple(
+                _rag_hard_negative_case_result(raw_case, case, k=k)
+                for raw_case, case in zip(cases, base_report.get("cases", ()))
+                if isinstance(case, dict)
+            )
+            country_report = {
+                "country": country,
+                "case_count": len(decorated_cases),
+                "document_count": len(documents),
+                "chunk_count": len(chunks),
+                "file_case_count": len(file_cases),
+                "harness_case_count": len(harness_cases),
+                f"hit@{k}": base_report.get(f"hit@{k}", 0.0),
+                f"mrr@{k}": base_report.get(f"mrr@{k}", 0.0),
+                f"precision@{k}": base_report.get(f"precision@{k}", 0.0),
+                f"recall@{k}": base_report.get(f"recall@{k}", 0.0),
+                f"ndcg@{k}": base_report.get(f"ndcg@{k}", 0.0),
+                "hard_negative_top1_rate": _hard_negative_rate(decorated_cases, "hard_negative_top1"),
+                "hard_negative_topk_rate": _hard_negative_rate(decorated_cases, "hard_negative_in_top_k"),
+                "failure_types": _rag_failure_type_counts(decorated_cases),
+                "cases": decorated_cases,
+            }
+            country_reports[country] = country_report
+            all_cases.extend(decorated_cases)
+        report = _rag_hard_negative_report_payload(country_reports, tuple(all_cases), selected_countries, k=k, threshold=threshold)
+        export_dir = Path(output_dir) if output_dir is not None else self._runtime_dir / "resume_evidence"
+        export_dir.mkdir(parents=True, exist_ok=True)
+        json_report = export_dir / "rag_hard_negative_report.json"
+        markdown_report = export_dir / "rag_hard_negative_report.md"
+        json_report.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        markdown_report.write_text(_rag_hard_negative_report_markdown(report), encoding="utf-8")
+        return {"json_report": str(json_report), "markdown_report": str(markdown_report), **report}
+
     def _business_sample_rag_gate(
         self,
         retriever: HybridRagRetriever,
@@ -2329,6 +2924,274 @@ class PuzzleOpsAgent:
                     cards.append(ValuePredictionCard(operation_tag, image, remark))
         return tuple(cards)
 
+    def undistributed_value_candidates(self, country: str, grade: str = "") -> tuple[dict[str, object], ...]:
+        candidates = tuple(self._real_undistributed_value_candidates(country))
+        if grade:
+            candidates = tuple(candidate for candidate in candidates if candidate["predicted_grade"] == grade)
+        return tuple(
+            sorted(
+                candidates,
+                key=lambda item: (float(item["sa_probability"]), -int(item["risk_rank"]), str(item["candidate_id"])),
+                reverse=True,
+            )
+        )
+
+    def import_value_candidate_excel(self, country: str) -> tuple[dict[str, object], ...]:
+        return import_undistributed_candidate_workbook(
+            VALUE_CANDIDATE_WORKBOOK,
+            country,
+            self._runtime_dir / "value_candidates" / country / "images",
+        )
+
+    def _real_undistributed_value_candidates(self, country: str) -> tuple[dict[str, object], ...]:
+        if not VALUE_CANDIDATE_WORKBOOK.exists():
+            return ()
+        imported = self.import_value_candidate_excel(country)
+        return tuple(self._with_value_candidate_prediction(candidate) for candidate in imported)
+
+    def _with_value_candidate_prediction(self, candidate: dict[str, object]) -> dict[str, object]:
+        cache = self._value_candidate_prediction_cache(candidate)
+        base = {
+            **candidate,
+            "predicted_grade": "待预测",
+            "sa_probability": 0.0,
+            "open_rate_range": "待预测",
+            "completion_rate_range": "待预测",
+            "finish_time_range": "待预测",
+            "action": "待预测",
+            "risk_rank": 9,
+            "evidence": "来自Excel真实未分发候选图；请点击批量预测当前国家。预测值尚未生成。",
+            "prediction_status": "pending" if candidate.get("local_image_path") else "missing_image",
+            "visual_subject": str(candidate.get("subject", "")),
+            "rag_citations": (),
+            "risk_points": (),
+        }
+        if cache:
+            base.update(cache)
+        if cache and base.get("rag_filter_version") != "v0.7.32":
+            base["rag_citations"] = ()
+            base["rag_citation_details"] = ()
+            if "旧缓存RAG依据未通过强相关过滤" not in str(base.get("evidence", "")):
+                base["evidence"] = f"{base.get('evidence', '')}；旧缓存RAG依据未通过强相关过滤，已隐藏，重新预测后会写入强相关引用。".strip("；")
+        cached_grade = str(base.get("predicted_grade", ""))
+        if cached_grade in {"S", "A", "B", "C", "D"} and base.get("metric_calibration_version") != "v0.7.33":
+            metric_levels = _metric_levels_for_grade(cached_grade)
+            open_range, completion_range, finish_range = _calibrated_metric_ranges(str(base.get("country", "")), metric_levels)
+            base["metric_levels"] = metric_levels
+            base["open_rate_range"] = open_range
+            base["completion_rate_range"] = completion_range
+            base["finish_time_range"] = finish_range
+            base["action"], base["risk_rank"] = _action_for_business_grade(cached_grade)
+            base["metric_calibration_version"] = "v0.7.33"
+            level_sequence = tuple(metric_levels[field] for field in ("open_rate", "completion_rate", "avg_finish_time"))
+            if "指标校准=" not in str(base.get("evidence", "")):
+                base["evidence"] = (
+                    f"{base.get('evidence', '')}；等级预测={cached_grade}；"
+                    f"指标校准={''.join(level_sequence)}，用于和等级口径保持一致。"
+                ).strip("；")
+        if not self.trial_uploads.vision_client and base["prediction_status"] == "pending":
+            base["prediction_status"] = "missing_vision_model"
+            base["evidence"] = "已导入真实未分发候选图；未配置真实视觉模型，不能生成真实预测。"
+        base["image"] = ImageAsset(
+            str(base.get("candidate_id", "")),
+            str(base.get("predicted_grade", "待预测")),
+            str(base.get("open_rate_range", "待预测")),
+            str(base.get("completion_rate_range", "待预测")),
+            str(base.get("finish_time_range", "待预测")),
+            str(base.get("candidate_source", "")),
+            str(base.get("local_image_path", "")) or str(base.get("candidate_id", "")),
+            str(base.get("evidence", "")),
+        )
+        return base
+
+    def _value_candidate_prediction_cache(self, candidate: dict[str, object]) -> dict[str, object]:
+        path = self._value_candidate_cache_path(candidate)
+        if path.exists():
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                if payload.get("image_hash") == candidate.get("image_hash"):
+                    return dict(payload)
+            except (OSError, json.JSONDecodeError):
+                return {}
+        return {}
+
+    def _value_candidate_cache_path(self, candidate: dict[str, object]) -> Path:
+        country = str(candidate.get("country", "unknown"))
+        safe_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(candidate.get("candidate_id", "candidate")))
+        return self._value_candidate_cache_root() / country / "predictions" / f"{safe_id}.json"
+
+    def _value_candidate_cache_root(self) -> Path:
+        default_runtime_dir = Path(gettempdir()) / "puzzle_ops_agent_runtime"
+        if self._runtime_dir == default_runtime_dir:
+            return VALUE_CANDIDATE_WORKBOOK.parent / ".puzzle_ops_value_candidate_cache"
+        return self._runtime_dir / "value_candidates"
+
+    def predict_undistributed_value_candidates(self, country: str, *, limit: int = 100) -> dict[str, object]:
+        imported = self.import_value_candidate_excel(country)
+        if not self.trial_uploads.vision_client:
+            return {"country": country, "candidate_count": len(imported), "predicted_count": 0, "status": "missing_vision_model"}
+        predicted_count = 0
+        cached_count = 0
+        blocked_count = 0
+        for candidate in imported[:limit]:
+            if not candidate.get("local_image_path"):
+                blocked_count += 1
+                continue
+            cache = self._value_candidate_prediction_cache(candidate)
+            if cache and not _cached_value_candidate_prediction_is_stale(cache):
+                cached_count += 1
+                continue
+            prediction = self._predict_value_candidate(candidate)
+            cache_path = self._value_candidate_cache_path(candidate)
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(json.dumps(prediction, ensure_ascii=False, indent=2), encoding="utf-8")
+            predicted_count += 1
+        return {
+            "country": country,
+            "candidate_count": len(imported),
+            "predicted_count": predicted_count,
+            "cached_count": cached_count,
+            "blocked_count": blocked_count,
+            "status": "predicted",
+        }
+
+    def predict_single_undistributed_value_candidate(self, country: str, candidate_id: str, *, force: bool = False) -> dict[str, object]:
+        imported = self.import_value_candidate_excel(country)
+        candidate = next((item for item in imported if str(item.get("candidate_id", "")) == candidate_id), None)
+        if candidate is None:
+            return {"country": country, "candidate_id": candidate_id, "status": "missing_candidate", "predicted_count": 0, "cached_count": 0}
+        if not candidate.get("local_image_path"):
+            return {"country": country, "candidate_id": candidate_id, "status": "missing_image", "predicted_count": 0, "cached_count": 0}
+        if not self.trial_uploads.vision_client:
+            return {"country": country, "candidate_id": candidate_id, "status": "missing_vision_model", "predicted_count": 0, "cached_count": 0}
+        cache_path = self._value_candidate_cache_path(candidate)
+        if force and cache_path.exists():
+            cache_path.unlink()
+        if self._value_candidate_prediction_cache(candidate):
+            return {"country": country, "candidate_id": candidate_id, "status": "cached", "predicted_count": 0, "cached_count": 1}
+        prediction = self._predict_value_candidate(candidate)
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(prediction, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {"country": country, "candidate_id": candidate_id, "status": "predicted", "predicted_count": 1, "cached_count": 0}
+
+    def _predict_value_candidate(self, candidate: dict[str, object]) -> dict[str, object]:
+        path = Path(str(candidate.get("local_image_path", "")))
+        feature = self.local_image_analyzer.analyze_path(path)
+        local_summary = self.local_image_analyzer.summarize_features((feature,) if feature else ())
+        semantic = self.trial_uploads.vision_client.analyze(
+            [{"filename": path.name, "path": str(path), "content_type": image_content_type(path)}],
+            str(candidate.get("country", "")),
+            str(candidate.get("js_category", "")),
+            local_summary,
+        )
+        similar_positive = self._similar_history_for_candidate(candidate, semantic, positive=True)
+        similar_negative = self._similar_history_for_candidate(candidate, semantic, positive=False)
+        prediction = _value_candidate_prediction_from_evidence(candidate, semantic, similar_positive, similar_negative)
+        rag_answer = self.value_audit_rag_answer(
+            str(candidate.get("country", "")),
+            f"{semantic.subject} {semantic.scene} {candidate.get('operation_tag', '')}",
+            top_k=3,
+        )
+        strong_rag_citations = _strong_rag_citations_from_trace(self._last_rag_trace, tuple(rag_answer.citations), max_citations=3)
+        prediction.update(
+            {
+                "candidate_id": candidate.get("candidate_id", ""),
+                "country": candidate.get("country", ""),
+                "image_hash": candidate.get("image_hash", ""),
+                "prediction_status": "predicted",
+                "visual_subject": semantic.subject,
+                "visual_scene": semantic.scene,
+                "visual_style": semantic.style,
+                "risk_points": tuple(semantic.risk_tags),
+                "rag_citations": strong_rag_citations,
+                "rag_citation_details": self.rag_citation_details(str(candidate.get("country", "")), strong_rag_citations),
+                "rag_filter_version": "v0.7.32",
+                "metric_calibration_version": "v0.7.33",
+                "value_grade_model_version": "v0.7.39-legacy",
+            }
+        )
+        return prediction
+
+    def _similar_history_for_candidate(
+        self,
+        candidate: dict[str, object],
+        semantic,
+        *,
+        positive: bool,
+        ranking_mode: str = "legacy",
+    ) -> tuple[dict[str, object], ...]:
+        records = self._history_records(str(candidate.get("country", "")))
+        grades = {"S", "A"} if positive else {"C", "D"}
+        query = " ".join(
+            (
+                str(candidate.get("operation_tag", "")),
+                str(candidate.get("js_category", "")),
+                semantic.subject,
+                semantic.scene,
+                semantic.style,
+            )
+        )
+        tokens = _simple_text_tokens(query)
+        scored = []
+        for record in records:
+            if record.grade not in grades:
+                continue
+            if ranking_mode == "shadow_rerank":
+                score = _semantic_history_rerank_score(candidate, semantic, record)
+            else:
+                score = 0
+                if record.js_category == candidate.get("js_category"):
+                    score += 3
+                haystack = f"{record.operation_tag} {record.subject_tag} {record.remark}"
+                score += len(tokens & _simple_text_tokens(haystack))
+            scored.append((score, record))
+        scored = sorted(scored, key=lambda item: (item[0], item[1].grade), reverse=True)
+        return tuple(
+            {
+                "image_id": record.image_id,
+                "operation_tag": record.operation_tag,
+                "grade": record.grade,
+                "open_rate": record.open_rate,
+                "completion_rate": record.completion_rate,
+                "avg_finish_time": record.avg_finish_time,
+                "reason": f"{record.remark}；shadow_rerank={score}" if ranking_mode == "shadow_rerank" else record.remark,
+            }
+            for score, record in scored[:3]
+            if score >= 2
+        )
+
+    def record_value_candidate_decision(self, country: str, candidate_id: str, decision: str, note: str = "", *, actor: str = "") -> int:
+        return self.repository.add_layered_memory(
+            country,
+            "working",
+            "value_candidate_human_decision",
+            {"candidate_id": candidate_id, "decision": decision, "human_note": note},
+            ttl_seconds=90 * 24 * 3600,
+            created_by=actor,
+            human_verified=True,
+        )
+
+    def value_candidate_decisions(self, country: str) -> tuple[dict[str, object], ...]:
+        decisions: dict[str, dict[str, object]] = {}
+        for memory in self.repository.layered_memories(country, layer="working"):
+            if memory.get("memory_type") != "value_candidate_human_decision":
+                continue
+            payload = memory.get("payload", {})
+            if not isinstance(payload, dict):
+                continue
+            candidate_id = str(payload.get("candidate_id", ""))
+            if not candidate_id:
+                continue
+            decisions[candidate_id] = {
+                "candidate_id": candidate_id,
+                "decision": str(payload.get("decision", "")),
+                "human_note": str(payload.get("human_note", "")),
+                "memory_id": int(memory.get("memory_id", 0)),
+                "created_by": str(memory.get("created_by", "")),
+                "updated_at": str(memory.get("updated_at", "")),
+            }
+        return tuple(decisions.values())
+
     def schedule(self, country: str, day: str, replacements: dict[int, ScheduleItem] | None = None) -> tuple[ScheduleItem, ...]:
         if day not in {"周一", "周二", "周三", "周四", "周五", "周六", "周日"}:
             raise ValueError("排图日期只能是周一到周日")
@@ -2406,11 +3269,14 @@ class PuzzleOpsAgent:
         *,
         actor: str = "",
         source_trace_id: str = "",
+        skill_id: str = "regular_demand_skill",
     ):
         payload = {
             "table_name": "提需表",
             "rows": rows,
             "mode": "real" if self.feishu.is_real else "mock",
+            "batch_id": f"feishu-{uuid.uuid4().hex[:10]}",
+            "skill_id": skill_id,
         }
         return self._guarded_executor(country).propose(
             country,
@@ -2465,6 +3331,34 @@ class PuzzleOpsAgent:
             "reverted": tuple(item for item in proposals if item.guard_status == "reverted"),
         }
         return {"proposals": proposals, "groups": groups, "events_by_proposal": events_by_proposal}
+
+    def tools_console(self, country: str) -> dict[str, object]:
+        specs = self.adapter.registry.specs()
+        invocations = self.repository.tool_invocations(country=country, limit=25)
+        failed = tuple(item for item in invocations if not item.get("success"))
+        return {
+            "catalog": tuple(
+                {
+                    "name": spec.name,
+                    "display_name": spec.display_name or spec.name,
+                    "target_system": spec.target_system or "local",
+                    "side_effect": spec.side_effect,
+                    "approval_required": spec.approval_required,
+                    "country_scoped": spec.country_scoped,
+                    "allowed_skill_ids": spec.allowed_skill_ids,
+                }
+                for spec in specs
+            ),
+            "recent_invocations": invocations,
+            "failed_invocations": failed,
+            "connector_health": {
+                "feishu": self.feishu.config_status(),
+                "asset_library": {"mode": "mock", "status": "ready"},
+                "warehouse": {"mode": "mock", "status": "ready"},
+                "vector_store": self.rag_retrieval_runtime_status("value_master"),
+                "vlm": self.vision_llm_status(),
+            },
+        }
 
     def business_skill_contracts(self):
         return self.business_skills.all()
@@ -2542,6 +3436,32 @@ class PuzzleOpsAgent:
     def _run_weekly_review_skill(self, payload: dict[str, object], *, actor: str) -> SkillRunResult:
         country = str(payload["country"])
         skill = self.business_skills.get("weekly_review_skill")
+        weekly_metrics = self.adapter.registry.call(
+            "warehouse.weekly_metrics",
+            country=country,
+            actor=actor,
+            skill_id=skill.skill_id,
+            source_trace_id=f"{skill.skill_id}:{country}",
+            date_range_start=str(payload.get("date_range_start", "")),
+            date_range_end=str(payload.get("date_range_end", "")),
+            js_category=str(payload.get("js_category", "")),
+        )
+        tag_performance = self.adapter.registry.call(
+            "warehouse.tag_performance",
+            country=country,
+            actor=actor,
+            skill_id=skill.skill_id,
+            source_trace_id=f"{skill.skill_id}:{country}",
+            operation_tag=str(payload.get("js_category", "")),
+        )
+        memory_search = self.adapter.registry.call(
+            "vector.search_memory_facts",
+            country=country,
+            actor=actor,
+            skill_id=skill.skill_id,
+            source_trace_id=f"{skill.skill_id}:{country}",
+            query=str(payload.get("operator_note", "")) or str(payload.get("js_category", "")),
+        )
         review = self.weekly_review_workbench(country)
         citations = _skill_rag_citations(self.rag_documents_for_task(country, skill.rag_task_index), limit=4)
         memory_refs = self._skill_memory_refs(country, skill.memory_read_layers)
@@ -2553,19 +3473,53 @@ class PuzzleOpsAgent:
             "action_proposals": (),
         }
         self.record_working_memory(country, "weekly_review_insight", {"source_skill": skill.skill_id, "source_trace": f"{skill.skill_id}:{country}", "summary": review.get("summary", "")}, actor=actor)
-        return SkillRunResult(skill.skill_id, country, dict(payload), draft, citations, memory_refs, ("history.aggregate_metrics", "rag.retrieve.weekly_review", "memory.retrieve"), (), True, {"RAG citation precision": 1.0 if citations else 0.0})
+        return SkillRunResult(
+            skill.skill_id,
+            country,
+            dict(payload),
+            draft,
+            citations,
+            memory_refs,
+            ("warehouse.weekly_metrics", "warehouse.tag_performance", "vector.search_memory_facts"),
+            (),
+            True,
+            {"RAG citation precision": 1.0 if citations else 0.0, "工具调用成功率": _success_rate(weekly_metrics, tag_performance, memory_search)},
+        )
 
     def _run_regular_demand_skill(self, payload: dict[str, object], *, actor: str) -> SkillRunResult:
         country = str(payload["country"])
         skill = self.business_skills.get("regular_demand_skill")
         operation_tag = str(payload["operation_tag"])
         js_category = str(payload["js_category"])
-        inventory = self.adapter.registry.call("cms.query_inventory", tag=operation_tag)
+        tag_performance = self.adapter.registry.call(
+            "warehouse.tag_performance",
+            country=country,
+            actor=actor,
+            skill_id=skill.skill_id,
+            source_trace_id=f"{skill.skill_id}:{country}:{operation_tag}",
+            operation_tag=operation_tag,
+        )
+        assets = self.adapter.registry.call(
+            "asset.search_by_tag",
+            country=country,
+            actor=actor,
+            skill_id=skill.skill_id,
+            source_trace_id=f"{skill.skill_id}:{country}:{operation_tag}",
+            operation_tag=operation_tag,
+        )
+        vector = self.adapter.registry.call(
+            "vector.search_value_master",
+            country=country,
+            actor=actor,
+            skill_id=skill.skill_id,
+            source_trace_id=f"{skill.skill_id}:{country}:{operation_tag}",
+            query=operation_tag,
+        )
         row = self.add_regular_demand(country, js_category, operation_tag, 0)
         row_payload = _demand_row_payload_for_skill(row)
         required = ("提需分类", "国家", "JS分类", "运营tag", "主体内容", "张数", "需求等级", "加工方式")
         missing = tuple(field for field in required if row_payload.get(field) in {"", None})
-        proposal = self.propose_feishu_sync(country, [row_payload], actor=actor, source_trace_id=f"{skill.skill_id}:{country}:{operation_tag}")
+        proposal = self.propose_feishu_sync(country, [row_payload], actor=actor, source_trace_id=f"{skill.skill_id}:{country}:{operation_tag}", skill_id=skill.skill_id)
         citations = _skill_rag_citations(self.rag_documents_for_task(country, skill.rag_task_index), limit=4)
         memory_refs = self._skill_memory_refs(country, skill.memory_read_layers)
         draft = {
@@ -2574,26 +3528,86 @@ class PuzzleOpsAgent:
             "risk_notes": tuple(filter(None, (row.remark,))),
             "value_evidence": citations,
             "action_proposals": (proposal.proposal_id,),
-            "inventory": inventory.data if inventory.success else {},
+            "tag_performance": tag_performance.data if tag_performance.success else {},
+            "asset_matches": assets.data if assets.success else {},
+            "vector_citations": vector.data.get("citations", ()) if vector.success else (),
         }
         draft_memory_id = self.record_working_memory(country, "regular_demand_draft", {"source_skill": skill.skill_id, "operation_tag": operation_tag, "proposal_id": proposal.proposal_id}, actor=actor)
-        return SkillRunResult(skill.skill_id, country, dict(payload), draft, citations, (*memory_refs, f"memory:{draft_memory_id}"), ("cms.query_inventory", "history.search_records", "rag.retrieve.value_master", "rag.retrieve.audit"), (proposal.proposal_id,), True, {"飞书字段完整率": 1.0 if not missing else 0.0, "工具调用成功率": 1.0 if inventory.success else 0.0})
+        return SkillRunResult(
+            skill.skill_id,
+            country,
+            dict(payload),
+            draft,
+            citations,
+            (*memory_refs, f"memory:{draft_memory_id}"),
+            ("warehouse.tag_performance", "asset.search_by_tag", "vector.search_value_master", "rag.retrieve.value_master"),
+            (proposal.proposal_id,),
+            True,
+            {"飞书字段完整率": 1.0 if not missing else 0.0, "工具调用成功率": _success_rate(tag_performance, assets, vector)},
+        )
 
     def _run_trial_parse_skill(self, payload: dict[str, object], *, actor: str) -> SkillRunResult:
         country = str(payload["country"])
         skill = self.business_skills.get("trial_parse_skill")
+        reference_images = payload.get("reference_images", ())
+        reference_image = str(reference_images[0]) if isinstance(reference_images, (list, tuple)) and reference_images else ""
+        image_features = self.adapter.registry.call(
+            "image.extract_features",
+            country=country,
+            actor=actor,
+            skill_id=skill.skill_id,
+            source_trace_id=f"{skill.skill_id}:{country}",
+            reference_image=reference_image,
+        )
+        similar_assets = self.adapter.registry.call(
+            "asset.search_by_image",
+            country=country,
+            actor=actor,
+            skill_id=skill.skill_id,
+            source_trace_id=f"{skill.skill_id}:{country}",
+            reference_image=reference_image,
+        )
+        duplicate = self.adapter.registry.call(
+            "asset.check_duplicate",
+            country=country,
+            actor=actor,
+            skill_id=skill.skill_id,
+            source_trace_id=f"{skill.skill_id}:{country}",
+            reference_image=reference_image,
+        )
+        audit_vector = self.adapter.registry.call(
+            "vector.search_audit_rules",
+            country=country,
+            actor=actor,
+            skill_id=skill.skill_id,
+            source_trace_id=f"{skill.skill_id}:{country}",
+            query=str(payload.get("operator_hint", "")),
+        )
         row = self.create_trial_demand(country, str(payload["js_category"]), str(payload["trial_mode"]))
         citations = _skill_rag_citations(self.rag_documents_for_task(country, skill.rag_task_index), limit=4)
         draft = {
             "common_subject": row.subject,
-            "color_mood": "待视觉解析确认",
-            "composition": "待视觉解析确认",
+            "color_mood": str(image_features.data.get("color_mood", "待视觉解析确认")) if image_features.success else "待视觉解析确认",
+            "composition": str(image_features.data.get("composition", "待视觉解析确认")) if image_features.success else "待视觉解析确认",
             "operation_tag": row.operation_tag,
             "draft_rows": (_demand_row_payload_for_skill(row),),
             "risk_notes": tuple(filter(None, (row.remark,))),
+            "asset_matches": similar_assets.data if similar_assets.success else {},
+            "duplicate_check": duplicate.data if duplicate.success else {},
         }
         memory_id = self.record_perception_memory(country, "trial_image_parse", {"source_skill": skill.skill_id, "subject": row.subject, "operation_tag": row.operation_tag}, actor=actor)
-        return SkillRunResult(skill.skill_id, country, dict(payload), draft, citations, (f"memory:{memory_id}",), ("image.extract_features", "rag.retrieve.value_master", "rag.retrieve.audit"), (), True, {"试新提需字段完整率": 1.0})
+        return SkillRunResult(
+            skill.skill_id,
+            country,
+            dict(payload),
+            draft,
+            citations,
+            (f"memory:{memory_id}",),
+            ("image.extract_features", "asset.search_by_image", "asset.check_duplicate", "vector.search_audit_rules", "rag.retrieve.value_master", "rag.retrieve.audit"),
+            (),
+            True,
+            {"试新提需字段完整率": 1.0, "工具调用成功率": _success_rate(image_features, similar_assets, duplicate, audit_vector)},
+        )
 
     def _run_value_audit_skill(self, payload: dict[str, object], *, actor: str) -> SkillRunResult:
         country = str(payload["country"])
@@ -2601,23 +3615,75 @@ class PuzzleOpsAgent:
         subject = str(payload["subject"])
         metrics = {"open_rate": 0.28, "completion_rate": 0.9}
         predicted = _skill_predict_grade(metrics)
+        value_fit = self.adapter.registry.call(
+            "image.audit_value_fit",
+            country=country,
+            actor=actor,
+            skill_id=skill.skill_id,
+            source_trace_id=f"{skill.skill_id}:{country}:{subject}",
+            image_or_candidate=str(payload.get("image_or_candidate", "")),
+            subject=subject,
+            operation_tag=str(payload.get("operation_tag", "")),
+        )
+        ip_risk = self.adapter.registry.call(
+            "image.detect_ip_risk",
+            country=country,
+            actor=actor,
+            skill_id=skill.skill_id,
+            source_trace_id=f"{skill.skill_id}:{country}:{subject}",
+            image_or_candidate=str(payload.get("image_or_candidate", "")),
+            subject=subject,
+        )
+        value_vector = self.adapter.registry.call(
+            "vector.search_value_master",
+            country=country,
+            actor=actor,
+            skill_id=skill.skill_id,
+            source_trace_id=f"{skill.skill_id}:{country}:{subject}",
+            query=subject,
+        )
+        audit_vector = self.adapter.registry.call(
+            "vector.search_audit_rules",
+            country=country,
+            actor=actor,
+            skill_id=skill.skill_id,
+            source_trace_id=f"{skill.skill_id}:{country}:{subject}",
+            query=subject,
+        )
         audit = self.audit_review(" ".join((str(payload.get("operation_tag", "")), subject)))
         citations = _skill_rag_citations(self.rag_documents_for_task(country, skill.rag_task_index), limit=5)
         memory_refs = self._skill_memory_refs(country, skill.memory_read_layers)
+        tool_risks = tuple(value_fit.data.get("risk_points", ())) if value_fit.success else ()
+        ip_risks = tuple(ip_risk.data.get("risk_points", ())) if ip_risk.success else ()
         draft = {
             "sabcd_prediction": predicted,
             "rag_citations": citations,
-            "risk_points": tuple(audit.evidence) or tuple(filter(None, (audit.reason,))),
+            "risk_points": tuple(dict.fromkeys((*tool_risks, *ip_risks, *(tuple(audit.evidence) or tuple(filter(None, (audit.reason,))))))),
             "revision_suggestions": (audit.suggestion,),
             "human_review_suggestion": "建议运营复核文化真实性、版权/IP 和拼图可读性。",
             "production_recommendation": "review_required",
         }
         self.record_working_memory(country, "value_audit_draft", {"source_skill": skill.skill_id, "subject": subject, "operation_tag": payload.get("operation_tag", ""), "sabcd_prediction": predicted}, actor=actor)
-        return SkillRunResult(skill.skill_id, country, dict(payload), draft, citations, memory_refs, ("rag.retrieve.value_master", "rag.retrieve.audit", "memory.retrieve", "audit.retrieve_policy"), (), True, {"RAG citation precision": 1.0 if citations else 0.0})
+        return SkillRunResult(
+            skill.skill_id,
+            country,
+            dict(payload),
+            draft,
+            citations,
+            memory_refs,
+            ("image.audit_value_fit", "image.detect_ip_risk", "vector.search_value_master", "vector.search_audit_rules", "rag.retrieve.value_master", "rag.retrieve.audit", "memory.retrieve", "audit.retrieve_policy"),
+            (),
+            True,
+            {"RAG citation precision": 1.0 if citations else 0.0, "工具调用成功率": _success_rate(value_fit, ip_risk, value_vector, audit_vector)},
+        )
 
     def _run_memory_governance_skill(self, payload: dict[str, object], *, actor: str) -> SkillRunResult:
         country = str(payload["country"])
         skill = self.business_skills.get("memory_governance_skill")
+        self.adapter.registry.call("memory.workbench", country=country, actor=actor, skill_id=skill.skill_id, source_trace_id=f"{skill.skill_id}:{country}")
+        self.adapter.registry.call("memory.conflicts", country=country, actor=actor, skill_id=skill.skill_id, source_trace_id=f"{skill.skill_id}:{country}")
+        self.adapter.registry.call("memory.provenance", country=country, actor=actor, skill_id=skill.skill_id, source_trace_id=f"{skill.skill_id}:{country}")
+        self.adapter.registry.call("vector.search_memory_facts", country=country, actor=actor, skill_id=skill.skill_id, source_trace_id=f"{skill.skill_id}:{country}", query=str(payload.get("operator_goal", "")))
         memory_ids = tuple(int(item) for item in payload.get("memory_ids", ()) if str(item).isdigit())
         rows = self.repository.layered_memories(country, include_inactive=True)
         selected = tuple(row for row in rows if not memory_ids or int(row.get("memory_id", 0)) in memory_ids)
@@ -2631,7 +3697,7 @@ class PuzzleOpsAgent:
             "rag_impact": "conflict_locked 或 draft 状态不会进入 RAG。",
         }
         self.record_working_memory(country, "memory_governance_suggestion", {"source_skill": skill.skill_id, "memory_ids": memory_ids, "operator_goal": payload.get("operator_goal", "")}, actor=actor)
-        return SkillRunResult(skill.skill_id, country, dict(payload), draft, _skill_rag_citations(self.rag_documents_for_task(country, skill.rag_task_index), limit=4), tuple(f"memory:{row.get('memory_id')}" for row in selected[:5]), ("memory.workbench", "memory.conflicts", "memory.provenance", "rag.retrieve.memory_governance"), (), True, {"治理建议采纳率": 0.0})
+        return SkillRunResult(skill.skill_id, country, dict(payload), draft, _skill_rag_citations(self.rag_documents_for_task(country, skill.rag_task_index), limit=4), tuple(f"memory:{row.get('memory_id')}" for row in selected[:5]), ("memory.workbench", "memory.conflicts", "memory.provenance", "vector.search_memory_facts", "rag.retrieve.memory_governance"), (), True, {"治理建议采纳率": 0.0})
 
     def _skill_memory_refs(self, country: str, layers: tuple[str, ...]) -> tuple[str, ...]:
         refs: list[str] = []
@@ -2791,9 +3857,12 @@ class PuzzleOpsAgent:
 
     def _harness_gold_rag_eval_cases(self, country: str) -> tuple[RagRetrievalCase, ...]:
         cases: list[RagRetrievalCase] = []
-        for sample in self.harness_samples(country):
-            if not sample.is_real or sample.label_source != "human_gold" or sample.label_status != "reviewed":
-                continue
+        samples = tuple(
+            sample
+            for sample in self.harness_samples(country)
+            if sample.is_real and sample.label_source == "human_gold" and sample.label_status == "reviewed"
+        )
+        for sample in samples:
             query_parts = (
                 sample.gold_subject or sample.subject,
                 sample.gold_color_mood,
@@ -2808,6 +3877,7 @@ class PuzzleOpsAgent:
                     query=" ".join(part for part in query_parts if part).strip(),
                     country=country,
                     expected_parent_id=f"{_country_code(country)}_HARNESS_GOLD_{sample.sample_id}",
+                    hard_negative_parent_ids=_harness_gold_hard_negative_parent_ids(country, sample, samples),
                 )
             )
         return tuple(cases)
@@ -3602,7 +4672,7 @@ class PuzzleOpsAgent:
                 continue
             if isinstance(payload, dict):
                 events.append({key: str(value) for key, value in payload.items()})
-        return tuple(events)
+        return tuple(reversed(events))
 
     def record_harness_override(self, country: str, sample_id: str, task_type: str, human_override: str) -> None:
         note = human_override.strip()
@@ -3687,11 +4757,26 @@ class PuzzleOpsAgent:
             raise ValueError("当前原型支持 value_judge 任务 trace")
         profile = self.multimodal_profile(country)
         review = self.audit_review(profile.asset.operation_tag + profile.asset.remark)
-        inventory = self.adapter.registry.call("cms.query_inventory", tag=profile.asset.operation_tag)
+        tag_performance = self.adapter.registry.call(
+            "warehouse.tag_performance",
+            country=country,
+            actor="agent_trace",
+            skill_id="regular_demand_skill",
+            source_trace_id=f"value_judge:{country}:{profile.asset.operation_tag}",
+            operation_tag=profile.asset.operation_tag,
+        )
+        assets = self.adapter.registry.call(
+            "asset.search_by_tag",
+            country=country,
+            actor="agent_trace",
+            skill_id="regular_demand_skill",
+            source_trace_id=f"value_judge:{country}:{profile.asset.operation_tag}",
+            operation_tag=profile.asset.operation_tag,
+        )
         plan = (
             "构建国家与任务上下文",
             "抽取图片结构化特征",
-            "通过 MCP-like adapter 查询 CMS 库存",
+            "通过生产工具查询数仓 tag 表现与资产库素材",
             "检索相似历史好图与坏图",
             "召回审核手册风险依据",
             "同步 Agent trace 到飞书或 Mock fallback",
@@ -3699,7 +4784,8 @@ class PuzzleOpsAgent:
         )
         tool_calls = (
             "history.search_records",
-            "cms.query_inventory",
+            "warehouse.tag_performance",
+            "asset.search_by_tag",
             "image.extract_features",
             "image.retrieve_similar_good_bad",
             "audit.retrieve_policy",
@@ -3707,7 +4793,8 @@ class PuzzleOpsAgent:
         )
         observations = (
             f"读取{country}历史样本{len(self._history_records(country))}条",
-            f"CMS库存查询：{inventory.message}",
+            f"数仓 tag 表现：{tag_performance.message}",
+            f"资产库检索：{assets.message}",
             f"主体={profile.feature.main_subject}，风险={','.join(profile.feature.risk_tags) or '无'}",
             f"相似好图{len(profile.similar_good_cases)}张，相似坏图{len(profile.similar_bad_cases)}张",
             f"审核风险等级={review.risk_level}",
@@ -3723,7 +4810,7 @@ class PuzzleOpsAgent:
             "audit_recall_rate": 1.0 if review.evidence else 0.8,
             "sabcd_prediction_accuracy": 0.8,
             "value_candidate_pass_rate": len(self.approved_value_rules(country)) / max(len(self.value_rule_candidates(country)), 1),
-            "external_adapter_success_rate": 1.0 if inventory.success else 0.5,
+            "external_adapter_success_rate": _success_rate(tag_performance, assets),
             "trulens_context_relevance": rag_eval["context_relevance"],
             "trulens_groundedness": rag_eval["groundedness"],
             "trulens_answer_relevance": rag_eval["answer_relevance"],
@@ -3748,7 +4835,7 @@ class PuzzleOpsAgent:
         passed = min(len({rule["rule_text"] for rule in self.approved_value_rules(country)}), total)
         return {
             "工具调用成功率": _pct(trace.eval_result["tool_call_success_rate"]),
-            "CMS/MCP适配状态": "已启用",
+            "Tools适配状态": "已启用",
             "提需命中低库存爆款比例": "80%",
             "审核风险召回率": _pct(trace.eval_result["audit_recall_rate"]),
             "SABCD预测准确率": _pct(trace.eval_result["sabcd_prediction_accuracy"]),
@@ -3907,6 +4994,136 @@ class PuzzleOpsAgent:
             "human_gold 样本数": human_gold,
             "数据集文件": str(self._active_harness_dataset_path(country)),
         }
+
+    def export_resume_gold_dataset_evidence(
+        self,
+        countries: tuple[str, ...] | list[str] | None = None,
+        *,
+        output_dir: Path | str | None = None,
+        target_total: int = 50,
+    ) -> dict[str, object]:
+        selected_countries = tuple(countries or self.countries())
+        samples = tuple(
+            sample
+            for country in selected_countries
+            for sample in self.harness_samples(country)
+            if sample.is_real
+        )
+        export_dir = Path(output_dir) if output_dir is not None else self._runtime_dir / "resume_evidence"
+        export_dir.mkdir(parents=True, exist_ok=True)
+        combined_csv = export_dir / "puzzleops_gold_real_samples.csv"
+        summary_markdown = export_dir / "gold_dataset_summary.md"
+        with combined_csv.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=EVAL_SAMPLE_CSV_FIELDS)
+            writer.writeheader()
+            for sample in samples:
+                writer.writerow(sample.csv_row())
+        summary = _resume_gold_dataset_summary(samples, selected_countries, target_total)
+        summary_markdown.write_text(_resume_gold_dataset_summary_markdown(summary, combined_csv), encoding="utf-8")
+        return {
+            **summary,
+            "combined_csv": str(combined_csv),
+            "summary_markdown": str(summary_markdown),
+        }
+
+    def export_value_master_eval_report(
+        self,
+        countries: tuple[str, ...] | list[str] | None = None,
+        *,
+        output_dir: Path | str | None = None,
+        target_total: int = 50,
+        execute_models: bool = False,
+    ) -> dict[str, object]:
+        selected_countries = tuple(countries or self.countries())
+        samples = tuple(
+            sample
+            for country in selected_countries
+            for sample in self.harness_samples(country)
+            if sample.is_real
+        )
+        version_path = Path(__file__).resolve().parent.parent / "VERSION"
+        version = version_path.read_text(encoding="utf-8").strip() if version_path.exists() else "dev"
+        harness = AgentHarness(self, self.image_generator, execute_model_calls=execute_models, execute_generation=False)
+        run = harness.run(samples, dataset_name="PuzzleOps value master resume eval", version=version)
+        report = _value_master_eval_report_payload(
+            samples,
+            selected_countries,
+            run,
+            _value_prediction_benchmark_rows(self, selected_countries),
+            target_total,
+            version,
+        )
+        export_dir = Path(output_dir) if output_dir is not None else self._runtime_dir / "resume_evidence"
+        export_dir.mkdir(parents=True, exist_ok=True)
+        json_report = export_dir / "value_master_eval_report.json"
+        markdown_report = export_dir / "value_master_eval_report.md"
+        json_report.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        markdown_report.write_text(_value_master_eval_report_markdown(report), encoding="utf-8")
+        return {
+            "json_report": str(json_report),
+            "markdown_report": str(markdown_report),
+            **report,
+        }
+
+    def export_value_master_repair_diagnostics(
+        self,
+        eval_report: dict[str, object] | None = None,
+        *,
+        output_dir: Path | str | None = None,
+    ) -> dict[str, object]:
+        report = eval_report or self.export_value_master_eval_report(("日本", "法国"), output_dir=output_dir, target_total=50)
+        diagnostics = _value_master_repair_diagnostics_payload(report)
+        export_dir = Path(output_dir) if output_dir is not None else self._runtime_dir / "resume_evidence"
+        export_dir.mkdir(parents=True, exist_ok=True)
+        json_report = export_dir / "value_master_repair_diagnostics.json"
+        markdown_report = export_dir / "value_master_repair_diagnostics.md"
+        json_report.write_text(json.dumps(diagnostics, ensure_ascii=False, indent=2), encoding="utf-8")
+        markdown_report.write_text(_value_master_repair_diagnostics_markdown(diagnostics), encoding="utf-8")
+        return {"json_report": str(json_report), "markdown_report": str(markdown_report), **diagnostics}
+
+    def export_history_evidence_shadow_report(
+        self,
+        countries: tuple[str, ...] | list[str] | None = None,
+        *,
+        output_dir: Path | str | None = None,
+        top_k: int = 3,
+    ) -> dict[str, object]:
+        selected_countries = tuple(countries or self.countries())
+        samples = tuple(
+            sample
+            for country in selected_countries
+            for sample in self.harness_samples(country)
+            if sample.is_real and sample.label_source == "human_gold" and sample.label_status == "reviewed"
+        )
+        cases = tuple(
+            _history_shadow_case(sample, self._history_records(sample.country), top_k=top_k)
+            for sample in samples
+        )
+        report = _history_shadow_report_payload(cases, selected_countries, top_k)
+        export_dir = Path(output_dir) if output_dir is not None else self._runtime_dir / "resume_evidence"
+        export_dir.mkdir(parents=True, exist_ok=True)
+        json_report = export_dir / "history_evidence_shadow_report.json"
+        markdown_report = export_dir / "history_evidence_shadow_report.md"
+        json_report.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        markdown_report.write_text(_history_shadow_report_markdown(report), encoding="utf-8")
+        return {"json_report": str(json_report), "markdown_report": str(markdown_report), **report}
+
+    def export_value_master_prompt_benchmark_v2_report(
+        self,
+        countries: tuple[str, ...] | list[str] | None = None,
+        *,
+        output_dir: Path | str | None = None,
+    ) -> dict[str, object]:
+        selected_countries = tuple(countries or self.countries())
+        rows = _value_prediction_benchmark_rows(self, selected_countries)
+        report = _value_master_prompt_benchmark_v2_payload(rows, selected_countries)
+        export_dir = Path(output_dir) if output_dir is not None else self._runtime_dir / "resume_evidence"
+        export_dir.mkdir(parents=True, exist_ok=True)
+        json_report = export_dir / "value_master_prompt_benchmark_v2_report.json"
+        markdown_report = export_dir / "value_master_prompt_benchmark_v2_report.md"
+        json_report.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        markdown_report.write_text(_value_master_prompt_benchmark_v2_markdown(report), encoding="utf-8")
+        return {"json_report": str(json_report), "markdown_report": str(markdown_report), **report}
 
     def harness_readiness(self, country: str) -> dict[str, object]:
         samples = tuple(sample for sample in self.harness_samples(country) if sample.is_real)
@@ -4211,6 +5428,7 @@ class PuzzleOpsAgent:
         *,
         max_count: int | None = None,
         force: bool = False,
+        progress_callback=None,
     ) -> dict[str, object]:
         dataset = self.ensure_harness_gold_dataset(country)
         rows = self._read_harness_gold_rows(dataset)
@@ -4223,7 +5441,7 @@ class PuzzleOpsAgent:
         updated = 0
         skipped = 0
         already_labeled = 0
-        eligible = 0
+        candidates = []
         for row in rows:
             if row.get("country") != country or row.get("source") != "real":
                 continue
@@ -4232,12 +5450,18 @@ class PuzzleOpsAgent:
             if not force and not _row_needs_ai_prelabeled(row):
                 already_labeled += 1
                 continue
-            eligible += 1
-            if max_count is not None and updated >= max_count:
-                continue
+            candidates.append(row)
+        eligible = len(candidates)
+        rows_to_process = candidates[:max_count] if max_count is not None else candidates
+        total_to_process = len(rows_to_process)
+        processed = 0
+        for row in rows_to_process:
             image_path = Path(str(row.get("local_image_path", ""))).expanduser()
             if not image_path.exists():
                 skipped += 1
+                processed += 1
+                if progress_callback:
+                    progress_callback(processed, total_to_process, row.get("sample_id", ""))
                 continue
             feature = self.local_image_analyzer.analyze_path(image_path)
             visual = self.local_image_analyzer.summarize_features((feature,) if feature else ())
@@ -4285,6 +5509,9 @@ class PuzzleOpsAgent:
                 },
             )
             updated += 1
+            processed += 1
+            if progress_callback:
+                progress_callback(processed, total_to_process, row.get("sample_id", ""))
         self._write_harness_gold_rows(dataset, rows)
         summary = _prelabel_row_summary(rows, country)
         return {
@@ -4305,6 +5532,7 @@ class PuzzleOpsAgent:
         *,
         sample_ids: tuple[str, ...] = (),
         reviewer_note: str = "人工抽查通过",
+        progress_callback=None,
     ) -> dict[str, object]:
         dataset = self.ensure_harness_gold_dataset(country)
         rows = self._read_harness_gold_rows(dataset)
@@ -4312,21 +5540,34 @@ class PuzzleOpsAgent:
         approved = 0
         skipped = 0
         note = reviewer_note.strip() or "人工抽查通过"
-        for row in rows:
+        candidates = [
+            row
+            for row in rows
+            if row.get("country") == country
+            and row.get("source") == "real"
+            and (not wanted or row.get("sample_id") in wanted)
+        ]
+        total_to_process = len(candidates)
+        processed = 0
+        for row in candidates:
             if row.get("country") != country or row.get("source") != "real":
-                continue
-            if wanted and row.get("sample_id") not in wanted:
                 continue
             if row.get("label_source") != "ai_silver" or row.get("label_status") != "pending_review":
                 skipped += 1
+                processed += 1
+                if progress_callback:
+                    progress_callback(processed, total_to_process, row.get("sample_id", ""))
                 continue
             missing = [field for field in ("gold_grade", "gold_subject", "gold_color_mood", "gold_composition", "gold_value_labels") if not row.get(field)]
             if missing:
                 skipped += 1
+                processed += 1
+                if progress_callback:
+                    progress_callback(processed, total_to_process, row.get("sample_id", ""))
                 continue
             row["label_source"] = "human_gold"
             row["label_status"] = "reviewed"
-            row["human_note"] = f"{row.get('human_note', '').strip()}；{note}".strip("；")
+            row["human_note"] = _human_gold_review_note(row.get("human_note", ""), note)
             self.repository.add_memory(country, "harness_gold_label", f"{row.get('sample_id', '')}：{row.get('gold_subject', '')}；{note}")
             self.record_extracted_fact(
                 country,
@@ -4345,6 +5586,9 @@ class PuzzleOpsAgent:
                 },
             )
             approved += 1
+            processed += 1
+            if progress_callback:
+                progress_callback(processed, total_to_process, row.get("sample_id", ""))
         self._write_harness_gold_rows(dataset, rows)
         fact_memory_count = sum(
             1
@@ -4547,6 +5791,199 @@ def _analysis_row_from_record(record) -> AnalysisRow:
     )
 
 
+def _analysis_business_recap(country: str, records) -> dict[str, str]:
+    records = tuple(records)
+    if not records:
+        return {}
+    sa_records = tuple(sorted((record for record in records if record.grade in {"S", "A"}), key=_record_strength, reverse=True))
+    cd_records = tuple(sorted((record for record in records if record.grade in {"C", "D"}), key=_record_risk_score, reverse=True))
+    reusable = _tag_summaries(records, positive=True)
+    risky = _tag_summaries(records, positive=False)
+    top_sa = sa_records[0] if sa_records else None
+    top_risk = cd_records[0] if cd_records else None
+    source_note = _analysis_source_note(records)
+    trend_note = _analysis_trend_note(sa_records, reusable)
+    anomaly_note = _analysis_anomaly_note(cd_records)
+    cycle_summary = (
+        f"异常点归因：{anomaly_note} "
+        f"市场题材趋势：{trend_note} "
+        f"来源结构：{source_note}。"
+    )
+    replenishment = _analysis_replenishment_note(reusable, top_sa)
+    pause = _analysis_pause_note(risky, top_risk)
+    hypothesis = _analysis_hypothesis_note(country, reusable, risky, top_sa)
+    next_todo = (
+        f"需要补库存主题：{replenishment} "
+        f"应暂停低质方向：{pause} "
+        f"下一周期试新假设：{hypothesis}"
+    )
+    return {"cycle_summary": cycle_summary, "next_todo": next_todo}
+
+
+def _analysis_llm_payload(
+    country: str,
+    records: tuple,
+    cycle_summary: str,
+    next_todo: str,
+    visual_recap: str,
+    model: str,
+) -> dict[str, object]:
+    return {
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "你是 PuzzleOps 拼图内容运营数据分析助手。只能基于用户提供的结构化分析、真实历史记录和视觉复盘改写；"
+                    "不要编造图片、指标、来源、价值观规则或业务结论。输出中文，服务运营复盘和下一周期提需决策。"
+                ),
+            },
+            {
+                "role": "user",
+                "content": _analysis_llm_user_prompt(country, records, cycle_summary, next_todo, visual_recap),
+            },
+        ],
+        "response_format": {"type": "json_object"},
+        "temperature": 0.2,
+    }
+
+
+def _analysis_llm_user_prompt(
+    country: str,
+    records: tuple,
+    cycle_summary: str,
+    next_todo: str,
+    visual_recap: str,
+) -> str:
+    record_lines = "\n".join(_analysis_record_evidence_line(record) for record in records[:12]) or "无"
+    return (
+        f"国家：{country}\n"
+        "任务：把下面的结构化分析改写成更像资深运营复盘的两段文案，但不要改变事实。\n"
+        "必须只根据提供的资料回答，资料里没有的就说样本不足；不要编造指标、图片或结论。\n"
+        "输出 JSON：{\"cycle_summary\":\"...\",\"next_todo\":\"...\"}\n\n"
+        "结构化分析：\n"
+        f"- {cycle_summary}\n"
+        f"- {next_todo}\n"
+        f"- 视觉维度复盘：{visual_recap}\n\n"
+        "真实历史记录证据：\n"
+        f"{record_lines}\n\n"
+        "改写要求：\n"
+        "1. cycle_summary 必须覆盖异常点归因、市场题材趋势、来源结构或视觉维度复盘。\n"
+        "2. next_todo 必须覆盖需要补库存主题、应暂停低质方向、下一周期试新假设。\n"
+        "3. 保留关键运营tag、等级或指标证据，避免空泛表述。"
+    )
+
+
+def _analysis_record_evidence_line(record) -> str:
+    return (
+        f"- {record.operation_tag}｜等级{record.grade}｜位置{record.position}｜"
+        f"开图{_rate_text(float(record.open_rate))}｜完成{_rate_text(float(record.completion_rate))}｜"
+        f"时长{_minutes_text(float(record.avg_finish_time))}｜来源{record.source or '未知'}｜"
+        f"备注{record.remark or '无'}"
+    )
+
+
+def _analysis_llm_output_from_text(text: str) -> dict[str, str]:
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return {}
+    data = _json_object_from_text(cleaned)
+    if data:
+        return {
+            "cycle_summary": str(data.get("cycle_summary", "") or data.get("周期内容分析", "")).strip(),
+            "next_todo": str(data.get("next_todo", "") or data.get("下一步todo", "") or data.get("下一步建议", "")).strip(),
+        }
+    cycle_summary = _extract_labeled_section(cleaned, ("周期内容分析", "cycle_summary", "复盘总结"))
+    next_todo = _extract_labeled_section(cleaned, ("下一步todo", "下一步 todo", "next_todo", "下一步建议"))
+    return {"cycle_summary": cycle_summary, "next_todo": next_todo}
+
+
+def _extract_labeled_section(text: str, labels: tuple[str, ...]) -> str:
+    label_pattern = "|".join(re.escape(label) for label in labels)
+    next_label_pattern = r"周期内容分析|cycle_summary|复盘总结|下一步todo|下一步\s*todo|next_todo|下一步建议"
+    match = re.search(rf"(?:{label_pattern})\s*[:：]\s*(.*?)(?=\n\s*(?:{next_label_pattern})\s*[:：]|\Z)", text, flags=re.DOTALL | re.IGNORECASE)
+    return match.group(1).strip() if match else ""
+
+
+def _analysis_source_note(records) -> str:
+    total = max(len(records), 1)
+    grouped: dict[str, int] = defaultdict(int)
+    for record in records:
+        grouped[str(record.source or "未知")] += 1
+    parts = [f"{source}{count}张/{count / total:.0%}" for source, count in sorted(grouped.items(), key=lambda item: item[1], reverse=True)]
+    return "、".join(parts) if parts else "暂无来源结构"
+
+
+def _analysis_trend_note(sa_records, reusable) -> str:
+    if reusable:
+        top = reusable[0]
+        return (
+            f"{top['operation_tag']}（{top['subject']}，JS分类{top['js_category']}）"
+            f"出现 S/A {top['sa_count']} 张，平均开图 {_rate_text(float(top['avg_open_rate']))}"
+        )
+    if sa_records:
+        record = sa_records[0]
+        return f"{record.operation_tag}（{record.subject_tag or record.js_category}）表现最好，开图 {_rate_text(float(record.open_rate))}"
+    return "本周期暂无明确 S/A 趋势，需继续补真实样本"
+
+
+def _analysis_anomaly_note(cd_records) -> str:
+    if not cd_records:
+        return "暂无明显 C/D 异常，重点观察 B 图转化"
+    record = cd_records[0]
+    reasons = []
+    if record.grade in {"C", "D"}:
+        reasons.append(f"等级{record.grade}")
+    if float(record.open_rate) < 0.06:
+        reasons.append(f"开图率仅{_rate_text(float(record.open_rate))}")
+    if float(record.completion_rate) < 0.86:
+        reasons.append(f"完成率{_rate_text(float(record.completion_rate))}")
+    if float(record.avg_finish_time) < 15:
+        reasons.append(f"时长{_minutes_text(float(record.avg_finish_time))}")
+    if record.remark:
+        reasons.append(str(record.remark))
+    reason = "，".join(reasons[:4]) or "表现偏弱"
+    return f"{record.operation_tag}（{record.subject_tag or record.js_category}）{reason}"
+
+
+def _analysis_replenishment_note(reusable, top_sa) -> str:
+    if reusable:
+        items = [
+            f"{item['subject']}（{item['operation_tag']}，{item['reason']}）"
+            for item in reusable[:3]
+        ]
+        return "；".join(items)
+    if top_sa:
+        return f"{top_sa.subject_tag or top_sa.operation_tag} 可作为补库存方向，参考 {top_sa.operation_tag}"
+    return "暂无可直接补库存主题，先补充 S/A 样本"
+
+
+def _analysis_pause_note(risky, top_risk) -> str:
+    if risky:
+        items = [
+            f"{item['subject']}（{item['operation_tag']}，{item['reason']}）"
+            for item in risky[:3]
+        ]
+        return "；".join(items)
+    if top_risk:
+        return f"{top_risk.subject_tag or top_risk.operation_tag} 暂停扩量，先复盘 {top_risk.operation_tag}"
+    return "暂无需要暂停的明确方向"
+
+
+def _analysis_hypothesis_note(country: str, reusable, risky, top_sa) -> str:
+    base_subject = ""
+    if reusable:
+        base_subject = str(reusable[0].get("subject", ""))
+    elif top_sa:
+        base_subject = str(top_sa.subject_tag or top_sa.operation_tag)
+    avoid_subject = str(risky[0].get("subject", "")) if risky else ""
+    if base_subject and avoid_subject:
+        return f"围绕{base_subject}做 2-3 张试新，保留{country}本土文化语境，并避开{avoid_subject}暴露出的主体弱/风格偏差问题。"
+    if base_subject:
+        return f"围绕{base_subject}做 2-3 张试新，验证不同构图、季节和光影是否能延续 S/A 表现。"
+    return f"先从{country}价值观规则中挑 2 个高确定性主题做小批量试新，并补齐人工等级。"
+
+
 def _record_strength(record) -> tuple[float, float, float]:
     return (float(record.open_rate), float(record.completion_rate), float(record.avg_finish_time))
 
@@ -4616,6 +6053,363 @@ def _tag_summaries(records, *, positive: bool) -> tuple[dict[str, object], ...]:
     else:
         rows.sort(key=lambda row: (int(row["cd_count"]), -float(row["avg_open_rate"]), int(row["sample_count"])), reverse=True)
     return tuple(rows)
+
+
+def _categories_from_history_records(records) -> dict[str, tuple[TagMeta, ...]]:
+    grouped: dict[str, dict[str, list[object]]] = defaultdict(lambda: defaultdict(list))
+    for record in records:
+        if record.js_category and record.operation_tag:
+            grouped[str(record.js_category)][str(record.operation_tag)].append(record)
+    categories: dict[str, tuple[TagMeta, ...]] = {}
+    for js_category in sorted(JS_CATEGORIES):
+        tags: list[TagMeta] = []
+        for operation_tag, items in sorted(grouped[js_category].items()):
+            best = max(items, key=_record_strength)
+            sample_count = len(items)
+            sa_count = sum(1 for item in items if item.grade in {"S", "A"})
+            cd_count = sum(1 for item in items if item.grade in {"C", "D"})
+            avg_open = sum(float(item.open_rate) for item in items) / sample_count
+            avg_completion = sum(float(item.completion_rate) for item in items) / sample_count
+            avg_finish_time = sum(float(item.avg_finish_time) for item in items) / sample_count
+            subject = best.subject_tag or _subject_from_operation_tag(operation_tag)
+            simulated_stock = _simulated_inventory_count(operation_tag, sample_count)
+            is_hot_missing = sa_count > 0 and simulated_stock <= 2
+            status = "爆款缺库存" if is_hot_missing else ("需复盘" if cd_count > 0 else "观察")
+            risk = (
+                f"{status}；模拟库存 {simulated_stock}；历史样本 {sample_count}；"
+                f"S/A {sa_count}；C/D {cd_count}；开图 {avg_open:.2%}；完成 {avg_completion:.2%}；时长 {avg_finish_time:.2f}"
+            )
+            tags.append(TagMeta(operation_tag, subject, simulated_stock, is_hot_missing, risk))
+        categories[js_category] = tuple(tags)
+    return categories
+
+
+def _simulated_inventory_count(operation_tag: str, historical_sample_count: int) -> int:
+    return max(1, min(8, historical_sample_count))
+
+
+def _demo_undistributed_candidates(country: str) -> tuple[dict[str, object], ...]:
+    if country == "法国":
+        return (
+            _candidate("候选_法国_乡村女性花园_001", country, "drawing", "试新_法国_乡村女性0531", "S", 0.78, "18%-24%", "91%-95%", "18-23", "可分发", 0, "相似历史好图：试新_法国_乡村女性0531；法式乡村人物、油画质感和明亮花园语境匹配。"),
+            _candidate("候选_法国_海边餐厅黄昏_002", country, "travel", "常规_法国_海边湖边餐厅0329", "A", 0.69, "15%-21%", "90%-94%", "18-24", "可备选", 1, "相似历史好图：常规_法国_海边湖边餐厅0329；生活方式和法式度假感较强。"),
+            _candidate("候选_法国_旋转木马夜景_003", country, "travel", "试新_法国_旋转木马0521", "C", 0.24, "2%-6%", "86%-90%", "10-14", "不建议", 3, "相似历史差图：试新_法国_旋转木马0521；夜景主体弱，历史表现为 D。"),
+        )
+    return (
+        _candidate("候选_日本_猫咪鲤鱼夏日_001", country, "animal", "常规_日本_猫咪鲤鱼0605", "S", 0.82, "24%-30%", "93%-97%", "20-25", "优先排图", 0, "相似历史好图：常规_日本_猫咪鲤鱼0605；猫与鲤鱼元素有 S 图历史表现，治愈感和本土语境强。"),
+        _candidate("候选_日本_儿童节鲤鱼旗_002", country, "drawing", "试新_日本_儿童节鲤鱼旗0527", "S", 0.79, "25%-31%", "92%-96%", "22-27", "优先排图", 0, "相似历史好图：试新_日本_儿童节鲤鱼旗0527；节日元素明确，家庭主题适配日本市场。"),
+        _candidate("候选_日本_复古街道_003", country, "travel", "常规_日本_街道0622", "C", 0.28, "4%-8%", "87%-91%", "24-30", "需修改", 2, "相似历史风险图：常规_日本_街道0622；街景主体不够集中，历史表现为 C。"),
+        _candidate("候选_日本_抹茶甜点_004", country, "food", "常规_日本_抹茶0405", "B", 0.43, "8%-13%", "89%-93%", "14-19", "可备选", 1, "相似历史差图：常规_日本_抹茶0405；食物题材有文化真实性，但开图弱，需要强化主体。"),
+    )
+
+
+def _candidate(
+    candidate_id: str,
+    country: str,
+    js_category: str,
+    similar_history_tag: str,
+    predicted_grade: str,
+    sa_probability: float,
+    open_rate_range: str,
+    completion_rate_range: str,
+    finish_time_range: str,
+    action: str,
+    risk_rank: int,
+    evidence: str,
+) -> dict[str, object]:
+    return {
+        "candidate_id": candidate_id,
+        "country": country,
+        "js_category": js_category,
+        "similar_history_tag": similar_history_tag,
+        "predicted_grade": predicted_grade,
+        "sa_probability": sa_probability,
+        "open_rate_range": open_rate_range,
+        "completion_rate_range": completion_rate_range,
+        "finish_time_range": finish_time_range,
+        "action": action,
+        "risk_rank": risk_rank,
+        "evidence": evidence,
+        "image": ImageAsset(candidate_id, predicted_grade, open_rate_range, completion_rate_range, finish_time_range, "demo 未分发候选图", candidate_id, evidence),
+    }
+
+
+def _value_candidate_prediction_from_evidence(candidate: dict[str, object], semantic, positive: tuple[dict[str, object], ...], negative: tuple[dict[str, object], ...]) -> dict[str, object]:
+    positive_strength = sum(1 for item in positive if item.get("grade") in {"S", "A"})
+    negative_strength = sum(1 for item in negative if item.get("grade") in {"C", "D"})
+    risk_count = len(getattr(semantic, "risk_tags", ()) or ())
+    score = 0.45 + positive_strength * 0.12 - negative_strength * 0.07 - risk_count * 0.12
+    confidence = max(0.12, min(0.88, score + float(getattr(semantic, "confidence", 0) or 0) * 0.12))
+    country = str(candidate.get("country", ""))
+    predicted_grade = _business_grade_from_confidence(confidence)
+    metric_levels = _metric_levels_for_grade(predicted_grade)
+    level_sequence = (metric_levels["open_rate"], metric_levels["completion_rate"], metric_levels["avg_finish_time"])
+    action, risk_rank = _action_for_business_grade(predicted_grade)
+    open_rate_range, completion_rate_range, finish_time_range = _calibrated_metric_ranges(country, metric_levels)
+    positive_text = "、".join(str(item.get("operation_tag", "")) for item in positive[:2]) or "暂无强相似S/A历史样本"
+    negative_text = "、".join(str(item.get("operation_tag", "")) for item in negative[:2]) or "暂无强相似C/D风险样本"
+    evidence = (
+        f"预测值：Qwen视觉解析主体={semantic.subject or candidate.get('subject', '')}；"
+        f"等级预测={predicted_grade}；指标校准={''.join(level_sequence)}，用于和等级口径保持一致；"
+        f"相似历史好图：{positive_text}；相似历史风险图：{negative_text}；"
+        f"风险：{'、'.join(getattr(semantic, 'risk_tags', ()) or ()) or '未发现明确风险'}。"
+    )
+    return {
+        "predicted_grade": predicted_grade,
+        "sa_probability": round(confidence, 4),
+        "open_rate_range": open_rate_range,
+        "completion_rate_range": completion_rate_range,
+        "finish_time_range": finish_time_range,
+        "metric_levels": metric_levels,
+        "action": action,
+        "risk_rank": risk_rank,
+        "evidence": evidence,
+        "similar_positive": positive,
+        "similar_negative": negative,
+    }
+
+
+def _material_risk_tags(risk_tags: object) -> tuple[str, ...]:
+    benign_markers = (
+        "low_",
+        "no_",
+        "无",
+        "低风险",
+        "非真实",
+        "未见",
+        "未发现",
+        "not_detected",
+        "none",
+        "safe",
+    )
+    material = []
+    for item in _as_text_tuple(risk_tags):
+        tag = item.strip()
+        lowered = tag.lower()
+        if not tag:
+            continue
+        if any(marker in lowered or marker in tag for marker in benign_markers):
+            continue
+        material.append(tag)
+    return tuple(material)
+
+
+def _history_signal_weight(item: dict[str, object]) -> float:
+    score = _number_from_similarity_reason(str(item.get("reason", "")), "相似得分")
+    overlap = _number_from_similarity_reason(str(item.get("reason", "")), "主体/视觉重合")
+    if score is None:
+        return 1.0
+    if score >= 30 or (overlap is not None and overlap >= 5):
+        return 1.25
+    if score >= 16 or (overlap is not None and overlap >= 3):
+        return 0.8
+    if score >= 9 or (overlap is not None and overlap >= 2):
+        return 0.45
+    return 0.2
+
+
+def _number_from_similarity_reason(reason: str, label: str) -> float | None:
+    match = re.search(rf"{re.escape(label)}=([0-9]+(?:\\.[0-9]+)?)", reason)
+    if not match:
+        return None
+    return float(match.group(1))
+
+
+METRIC_LEVEL_THRESHOLDS = {
+    "日本": {
+        "open_rate": (0.0789, 0.1378),
+        "completion_rate": (0.8673, 0.9198),
+        "avg_finish_time": (15.06, 19.73),
+    },
+    "法国": {
+        "open_rate": (0.0589, 0.1078),
+        "completion_rate": (0.8573, 0.9189),
+        "avg_finish_time": (15.00, 18.73),
+    },
+}
+
+
+def _metric_level(country: str, metric: str, value: float) -> str:
+    low, high = METRIC_LEVEL_THRESHOLDS.get(country, METRIC_LEVEL_THRESHOLDS["日本"]).get(metric, (0.0, 0.0))
+    if value > high:
+        return "高"
+    if value < low:
+        return "低"
+    return "中"
+
+
+def _business_grade_from_metric_levels(levels: tuple[str, str, str]) -> str:
+    high_count = sum(1 for level in levels if level == "高")
+    low_count = sum(1 for level in levels if level == "低")
+    middle_count = sum(1 for level in levels if level == "中")
+    if high_count == 3:
+        return "S"
+    if high_count == 2 and middle_count == 1:
+        return "A"
+    if middle_count == 3 or (high_count == 2 and low_count == 1):
+        return "B"
+    if (low_count == 1 and middle_count == 2) or (low_count == 1 and high_count == 1 and middle_count == 1):
+        return "C"
+    return "D"
+
+
+def _business_grade_from_confidence(confidence: float) -> str:
+    if confidence >= 0.76:
+        return "S"
+    if confidence >= 0.62:
+        return "A"
+    if confidence >= 0.46:
+        return "B"
+    if confidence >= 0.30:
+        return "C"
+    return "D"
+
+
+def _metric_levels_for_grade(grade: str) -> dict[str, str]:
+    levels_by_grade = {
+        "S": ("高", "高", "高"),
+        "A": ("高", "高", "中"),
+        "B": ("中", "中", "中"),
+        "C": ("低", "中", "中"),
+        "D": ("低", "低", "低"),
+    }
+    open_level, completion_level, finish_level = levels_by_grade.get(grade, levels_by_grade["B"])
+    return {"open_rate": open_level, "completion_rate": completion_level, "avg_finish_time": finish_level}
+
+
+def _calibrated_metric_ranges(country: str, metric_levels: dict[str, str]) -> tuple[str, str, str]:
+    return (
+        _calibrated_metric_range(country, "open_rate", metric_levels.get("open_rate", "中")),
+        _calibrated_metric_range(country, "completion_rate", metric_levels.get("completion_rate", "中")),
+        _calibrated_metric_range(country, "avg_finish_time", metric_levels.get("avg_finish_time", "中")),
+    )
+
+
+def _calibrated_metric_range(country: str, metric: str, level: str) -> str:
+    low, high = METRIC_LEVEL_THRESHOLDS.get(country, METRIC_LEVEL_THRESHOLDS["日本"]).get(metric, (0.0, 0.0))
+    if metric in {"open_rate", "completion_rate"}:
+        if level == "高":
+            return _range_percent(high + 0.001, min(0.99, high + 0.035))
+        if level == "低":
+            return _range_percent(max(0.001, low - 0.035), max(0.001, low - 0.001))
+        return _range_percent(low, high)
+    if level == "高":
+        return f"{high + 0.1:.1f}-{high + 3:.1f}"
+    if level == "低":
+        return f"{max(1.0, low - 3):.1f}-{max(1.0, low - 0.1):.1f}"
+    return f"{low:.1f}-{high:.1f}"
+
+
+def _action_for_business_grade(grade: str) -> tuple[str, int]:
+    if grade in {"S", "A"}:
+        return "优先排图", 0
+    if grade == "B":
+        return "谨慎排图", 1
+    if grade == "C":
+        return "人工复核", 2
+    return "暂不使用", 3
+
+
+def _strong_rag_citations_from_trace(
+    trace: dict[str, object],
+    citations: tuple[str, ...],
+    *,
+    min_rerank_score: float = 0.55,
+    blocked_parent_ids: tuple[str, ...] | list[str] | set[str] = (),
+    max_citations: int = 0,
+) -> tuple[str, ...]:
+    hits = trace.get("final_hits", ()) if isinstance(trace, dict) else ()
+    blocked = {str(parent_id) for parent_id in blocked_parent_ids}
+    limit = max(int(max_citations or 0), 0)
+    if not isinstance(hits, (tuple, list)) or not hits:
+        filtered = []
+        for citation in citations:
+            parent_id = str(citation).split("#", 1)[0]
+            if parent_id in blocked:
+                continue
+            filtered.append(str(citation))
+            if limit and len(filtered) >= limit:
+                break
+        return tuple(filtered)
+    strong: list[str] = []
+    allowed = set(citations)
+    for hit in hits:
+        if not isinstance(hit, dict):
+            continue
+        chunk_id = str(hit.get("chunk_id", ""))
+        if chunk_id not in allowed:
+            continue
+        parent_id = str(hit.get("parent_id", "") or chunk_id.split("#", 1)[0])
+        if parent_id in blocked:
+            continue
+        bm25_score = float(hit.get("bm25_score", 0) or 0)
+        rerank_score = float(hit.get("rerank_score", 0) or 0)
+        if bm25_score > 0 or rerank_score >= min_rerank_score:
+            strong.append(chunk_id)
+            if limit and len(strong) >= limit:
+                break
+    return tuple(strong)
+
+
+def _semantic_history_rerank_score(candidate: dict[str, object], semantic, record) -> float:
+    subject = str(getattr(semantic, "subject", "") or "")
+    scene = str(getattr(semantic, "scene", "") or "")
+    style = str(getattr(semantic, "style", "") or "")
+    culture = " ".join(str(item) for item in getattr(semantic, "culture_elements", ()) or ())
+    keywords = " ".join(str(item) for item in getattr(semantic, "prompt_keywords", ()) or ())
+    haystack = _history_record_text(record)
+    haystack_tokens = _simple_text_tokens(haystack)
+    subject_tokens = _simple_text_tokens(" ".join((subject, keywords)))
+    visual_tokens = _simple_text_tokens(" ".join((scene, style, culture)))
+    score = 0.0
+    score += len(subject_tokens & haystack_tokens) * 6.0
+    score += len(visual_tokens & haystack_tokens) * 2.0
+    if subject and (subject in haystack or str(getattr(record, "subject_tag", "") or "") in subject):
+        score += 8.0
+    if str(getattr(record, "js_category", "") or "") == str(candidate.get("js_category", "") or ""):
+        score += 1.0
+    if str(candidate.get("operation_tag", "") or "") and str(getattr(record, "operation_tag", "") or ""):
+        score += len(_simple_text_tokens(str(candidate.get("operation_tag", ""))) & _simple_text_tokens(str(getattr(record, "operation_tag", "")))) * 0.5
+    return round(score, 4)
+
+
+def _metric_levels_from_prediction_ranges(country: str, open_rate_range: str, completion_rate_range: str, finish_time_range: str) -> dict[str, str]:
+    open_rate = _average_number_from_range(open_rate_range, percent=True)
+    completion_rate = _average_number_from_range(completion_rate_range, percent=True)
+    avg_finish_time = _average_number_from_range(finish_time_range, percent=False)
+    if open_rate is None or completion_rate is None or avg_finish_time is None:
+        return {}
+    return {
+        "open_rate": _metric_level(country, "open_rate", open_rate),
+        "completion_rate": _metric_level(country, "completion_rate", completion_rate),
+        "avg_finish_time": _metric_level(country, "avg_finish_time", avg_finish_time),
+    }
+
+
+def _average_number_from_range(value: str, *, percent: bool) -> float | None:
+    numbers = [float(item) for item in re.findall(r"\d+(?:\.\d+)?", value)]
+    if not numbers:
+        return None
+    average = sum(numbers[:2]) / min(len(numbers), 2)
+    return average / 100 if percent else average
+
+
+def _cached_value_candidate_prediction_is_stale(cache: dict[str, object]) -> bool:
+    if cache.get("rag_filter_version") != "v0.7.32":
+        return True
+    if cache.get("metric_calibration_version") != "v0.7.33":
+        return True
+    if cache.get("value_grade_model_version") != "v0.7.39-legacy":
+        return True
+    return "旧缓存RAG依据未通过强相关过滤" in str(cache.get("evidence", ""))
+
+
+def _range_percent(low: float, high: float) -> str:
+    return f"{low:.0%}-{high:.0%}"
+
+
+def _simple_text_tokens(text: str) -> set[str]:
+    return {token for token in re.split(r"[\s_，。；、/|:：-]+", str(text)) if token}
 
 
 def _country_differences(country: str, records, other_country: str, other_records) -> tuple[dict[str, object], ...]:
@@ -5185,6 +6979,838 @@ def _missing_business_metric_fields(sample) -> tuple[str, ...]:
     return tuple(missing)
 
 
+def _human_gold_review_note(existing: str, reviewer_note: str) -> str:
+    markers = ("AI silver", "待人工抽查", "pending_review")
+    kept = [
+        part.strip(" ；;。")
+        for part in re.split(r"[；;]", str(existing or ""))
+        if part.strip() and not any(marker in part for marker in markers)
+    ]
+    note = str(reviewer_note or "").strip(" ；;。") or "人工抽查通过"
+    if note not in kept:
+        kept.append(note)
+    return "；".join(kept)
+
+
+def _resume_gold_dataset_summary(samples: tuple, countries: tuple[str, ...], target_total: int) -> dict[str, object]:
+    real_count = len(samples)
+    gold_complete = sum(1 for sample in samples if not _missing_gold_fields(sample))
+    metric_complete = sum(1 for sample in samples if not _missing_business_metric_fields(sample))
+    human_gold = sum(1 for sample in samples if sample.label_source == "human_gold" and sample.label_status == "reviewed")
+    ai_silver = sum(1 for sample in samples if sample.label_source == "ai_silver" and sample.label_status == "pending_review")
+    needs_prelabeled = sum(1 for sample in samples if sample.label_status == "needs_ai_prelabeled")
+    stale_human_note = sum(
+        1
+        for sample in samples
+        if sample.label_source == "human_gold"
+        and sample.label_status == "reviewed"
+        and any(marker in sample.human_note for marker in ("AI silver", "待人工抽查", "pending_review"))
+    )
+    country_counts = Counter(sample.country for sample in samples)
+    grade_counts = Counter(sample.gold_grade for sample in samples if sample.gold_grade)
+    source_counts = Counter(sample.source for sample in samples if sample.source)
+    js_counts = Counter(sample.js_category for sample in samples if sample.js_category)
+    return {
+        "countries": countries,
+        "real_sample_count": real_count,
+        "target_total": target_total,
+        "gap_count": max(target_total - real_count, 0),
+        "country_counts": dict(country_counts),
+        "grade_counts": dict(grade_counts),
+        "source_counts": dict(source_counts),
+        "js_category_counts": dict(js_counts),
+        "gold_complete_count": gold_complete,
+        "gold_complete_rate": _pct(gold_complete / real_count) if real_count else "0%",
+        "metric_complete_count": metric_complete,
+        "metric_complete_rate": _pct(metric_complete / real_count) if real_count else "0%",
+        "human_gold_count": human_gold,
+        "human_gold_rate": _pct(human_gold / real_count) if real_count else "0%",
+        "stale_human_note_count": stale_human_note,
+        "ai_silver_pending_count": ai_silver,
+        "needs_ai_prelabeled_count": needs_prelabeled,
+        "ready_for_resume_eval": bool(real_count >= target_total and gold_complete == real_count and metric_complete == real_count and human_gold == real_count),
+    }
+
+
+def _resume_gold_dataset_summary_markdown(summary: dict[str, object], combined_csv: Path) -> str:
+    real_count = int(summary["real_sample_count"])
+    target_total = int(summary["target_total"])
+    gap_count = int(summary["gap_count"])
+    return "\n".join(
+        [
+            "# PuzzleOps Gold Dataset Summary",
+            "",
+            "## 样本规模",
+            "",
+            f"- 真实样本总数：{real_count}/{target_total}",
+            f"- 距离 50 张简历目标缺口：{gap_count}",
+            f"- 合并 CSV：`{combined_csv}`",
+            "",
+            "## 国家分布",
+            "",
+            _counter_markdown_lines(summary["country_counts"]),
+            "",
+            "## 等级分布",
+            "",
+            _counter_markdown_lines(summary["grade_counts"], preferred_order=("S", "A", "B", "C", "D")),
+            "",
+            "## 标注覆盖",
+            "",
+            f"- 完整 gold label：{summary['gold_complete_count']}，gold 完成率：{summary['gold_complete_rate']}",
+            f"- human_gold：{summary['human_gold_count']}，human_gold 覆盖率：{summary['human_gold_rate']}",
+            f"- 人工确认备注待清理：{summary['stale_human_note_count']}",
+            f"- AI silver 待审核：{summary['ai_silver_pending_count']}",
+            f"- 待 AI 预标注：{summary['needs_ai_prelabeled_count']}",
+            "",
+            "## 业务指标覆盖",
+            "",
+            f"- 完整业务指标：{summary['metric_complete_count']}，业务指标完成率：{summary['metric_complete_rate']}",
+            "",
+            "## JS 分类分布",
+            "",
+            _counter_markdown_lines(summary["js_category_counts"]),
+            "",
+            "## 简历可用性判断",
+            "",
+            "- 可用于证明：真实图片样本、人工等级、主体/色彩/构图 gold label、业务指标覆盖。",
+            "- 仍需注意：样本数未达到 50 时，简历表述应写“小样本真实评测集”，不要写大规模线上评测。",
+        ]
+    ) + "\n"
+
+
+def _counter_markdown_lines(data: object, preferred_order: tuple[str, ...] = ()) -> str:
+    if not isinstance(data, dict) or not data:
+        return "- 无"
+    ordered_keys = [key for key in preferred_order if key in data]
+    ordered_keys.extend(key for key in sorted(data) if key not in ordered_keys)
+    return "\n".join(f"- {key}：{data[key]}" for key in ordered_keys)
+
+
+def _value_prediction_benchmark_rows(agent, countries: tuple[str, ...]) -> tuple[dict[str, object], ...]:
+    rows: list[dict[str, object]] = []
+    for country in countries:
+        rows.extend(agent.repository.value_prediction_benchmark_scores(country, limit=10_000))
+    return tuple(rows)
+
+
+def _value_master_prompt_benchmark_v2_payload(rows: tuple[dict[str, object], ...], countries: tuple[str, ...]) -> dict[str, object]:
+    return {
+        "mode": "value_master_prompt_benchmark_v2",
+        "countries": countries,
+        "main_prediction_change_allowed": False,
+        "grade_model_version": "v0.7.39-legacy",
+        "prompt_contract": {
+            "version": "prompt_benchmark_v2",
+            "focus": "视觉解析 / RAG citation / 历史依据 / 指标校准 / 运营可执行建议",
+            "must_keep_grade_model": True,
+            "must_not_change": (
+                "不改等级预测主链路 value_grade_model_version=v0.7.39-legacy。",
+                "不根据三项指标反推主等级，三项指标只做解释性区间。",
+                "不把 shadow history rerank 直接写入线上预测缓存。",
+            ),
+            "output_rules": (
+                "图片解析必须围绕主体内容、色彩氛围、构图环境三段。",
+                "价值观判断必须引用当前图像证据、RAG citation 和历史依据，不足时明确标注需人工复核。",
+                "RAG citation 只保留强相关 Top3，弱相关和 hard-negative 噪声不得进入最终理由。",
+            ),
+        },
+        "benchmark_summary": _value_master_prompt_benchmark_v2_summary(rows),
+        "review_examples": tuple(_value_master_prompt_benchmark_v2_example(row) for row in rows[:10]),
+        "next_actions": (
+            "继续用固定 10-20 张候选图做 Prompt v1/v2 对比。",
+            "优先修视觉解析 prompt、RAG citation 使用方式、历史依据解释和指标区间表述。",
+            "只有当人工评分仍低于阈值时，再讨论后训练，不把数据问题误判为模型问题。",
+        ),
+    }
+
+
+def _value_master_prompt_benchmark_v2_summary(rows: tuple[dict[str, object], ...]) -> dict[str, object]:
+    score_keys = (
+        "visual_accuracy",
+        "country_value_fit",
+        "history_evidence_fit",
+        "rag_citation_usefulness",
+        "risk_detection",
+        "grade_credibility",
+        "metric_range_credibility",
+        "actionability",
+    )
+    values: dict[str, list[float]] = {key: [] for key in score_keys}
+    for row in rows:
+        scores = row.get("candidate_scores", {})
+        if not isinstance(scores, dict):
+            continue
+        for key in score_keys:
+            numeric = _numeric_or_none(scores.get(key))
+            if numeric is not None and 1 <= numeric <= 5:
+                values[key].append(numeric)
+    summary: dict[str, object] = {"benchmark_count": len(rows)}
+    for key in score_keys:
+        summary[f"candidate_{key}_avg"] = round(sum(values[key]) / len(values[key]), 2) if values[key] else "not_evaluable"
+    return summary
+
+
+def _value_master_prompt_benchmark_v2_example(row: dict[str, object]) -> dict[str, object]:
+    scores = row.get("candidate_scores", {}) if isinstance(row.get("candidate_scores", {}), dict) else {}
+    return {
+        "country": row.get("country", ""),
+        "candidate_id": row.get("candidate_id", ""),
+        "operation_tag": row.get("operation_tag", ""),
+        "label": row.get("candidate_label", ""),
+        "grade_credibility": scores.get("grade_credibility", "not_evaluable"),
+        "rag_citation_usefulness": scores.get("rag_citation_usefulness", "not_evaluable"),
+        "history_evidence_fit": scores.get("history_evidence_fit", "not_evaluable"),
+        "candidate_output": str(row.get("candidate_output", ""))[:500],
+    }
+
+
+def _value_master_prompt_benchmark_v2_markdown(report: dict[str, object]) -> str:
+    summary = report.get("benchmark_summary", {}) if isinstance(report.get("benchmark_summary", {}), dict) else {}
+    contract = report.get("prompt_contract", {}) if isinstance(report.get("prompt_contract", {}), dict) else {}
+    examples = report.get("review_examples", ()) if isinstance(report.get("review_examples"), (list, tuple)) else ()
+    example_lines = [
+        f"- {item.get('operation_tag')}：等级可信度={item.get('grade_credibility')}；RAG={item.get('rag_citation_usefulness')}；输出摘录：{item.get('candidate_output')}"
+        for item in examples[:5]
+        if isinstance(item, dict)
+    ] or ["- 暂无人工 Benchmark 样例"]
+    return "\n".join(
+        [
+            "# PuzzleOps Value Master Prompt Benchmark v2",
+            "",
+            "## 结论",
+            "",
+            "- 本报告用于第三层专项修复收口：Prompt v2 Benchmark。",
+            "- 不改等级预测主链路，不改 value_grade_model_version=v0.7.39-legacy。",
+            "- 当前只约束视觉解析、RAG citation、历史依据解释、指标区间表述和运营建议。",
+            "",
+            "## Prompt Contract",
+            "",
+            f"- 关注点：{contract.get('focus', '')}",
+            f"- 必须保留主等级模型：{contract.get('must_keep_grade_model')}",
+            "",
+            "## 人工 Benchmark 摘要",
+            "",
+            f"- 样本数：{summary.get('benchmark_count', 0)}",
+            f"- 视觉解析均分：{_score_markdown_value(summary.get('candidate_visual_accuracy_avg'))}",
+            f"- RAG citation 有用性均分：{_score_markdown_value(summary.get('candidate_rag_citation_usefulness_avg'))}",
+            f"- 历史依据合理性均分：{_score_markdown_value(summary.get('candidate_history_evidence_fit_avg'))}",
+            f"- 预测等级可信度均分：{_score_markdown_value(summary.get('candidate_grade_credibility_avg'))}",
+            f"- 指标区间可信度均分：{_score_markdown_value(summary.get('candidate_metric_range_credibility_avg'))}",
+            "",
+            "## 样例摘录",
+            "",
+            *example_lines,
+            "",
+            "## 下一步",
+            "",
+            *[f"- {item}" for item in report.get("next_actions", ())],
+        ]
+    ) + "\n"
+
+
+def _eval_ratio(numerator: float, denominator: int) -> float:
+    return round(float(numerator) / denominator, 4) if denominator else 0.0
+
+
+def _value_master_eval_report_payload(
+    samples: tuple,
+    countries: tuple[str, ...],
+    run,
+    benchmark_rows: tuple[dict[str, object], ...],
+    target_total: int,
+    version: str,
+) -> dict[str, object]:
+    sample_count = len(samples)
+    grade_rows = [_value_master_grade_row(sample) for sample in samples if sample.gold_grade]
+    grade_correct = sum(1 for row in grade_rows if row["predicted_grade"] == row["gold_grade"])
+    sa_correct = sum(1 for row in grade_rows if (row["predicted_grade"] in {"S", "A"}) == (row["gold_grade"] in {"S", "A"}))
+    metrics = {
+        "metric_baseline_grade_accuracy": _eval_ratio(grade_correct, len(grade_rows)),
+        "sa_binary_accuracy": _eval_ratio(sa_correct, len(grade_rows)),
+        "three_part_format_rate": _run_metric_value(run, "三段式描述合规率"),
+        "subject_accuracy": _run_metric_value(run, "主体识别准确率"),
+        "risk_recall": _run_metric_value(run, "审核风险召回率"),
+        "rag_citation_precision": _run_metric_value(run, "RAG Citation Precision"),
+        "feishu_field_completeness": _run_metric_value(run, "飞书字段完整率"),
+        "tool_call_success_rate": _run_metric_value(run, "工具调用成功率"),
+    }
+    confusion = Counter(f"{row['gold_grade']}->{row['predicted_grade']}" for row in grade_rows)
+    return {
+        "version": version,
+        "countries": countries,
+        "sample_count": sample_count,
+        "target_total": target_total,
+        "gap_count": max(target_total - sample_count, 0),
+        "execution_mode": run.execution_mode,
+        "dataset_name": run.dataset_name,
+        "metrics": metrics,
+        "metric_evaluable_counts": run.metric_evaluable_counts,
+        "grade_confusion": dict(confusion),
+        "grade_cases": grade_rows,
+        "human_benchmark": _value_master_human_benchmark_summary(benchmark_rows),
+        "failure_summary": _value_master_failure_summary(run.failures),
+        "limitations": (
+            "三项指标目前是按等级口径校准，不是独立回归预测模型。",
+            "未执行真实 VLM Harness 时，主体/色彩/构图准确率会标记为 not_evaluable。",
+            "历史依据合理性与 RAG citation 有用性依赖人工 Benchmark 评分，样本不足时不能作为最终指标。",
+        ),
+    }
+
+
+def _value_master_grade_row(sample) -> dict[str, object]:
+    predicted = _harness_predict_grade(sample.metrics or {})
+    return {
+        "sample_id": sample.sample_id,
+        "country": sample.country,
+        "operation_tag": sample.operation_tag,
+        "gold_grade": sample.gold_grade,
+        "predicted_grade": predicted,
+        "sa_gold": sample.gold_grade in {"S", "A"},
+        "sa_predicted": predicted in {"S", "A"},
+        "open_rate": sample.metrics.get("open_rate", 0.0),
+        "completion_rate": sample.metrics.get("completion_rate", 0.0),
+        "avg_finish_time": sample.metrics.get("avg_finish_time", 0.0),
+    }
+
+
+def _run_metric_value(run, label: str) -> float | str:
+    if int(run.metric_evaluable_counts.get(label, 0) or 0) <= 0:
+        return "not_evaluable"
+    return round(float(run.metrics.get(label, 0.0) or 0.0), 4)
+
+
+def _value_master_human_benchmark_summary(rows: tuple[dict[str, object], ...]) -> dict[str, object]:
+    score_keys = (
+        "visual_accuracy",
+        "country_value_fit",
+        "history_evidence_fit",
+        "rag_citation_usefulness",
+        "risk_detection",
+        "grade_credibility",
+        "metric_range_credibility",
+        "actionability",
+    )
+    values: dict[str, list[float]] = {key: [] for key in score_keys}
+    for row in rows:
+        scores = row.get("candidate_scores", {})
+        if not isinstance(scores, dict):
+            continue
+        for key in score_keys:
+            try:
+                score = float(scores.get(key))
+                if 1 <= score <= 5:
+                    values[key].append(score)
+            except (TypeError, ValueError):
+                continue
+    summary: dict[str, object] = {"benchmark_count": len(rows)}
+    for key in score_keys:
+        summary[f"{key}_avg"] = round(sum(values[key]) / len(values[key]), 2) if values[key] else "not_evaluable"
+    direct_labels = {"可直接用", "轻微修改"}
+    summary["light_or_direct_rate"] = _eval_ratio(sum(1 for row in rows if row.get("candidate_label") in direct_labels), len(rows))
+    return summary
+
+
+def _value_master_failure_summary(failures: tuple) -> dict[str, object]:
+    categories = Counter(category for case in failures for category in getattr(case, "failure_categories", ()))
+    return {
+        "failure_case_count": len(failures),
+        "failure_categories": dict(categories),
+    }
+
+
+def _value_master_eval_report_markdown(report: dict[str, object]) -> str:
+    metrics = report["metrics"]
+    human = report["human_benchmark"]
+    return "\n".join(
+        [
+            "# PuzzleOps Value Master Eval Report",
+            "",
+            "## 样本与版本",
+            "",
+            f"- 版本：{report['version']}",
+            f"- 国家：{'、'.join(report['countries'])}",
+            f"- 真实样本数：{report['sample_count']}/{report['target_total']}",
+            f"- 距离 50 张目标缺口：{report['gap_count']}",
+            f"- 执行模式：{report['execution_mode']}",
+            "",
+            "## 自动评测指标",
+            "",
+            f"- 指标反推等级基线准确率：{_metric_markdown_value(metrics['metric_baseline_grade_accuracy'])}",
+            f"- SA 二分类准确率：{_metric_markdown_value(metrics['sa_binary_accuracy'])}",
+            f"- 三段式描述合规率：{_metric_markdown_value(metrics['three_part_format_rate'])}",
+            f"- 主体解析准确率：{_metric_markdown_value(metrics['subject_accuracy'])}",
+            f"- 审核风险召回率：{_metric_markdown_value(metrics['risk_recall'])}",
+            f"- RAG citation precision：{_metric_markdown_value(metrics['rag_citation_precision'])}",
+            f"- 飞书字段完整率：{_metric_markdown_value(metrics['feishu_field_completeness'])}",
+            f"- 工具调用成功率：{_metric_markdown_value(metrics['tool_call_success_rate'])}",
+            "",
+            "## 人工 Benchmark 指标",
+            "",
+            f"- Benchmark 评分样本数：{human['benchmark_count']}",
+            f"- 历史依据合理性人工均分：{_score_markdown_value(human['history_evidence_fit_avg'])}",
+            f"- RAG citation 有用性人工均分：{_score_markdown_value(human['rag_citation_usefulness_avg'])}",
+            f"- 预测等级可信度人工均分：{_score_markdown_value(human['grade_credibility_avg'])}",
+            f"- 排图建议可执行性人工均分：{_score_markdown_value(human['actionability_avg'])}",
+            "",
+            "## 等级混淆矩阵",
+            "",
+            _counter_markdown_lines(report["grade_confusion"]),
+            "",
+            "## 当前限制",
+            "",
+            "\n".join(f"- {item}" for item in report["limitations"]),
+        ]
+    ) + "\n"
+
+
+def _value_master_repair_diagnostics_payload(report: dict[str, object]) -> dict[str, object]:
+    metrics = report.get("metrics", {}) if isinstance(report.get("metrics", {}), dict) else {}
+    human = report.get("human_benchmark", {}) if isinstance(report.get("human_benchmark", {}), dict) else {}
+    blockers = {
+        "metric_baseline_grade_accuracy": _repair_blocker(
+            metrics.get("metric_baseline_grade_accuracy"),
+            threshold=0.55,
+            direction="gte",
+            failed_reason="三项指标反推等级效果弱，不能作为价值观大师主等级预测口径。",
+        ),
+        "history_evidence_fit_avg": _repair_blocker(
+            human.get("history_evidence_fit_avg"),
+            threshold=3.5,
+            direction="gte",
+            failed_reason="历史依据人工评分偏低，需要先做影子排序评测。",
+        ),
+        "rag_citation_usefulness_avg": _repair_blocker(
+            human.get("rag_citation_usefulness_avg"),
+            threshold=3.5,
+            direction="gte",
+            failed_reason="RAG citation 人工有用性偏低，需要 hard-negative 与 citation 过滤修复。",
+        ),
+        "grade_credibility_avg": _repair_blocker(
+            human.get("grade_credibility_avg"),
+            threshold=3.5,
+            direction="gte",
+            failed_reason="预测等级可信度人工评分偏低，需要 Prompt Benchmark v2，而不是直接训练。",
+        ),
+    }
+    return {
+        "mode": "shadow_diagnostics",
+        "main_prediction_change_allowed": False,
+        "sample_count": report.get("sample_count", 0),
+        "benchmark_count": human.get("benchmark_count", 0),
+        "blockers": blockers,
+        "safe_experiments": (
+            {
+                "name": "历史依据排序影子评测",
+                "goal": "只在报告中重排相似好坏图，不影响价值观大师线上预测缓存。",
+                "acceptance": "history_evidence_fit_avg >= 3.5/5 后再考虑进入主链路。",
+            },
+            {
+                "name": "RAG citation hard-negative 修复",
+                "goal": "利用人工 not_useful citation feedback 给低质量 chunk 降权，并过滤弱引用。",
+                "acceptance": "rag_citation_usefulness_avg >= 3.5/5，且 Recall@5 不明显下降。",
+            },
+            {
+                "name": "等级预测 Prompt Benchmark v2",
+                "goal": "用固定 10-20 张候选图比较 Prompt v1/v2，不再用三项指标反推等级。",
+                "acceptance": "grade_credibility_avg >= 3.5/5，SA 二分类不低于当前基线。",
+            },
+        ),
+        "resume_positioning": (
+            "当前可以写工程闭环、Harness、RAG/Memory/HITL，但不能写价值观预测高准确率。",
+            "简历指标应优先写数据集、三段式合规、飞书字段完整、工具调用稳定；价值观效果写为待优化 Benchmark。",
+        ),
+    }
+
+
+def _repair_blocker(value: object, *, threshold: float, direction: str, failed_reason: str) -> dict[str, object]:
+    numeric = _numeric_or_none(value)
+    passed = False
+    if numeric is not None:
+        passed = numeric >= threshold if direction == "gte" else numeric <= threshold
+    return {
+        "value": value,
+        "threshold": threshold,
+        "status": "passed" if passed else "failed",
+        "reason": "达到进入主链路阈值。" if passed else failed_reason,
+    }
+
+
+def _numeric_or_none(value: object) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _value_master_repair_diagnostics_markdown(diagnostics: dict[str, object]) -> str:
+    blockers = diagnostics["blockers"] if isinstance(diagnostics.get("blockers"), dict) else {}
+    experiments = diagnostics["safe_experiments"] if isinstance(diagnostics.get("safe_experiments"), (list, tuple)) else ()
+    return "\n".join(
+        [
+            "# PuzzleOps Value Master Repair Diagnostics",
+            "",
+            "## 结论",
+            "",
+            "- 当前为 shadow diagnostics，不直接改线上预测等级。",
+            "- 不直接改线上预测等级，避免再次破坏用户已认可的相对稳定版本。",
+            f"- 样本数：{diagnostics.get('sample_count', 0)}；人工 Benchmark：{diagnostics.get('benchmark_count', 0)}。",
+            "",
+            "## 阻塞项",
+            "",
+            *[
+                f"- {name}：{item.get('status')}，value={item.get('value')}，threshold={item.get('threshold')}；{item.get('reason')}"
+                for name, item in blockers.items()
+                if isinstance(item, dict)
+            ],
+            "",
+            "## 安全实验",
+            "",
+            *[
+                f"- {item['name']}：{item['goal']} 验收：{item['acceptance']}"
+                for item in experiments
+                if isinstance(item, dict)
+            ],
+            "",
+            "## 简历口径",
+            "",
+            *[f"- {item}" for item in diagnostics.get("resume_positioning", ())],
+        ]
+    ) + "\n"
+
+
+def _history_shadow_case(sample, records: tuple, *, top_k: int) -> dict[str, object]:
+    candidates = tuple(record for record in records if not _same_history_record_as_sample(record, sample))
+    legacy_ranked = sorted(candidates, key=lambda record: _legacy_history_shadow_score(sample, record), reverse=True)
+    shadow_ranked = sorted(candidates, key=lambda record: _shadow_history_score(sample, record), reverse=True)
+    legacy_top = _history_shadow_item(sample, legacy_ranked[0], _legacy_history_shadow_score(sample, legacy_ranked[0]), mode="legacy") if legacy_ranked else {}
+    shadow_top = _history_shadow_item(sample, shadow_ranked[0], _shadow_history_score(sample, shadow_ranked[0]), mode="shadow") if shadow_ranked else {}
+    return {
+        "sample_id": sample.sample_id,
+        "country": sample.country,
+        "operation_tag": sample.operation_tag,
+        "gold_grade": sample.gold_grade,
+        "gold_subject": sample.gold_subject,
+        "legacy_top": legacy_top,
+        "shadow_top": shadow_top,
+        "top_changed": bool(legacy_top and shadow_top and legacy_top.get("image_id") != shadow_top.get("image_id")),
+        "legacy_top_subject_overlap": _history_subject_overlap(sample, legacy_ranked[0]) if legacy_ranked else 0.0,
+        "shadow_top_subject_overlap": _history_subject_overlap(sample, shadow_ranked[0]) if shadow_ranked else 0.0,
+        "shadow_top_k": tuple(_history_shadow_item(sample, record, _shadow_history_score(sample, record), mode="shadow") for record in shadow_ranked[:top_k]),
+    }
+
+
+def _same_history_record_as_sample(record, sample) -> bool:
+    return bool(
+        (getattr(record, "image_id", "") and getattr(record, "image_id", "") == sample.sample_id)
+        or (getattr(record, "local_image_path", "") and getattr(record, "local_image_path", "") == sample.local_image_path)
+    )
+
+
+def _legacy_history_shadow_score(sample, record) -> float:
+    query = " ".join((sample.operation_tag, sample.subject, sample.js_category))
+    score = 0.0
+    if getattr(record, "js_category", "") == sample.js_category:
+        score += 3.0
+    score += len(_simple_text_tokens(query) & _simple_text_tokens(_history_record_text(record)))
+    score += _grade_bucket_match_bonus(sample.gold_grade, getattr(record, "grade", "")) * 0.5
+    return score
+
+
+def _shadow_history_score(sample, record) -> float:
+    subject_tokens = _simple_text_tokens(" ".join((sample.gold_subject, sample.subject)))
+    visual_tokens = _simple_text_tokens(" ".join((sample.gold_color_mood, sample.gold_composition, " ".join(sample.gold_value_labels))))
+    haystack_tokens = _simple_text_tokens(_history_record_text(record))
+    score = 0.0
+    subject_overlap = len(subject_tokens & haystack_tokens)
+    visual_overlap = len(visual_tokens & haystack_tokens)
+    score += subject_overlap * 6.0
+    score += visual_overlap * 2.0
+    if sample.gold_subject and (sample.gold_subject in _history_record_text(record) or getattr(record, "subject_tag", "") in sample.gold_subject):
+        score += 8.0
+    if getattr(record, "js_category", "") == sample.js_category:
+        score += 1.0
+    score += _grade_bucket_match_bonus(sample.gold_grade, getattr(record, "grade", ""))
+    score += min(float(getattr(record, "open_rate", 0.0) or 0.0), 0.4)
+    return round(score, 4)
+
+
+def _history_record_text(record) -> str:
+    return " ".join(
+        str(part or "")
+        for part in (
+            getattr(record, "operation_tag", ""),
+            getattr(record, "subject_tag", ""),
+            getattr(record, "js_category", ""),
+            getattr(record, "remark", ""),
+        )
+    )
+
+
+def _grade_bucket_match_bonus(gold_grade: str, record_grade: str) -> float:
+    if gold_grade in {"S", "A"} and record_grade in {"S", "A"}:
+        return 2.0
+    if gold_grade in {"C", "D"} and record_grade in {"C", "D"}:
+        return 2.0
+    if gold_grade == record_grade and gold_grade:
+        return 1.0
+    return 0.0
+
+
+def _history_subject_overlap(sample, record) -> float:
+    subject = sample.gold_subject or sample.subject
+    if not subject:
+        return 0.0
+    text = _history_record_text(record)
+    if subject in text or getattr(record, "subject_tag", "") in subject:
+        return 1.0
+    return 1.0 if _simple_text_tokens(subject) & _simple_text_tokens(text) else 0.0
+
+
+def _history_shadow_item(sample, record, score: float, *, mode: str) -> dict[str, object]:
+    return {
+        "image_id": getattr(record, "image_id", ""),
+        "operation_tag": getattr(record, "operation_tag", ""),
+        "grade": getattr(record, "grade", ""),
+        "js_category": getattr(record, "js_category", ""),
+        "subject": getattr(record, "subject_tag", ""),
+        "score": round(float(score), 4),
+        "subject_overlap": _history_subject_overlap(sample, record),
+        "mode": mode,
+    }
+
+
+def _history_shadow_report_payload(cases: tuple[dict[str, object], ...], countries: tuple[str, ...], top_k: int) -> dict[str, object]:
+    changed = sum(1 for case in cases if case.get("top_changed"))
+    shadow_subject_overlap = sum(1 for case in cases if float(case.get("shadow_top_subject_overlap", 0.0) or 0.0) >= 1.0)
+    legacy_subject_overlap = sum(1 for case in cases if float(case.get("legacy_top_subject_overlap", 0.0) or 0.0) >= 1.0)
+    return {
+        "mode": "shadow_history_rerank",
+        "main_prediction_change_allowed": False,
+        "countries": countries,
+        "case_count": len(cases),
+        "top_k": top_k,
+        "metrics": {
+            "top1_changed_rate": _eval_ratio(changed, len(cases)),
+            "legacy_top1_subject_overlap_rate": _eval_ratio(legacy_subject_overlap, len(cases)),
+            "shadow_top1_subject_overlap_rate": _eval_ratio(shadow_subject_overlap, len(cases)),
+        },
+        "cases": cases,
+        "acceptance": {
+            "promote_to_main_chain_when": "shadow_top1_subject_overlap_rate >= legacy_top1_subject_overlap_rate 且人工 history_evidence_fit_avg >= 3.5/5",
+            "current_action": "继续停留在影子评测，不改主预测缓存。",
+        },
+    }
+
+
+def _history_shadow_report_markdown(report: dict[str, object]) -> str:
+    metrics = report.get("metrics", {}) if isinstance(report.get("metrics"), dict) else {}
+    cases = report.get("cases", ()) if isinstance(report.get("cases"), (list, tuple)) else ()
+    examples = [
+        case for case in cases
+        if isinstance(case, dict) and case.get("top_changed") and isinstance(case.get("shadow_top"), dict)
+    ][:5]
+    example_lines = [
+        f"- {case.get('sample_id')}：{case.get('gold_subject')} -> {case['shadow_top'].get('operation_tag')}"
+        for case in examples
+    ] or ["- 暂无 Top 改变样例"]
+    return "\n".join(
+        [
+            "# PuzzleOps History Evidence Shadow Report",
+            "",
+            "## 结论",
+            "",
+            "- 当前是历史依据排序影子评测，不改主预测缓存，不改线上预测等级。",
+            "- 目标是先验证相似历史依据是否更相关，再决定是否进入价值观大师主链路。",
+            "",
+            "## 指标",
+            "",
+            f"- Case 数：{report.get('case_count', 0)}",
+            f"- Top1 改变率：{_metric_markdown_value(metrics.get('top1_changed_rate', 0.0))}",
+            f"- 旧排序 Top1 主体重合率：{_metric_markdown_value(metrics.get('legacy_top1_subject_overlap_rate', 0.0))}",
+            f"- 影子排序 Top1 主体重合率：{_metric_markdown_value(metrics.get('shadow_top1_subject_overlap_rate', 0.0))}",
+            "",
+            "## Top 改变样例",
+            "",
+            *example_lines,
+            "",
+            "## 验收",
+            "",
+            f"- {report.get('acceptance', {}).get('promote_to_main_chain_when', '')}",
+            f"- {report.get('acceptance', {}).get('current_action', '')}",
+        ]
+    ) + "\n"
+
+
+def _rag_hard_negative_case_result(raw_case: RagRetrievalCase, case: dict[str, object], *, k: int) -> dict[str, object]:
+    retrieved_parent_ids = tuple(str(item) for item in case.get("retrieved_parent_ids", ()) if str(item).strip())
+    hard_negative_parent_ids = tuple(str(item) for item in raw_case.hard_negative_parent_ids if str(item).strip())
+    hard_negative_top1 = bool(retrieved_parent_ids and retrieved_parent_ids[0] in set(hard_negative_parent_ids))
+    hard_negative_in_top_k = bool(set(retrieved_parent_ids[:k]) & set(hard_negative_parent_ids))
+    base_failure = str(case.get("diagnosis", "passed") or "passed") if not case.get("hit") else "passed"
+    if hard_negative_top1:
+        failure_type = "hard_negative_top1"
+    elif hard_negative_in_top_k:
+        failure_type = "passed_with_hard_negative_noise" if case.get("hit") else "hard_negative_in_top_k"
+    else:
+        failure_type = base_failure
+    return {
+        "query": raw_case.query,
+        "country": raw_case.country,
+        "expected_parent_id": raw_case.expected_parent_id,
+        "relevant_parent_ids": tuple(raw_case.relevant_parent_ids or (raw_case.expected_parent_id,)),
+        "hard_negative_parent_ids": hard_negative_parent_ids,
+        "retrieved_parent_ids": retrieved_parent_ids,
+        "hit": bool(case.get("hit")),
+        "rank": int(case.get("rank", 0) or 0),
+        f"precision@{k}": float(case.get(f"precision@{k}", 0.0) or 0.0),
+        f"recall@{k}": float(case.get(f"recall@{k}", 0.0) or 0.0),
+        f"ndcg@{k}": float(case.get(f"ndcg@{k}", 0.0) or 0.0),
+        "hard_negative_top1": hard_negative_top1,
+        "hard_negative_in_top_k": hard_negative_in_top_k,
+        "failure_type": failure_type,
+        "failure_reason": str(case.get("failure_reason", "")),
+        "suggested_action": str(case.get("suggested_action", "")),
+        "route_evidence": case.get("route_evidence", {}),
+    }
+
+
+def _hard_negative_rate(cases: tuple[dict[str, object], ...], key: str) -> float:
+    eligible = tuple(case for case in cases if case.get("hard_negative_parent_ids"))
+    if not eligible:
+        return 0.0
+    return round(sum(1 for case in eligible if case.get(key)) / len(eligible), 4)
+
+
+def _rag_failure_type_counts(cases: tuple[dict[str, object], ...] | list[dict[str, object]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for case in cases:
+        failure_type = str(case.get("failure_type", "unknown") or "unknown")
+        counts[failure_type] = counts.get(failure_type, 0) + 1
+    return counts
+
+
+def _rag_hard_negative_report_payload(
+    country_reports: dict[str, dict[str, object]],
+    cases: tuple[dict[str, object], ...],
+    countries: tuple[str, ...],
+    *,
+    k: int,
+    threshold: float,
+) -> dict[str, object]:
+    total = len(cases)
+    hits = sum(1 for case in cases if case.get("hit"))
+    reciprocal = sum((1 / int(case.get("rank", 0))) for case in cases if int(case.get("rank", 0) or 0) > 0)
+    precision = sum(float(case.get(f"precision@{k}", 0.0) or 0.0) for case in cases)
+    recall = sum(float(case.get(f"recall@{k}", 0.0) or 0.0) for case in cases)
+    ndcg = sum(float(case.get(f"ndcg@{k}", 0.0) or 0.0) for case in cases)
+    metrics = {
+        f"hit@{k}": round(hits / total, 4) if total else 0.0,
+        f"mrr@{k}": round(reciprocal / total, 4) if total else 0.0,
+        f"precision@{k}": round(precision / total, 4) if total else 0.0,
+        f"recall@{k}": round(recall / total, 4) if total else 0.0,
+        f"ndcg@{k}": round(ndcg / total, 4) if total else 0.0,
+        "hard_negative_top1_rate": _hard_negative_rate(cases, "hard_negative_top1"),
+        "hard_negative_topk_rate": _hard_negative_rate(cases, "hard_negative_in_top_k"),
+    }
+    failed_cases = tuple(case for case in cases if not case.get("hit") or case.get("hard_negative_in_top_k"))
+    passed_shadow_gate = metrics[f"hit@{k}"] >= threshold and metrics["hard_negative_top1_rate"] == 0 and metrics["hard_negative_topk_rate"] == 0
+    return {
+        "mode": "rag_hard_negative_eval",
+        "main_prediction_change_allowed": False,
+        "countries": countries,
+        "case_count": total,
+        "threshold": threshold,
+        "metrics": metrics,
+        "passed_threshold": bool(passed_shadow_gate),
+        "country_metrics": {
+            country: {
+                key: value
+                for key, value in report.items()
+                if key in {f"hit@{k}", f"mrr@{k}", f"precision@{k}", f"recall@{k}", f"ndcg@{k}", "hard_negative_top1_rate", "hard_negative_topk_rate", "case_count"}
+            }
+            for country, report in country_reports.items()
+        },
+        "failure_types": _rag_failure_type_counts(cases),
+        "failed_cases": failed_cases[:20],
+        "cases": cases,
+        "decision": {
+            "status": "passed_shadow_gate" if passed_shadow_gate else "keep_shadow_repair",
+            "next_action": "人工复核 failed_cases；把 confirmed hard-negative 反馈沉淀为 approved_rag_patch 后再重建索引。",
+            "resume_positioning": "可写 RAG 评测与 hard-negative 治理闭环；未通过前不写价值观预测效果已稳定。",
+        },
+    }
+
+
+def _rag_hard_negative_report_markdown(report: dict[str, object]) -> str:
+    metrics = report.get("metrics", {}) if isinstance(report.get("metrics"), dict) else {}
+    countries = report.get("countries", ()) if isinstance(report.get("countries"), (list, tuple)) else ()
+    failed_cases = report.get("failed_cases", ()) if isinstance(report.get("failed_cases"), (list, tuple)) else ()
+    failure_types = report.get("failure_types", {}) if isinstance(report.get("failure_types"), dict) else {}
+    lines = [
+        "# PuzzleOps RAG Citation Hard-Negative Report",
+        "",
+        "## 结论",
+        "",
+        "- 当前是 RAG citation hard-negative 评测报告，不改价值观大师主预测，不改线上等级预测。",
+        "- 目标是验证国家价值观/审核规则召回是否真正支撑当前图片判断，并暴露误召回和 hard-negative 问题。",
+        "",
+        "## 范围",
+        "",
+        f"- 国家：{'、'.join(str(country) for country in countries)}",
+        f"- Case 数：{report.get('case_count', 0)}",
+        f"- 阈值：Hit@5 >= {report.get('threshold', 0.8)}",
+        "",
+        "## 指标",
+        "",
+        f"- Hit@5：{_metric_markdown_value(metrics.get('hit@5', 0.0))}",
+        f"- MRR@5：{_metric_markdown_value(metrics.get('mrr@5', 0.0))}",
+        f"- NDCG@5：{_metric_markdown_value(metrics.get('ndcg@5', 0.0))}",
+        f"- Precision@5：{_metric_markdown_value(metrics.get('precision@5', 0.0))}",
+        f"- Recall@5：{_metric_markdown_value(metrics.get('recall@5', 0.0))}",
+        f"- Hard-negative Top1 率：{_metric_markdown_value(metrics.get('hard_negative_top1_rate', 0.0))}",
+        f"- Hard-negative TopK 率：{_metric_markdown_value(metrics.get('hard_negative_topk_rate', 0.0))}",
+        "",
+        "## 失败类型",
+        "",
+        *[f"- {key}：{value}" for key, value in failure_types.items()],
+        "",
+        "## 失败样例",
+        "",
+    ]
+    if failed_cases:
+        for case in failed_cases[:10]:
+            if not isinstance(case, dict):
+                continue
+            retrieved = "、".join(str(item) for item in case.get("retrieved_parent_ids", ())[:5])
+            lines.append(f"- {case.get('country')}｜{case.get('query')}：expected={case.get('expected_parent_id')}；retrieved={retrieved or '无'}；type={case.get('failure_type')}")
+    else:
+        lines.append("- 暂无失败样例。")
+    decision = report.get("decision", {}) if isinstance(report.get("decision"), dict) else {}
+    lines.extend(
+        [
+            "",
+            "## 决策",
+            "",
+            f"- 状态：{decision.get('status', '')}",
+            f"- 下一步：{decision.get('next_action', '')}",
+            f"- 简历口径：{decision.get('resume_positioning', '')}",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def _metric_markdown_value(value: object) -> str:
+    if isinstance(value, (int, float)):
+        return _pct(float(value))
+    return str(value)
+
+
+def _score_markdown_value(value: object) -> str:
+    if isinstance(value, (int, float)):
+        return f"{float(value):.2f}/5"
+    return str(value)
+
+
 def _readiness_gate(name: str, passed: bool, evidence: str, next_action: str) -> dict[str, object]:
     return {
         "name": name,
@@ -5212,6 +7838,21 @@ def _harness_gold_sample_rag_text(sample) -> str:
         f"人工备注={sample.human_note}",
     )
     return "；".join(part for part in parts if not part.endswith("="))
+
+
+def _harness_gold_hard_negative_parent_ids(country: str, sample, samples: tuple[object, ...], *, limit: int = 3) -> tuple[str, ...]:
+    subject = (getattr(sample, "gold_subject", "") or getattr(sample, "subject", "") or "").strip()
+    negatives: list[str] = []
+    for other in samples:
+        if getattr(other, "sample_id", "") == getattr(sample, "sample_id", ""):
+            continue
+        other_subject = (getattr(other, "gold_subject", "") or getattr(other, "subject", "") or "").strip()
+        if subject and other_subject and (subject in other_subject or other_subject in subject):
+            continue
+        negatives.append(f"{_country_code(country)}_HARNESS_GOLD_{getattr(other, 'sample_id', '')}")
+        if len(negatives) >= limit:
+            break
+    return tuple(negatives)
 
 
 def _normalize_label_text(value: str) -> str:
@@ -5393,6 +8034,17 @@ def _sample_image_path(sample) -> str:
     return sample.local_image_path if sample and sample.local_image_path else ""
 
 
+def _regular_visual_summary(agent: PuzzleOpsAgent, row: DemandRow):
+    if row.reference_image_path and Path(row.reference_image_path).expanduser().is_file():
+        feature = agent.local_image_analyzer.analyze_path(row.reference_image_path)
+        visual = agent.local_image_analyzer.summarize_features((feature,) if feature else ())
+        visual_bytes = Path(row.reference_image_path).expanduser().read_bytes()
+    else:
+        visual_bytes = image_bytes(row.image_name, row.subject)
+        visual = agent.local_image_analyzer.summarize_bytes((visual_bytes,))
+    return visual, visual_bytes
+
+
 def _business_subject_description(subject: str, country: str, visual, semantic) -> str:
     color = visual.palette_summary
     if semantic and semantic.style:
@@ -5400,6 +8052,230 @@ def _business_subject_description(subject: str, country: str, visual, semantic) 
     scene = semantic.scene if semantic and semantic.scene else visual.composition_summary
     culture = "、".join(semantic.culture_elements) if semantic and semantic.culture_elements else f"{country}市场元素待运营确认"
     return f"主体内容：{subject}；色彩氛围：{color}；构图环境：{scene}，结合{culture}。"
+
+
+def _description_prompt_baseline_prompt(row: DemandRow, template_row: DemandRow, visual) -> str:
+    historical_metrics = _description_historical_metrics(row)
+    return (
+        "Prompt baseline v3，生产详细版。你是 PuzzleOps 拼图运营提需助手，负责把图片视觉解析结果改写成生产同学可执行的提需描述。\n\n"
+        "业务背景：\n"
+        "我们做的是海外拼图内容运营。提需描述不是美术鉴赏，也不是长篇分析，而是给生产图片的人看的简短需求。"
+        "请保留参考图中真正有效的主体、色彩、构图和市场语境，避免无关扩写。"
+        "上一版 v2 的问题是过度压缩，导致生产需求变模糊；本版目标是在简洁基础上保留可执行画面细节。\n\n"
+        "输入信息：\n"
+        f"- 国家：{row.country}\n"
+        f"- JS分类：{row.js_category}\n"
+        f"- 运营tag：{row.operation_tag}\n"
+        f"- 当前主体：{template_row.subject or row.subject}\n"
+        f"- 图片视觉解析：色彩={visual.palette_summary}；明暗/饱和/冷暖={visual.visual_summary}；构图={visual.composition_summary}；质量={visual.quality_summary}；拼图友好度={visual.readability_summary}\n"
+        f"- 历史表现：{historical_metrics}\n"
+        f"- 当前系统草稿：{template_row.subject_description}\n\n"
+        "输出要求：\n"
+        "1. 只输出 JSON，不要输出解释。\n"
+        "2. subject_description 控制在 80-120 个中文字符；要简洁，但不能把生产可执行细节删到需求模糊。\n"
+        "3. remark 控制在 8-24 个中文字符；如果没有明确约束，输出空字符串。\n"
+        "4. subject_description 必须严格由三段组成：主体内容、色彩氛围、构图环境；每段可以写1-2个短句。\n"
+        "5. 主体内容写主主体、必要陪体和关键动作/关系；不要罗列碎片细节。\n"
+        "6. 色彩氛围保留2-4个关键色、光线、质感或风格词；可以保留“柔和梦幻写实风”“暖色调渲染”等有生产指导价值的表达。\n"
+        "7. 构图环境必须保留可执行画面细节，例如浅景深、前中后景层次、阳光斜照、轨道两侧落樱、餐桌俯拍、窗台近景、纵深透视。\n"
+        "8. 备注必须是生产约束，例如“保留纵深”“避免IP感”“不要新增建筑主体”；不要重复主体描述。\n"
+        "9. 不要出现“本地视觉解析”“综合色”“这是一张图片”“画面整体”“整体来看”“非常美丽”“适合用户欣赏”等空话或系统痕迹。\n"
+        "10. 不要编造图片里没有的主体，不要把参考图主题漂移成寺庙、小屋、城堡、人物等无关元素。\n"
+        "11. 如果国家是日本，优先保留真实日本生活/自然/节日语境，避免中日韩混搭、知名动漫 IP 感、过度神社化。\n"
+        "12. 如果国家是法国，优先保留法式生活方式、自然花园、乡村/街景/餐桌审美，避免过度奢华、政治宗教符号和旅游刻板印象。\n"
+        "13. 如果视觉解析信息不足，请保守描述，不要补不存在的细节。\n\n"
+        "好例子：\n"
+        '{"subject_description":"主体内容：日式通勤电车穿行樱花林荫道，轨道两侧落樱铺陈；色彩氛围：粉白樱花、暖米白阳光与柔和梦幻写实风；构图环境：浅景深突出电车，前中后景层次分明。","remark":"保留列车与樱花纵深。"}\n'
+        '{"subject_description":"主体内容：寿司拼盘搭配日式餐具，突出三文鱼、虾、鱼籽和海苔卷；色彩氛围：米白、橙红、深绿干净明亮；构图环境：餐桌近景俯拍，主体集中且层次清楚。","remark":"避免品牌文字和商标。"}\n\n'
+        "输出 JSON 格式：\n"
+        "{\n"
+        '  "subject_description": "主体内容：...；色彩氛围：...；构图环境：...",\n'
+        '  "remark": "..."\n'
+        "}"
+    )
+
+
+def _description_historical_metrics(row: DemandRow) -> str:
+    parts = []
+    for key, value in (
+        ("历史等级", getattr(row, "value_match", "") or ""),
+        ("图片", row.image_name),
+        ("需求等级", row.priority),
+        ("加工方式", row.method),
+    ):
+        if value:
+            parts.append(f"{key}={value}")
+    return "；".join(parts) or "暂无结构化历史指标"
+
+
+def _json_object_from_text(text: str) -> dict[str, object]:
+    cleaned = str(text or "").strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?", "", cleaned, flags=re.IGNORECASE).strip()
+        cleaned = re.sub(r"```$", "", cleaned).strip()
+    try:
+        value = json.loads(cleaned)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
+        value = json.loads(match.group(0)) if match else {}
+    return value if isinstance(value, dict) else {}
+
+
+def _append_description_source_remark(existing_remark: str, semantic, vision_client) -> str:
+    cleaned = _strip_description_source(existing_remark)
+    source = _description_source_text(semantic, vision_client)
+    return f"{cleaned}；{source}" if cleaned else source
+
+
+def _append_unique_note(existing: str, note: str) -> str:
+    existing = str(existing or "").strip()
+    note = str(note or "").strip()
+    if not note or note in existing:
+        return existing
+    return f"{existing}；{note}" if existing else note
+
+
+def _required_derivative_negative_prompt() -> str:
+    return (
+        "避免品牌logo、文字水印、知名动漫/IP风格、宗教政治风险、文化混淆、低清晰度；"
+        "严禁四宫格、拼贴、分屏、多画面、多场景合集、四季同图、春夏秋冬同时出现、信息图、海报排版。"
+    )
+
+
+def _japan_derivative_prompt(row: DemandRow) -> str:
+    return (
+        f"基于参考图为日本市场衍生一张用于 jigsaw puzzle 生产的单幅完整参考图。本次只生成一张独立完整图片，不是拼接图、不是拼图块效果图。画面只呈现一个主场景、一个季节氛围、一个清晰主体。\n\n"
+        f"请保留参考图中【{row.subject}】的核心吸引力、温柔治愈感、清晰前中后景层次和适合拼图的细节密度；"
+        f"当前解析参考：{row.subject_description or '主体、色彩、构图以参考图为准'}。"
+        "在不改变主体识别度的前提下，衍生出更符合日本用户偏好的日式生活/自然场景。\n\n"
+        f"主视觉必须保持【{row.subject}】和参考图构图关系，不能把主体替换成建筑、房屋、庭院、森林、小屋、寺庙或其他新主题。"
+        "只能改变光线、天气、时间、少量人物/动物点缀、路面/道具细节和远景氛围。\n\n"
+        "优先使用日本本土语境元素，例如：日式庭院、和室、町家、茶室、樱花、红枫、紫阳花、锦鲤、柴犬、猫咪、灯笼、温泉街、石板小路、柔和自然光。"
+        "画面应宁静、治愈、季节感明确，有轻微故事互动，但不要像旅游宣传图或动漫截图。\n\n"
+        "构图要求：主体明确，背景丰富但不抢主体；色彩柔和、干净、明亮；适合中老年用户拼图，画面细节可拼、边界清楚、完成后有收藏感。"
+    )
+
+
+def _japan_derivative_negative_prompt() -> str:
+    return (
+        "避免品牌logo、文字水印、商标、现代广告牌、知名动漫/IP角色、宫崎骏/吉卜力等可识别动画工作室风格、名作名画二创、真人明星脸。\n\n"
+        "避免主体替换、构图漂移、把道路/大道/步道改成小屋、建筑、庭院、森林、寺庙或普通风景。\n\n"
+        "避免中日韩文化混淆，例如中式屋顶、韩式服饰、东南亚寺庙、非日本节俗被放进日本语境。避免宗教政治敏感表达、战争武士过度严肃化、恐怖阴暗氛围。\n\n"
+        "严禁四宫格、拼贴、分屏、多画面、多场景合集、四季同图、春夏秋冬同时出现、信息图、海报排版。"
+        "避免低清晰度、AI畸形手脸、主体过小、背景杂乱、过度灰暗、过度写实恐怖或过度卡通。"
+    )
+
+
+def _france_derivative_prompt(row: DemandRow) -> str:
+    return (
+        f"基于参考图为法国市场衍生一张用于 jigsaw puzzle 生产的单幅完整参考图。本次只生成一张独立完整图片，不是拼接图、不是拼图块效果图。画面只呈现一个主场景、一个季节氛围、一个清晰主体。\n\n"
+        f"请保留参考图中【{row.subject}】的核心吸引力、明亮浪漫的生活艺术感、清晰前中后景层次和适合拼图的细节密度；"
+        f"当前解析参考：{row.subject_description or '主体、色彩、构图以参考图为准'}。"
+        "在不改变主体识别度的前提下，衍生出更符合法国用户偏好的法式生活/花园/度假场景。\n\n"
+        f"主视觉必须保持【{row.subject}】和参考图构图关系，不能把主体替换成建筑、房屋、庭院、森林、小屋、教堂或其他新主题。"
+        "只能改变光线、天气、时间、少量人物/动物点缀、路面/道具细节和远景氛围。\n\n"
+        "优先使用法国本土语境元素，例如：普罗旺斯薰衣草田、石屋花园、法式窗台、藤编篮、陶罐花束、乡村小路、巴黎面包店橱窗、法式庄园、庭院午餐、晴天餐桌、铃兰花、柔和晨光。"
+        "画面应浪漫、明亮、精致、有生活气息，不要像普通旅游照。\n\n"
+        "构图要求：主体明确，色彩明亮但不过曝；花艺、建筑、餐具、庭院风格统一；背景有法式生活细节但不抢主体；适合中老年用户拼图，画面细节可拼、边界清楚、完成后有度假和收藏感。"
+    )
+
+
+def _france_derivative_negative_prompt() -> str:
+    return (
+        "避免品牌logo、文字水印、商标、现代广告牌、受保护商业角色、当代艺术作品复刻、明显品牌橱窗、真人明星脸。\n\n"
+        "避免主体替换、构图漂移、把道路/大道/步道/花田/窗台改成小屋、建筑、庭院、森林、教堂或普通风景。\n\n"
+        "避免文化误用，例如美式谷仓、英式乡村、意式街景、西班牙/希腊海岛风被误当法国素材；避免建筑、餐具、花艺、街景风格混杂。"
+        "避免过度宗教化、政治化、阴暗压抑、灰调脏乱、廉价旅游纪念品质感。\n\n"
+        "严禁四宫格、拼贴、分屏、多画面、多场景合集、四季同图、春夏秋冬同时出现、信息图、海报排版。"
+        "避免低清晰度、AI畸形手脸、主体过小、背景杂乱、过度灰暗、过度饱和、空洞风景照。"
+    )
+
+
+def _ensure_required_derivative_negative_prompt(negative_prompt: str) -> str:
+    required = _required_derivative_negative_prompt()
+    text = str(negative_prompt or "").strip()
+    if not text:
+        return required
+    required_terms = ("四宫格", "拼贴", "多场景合集", "四季同图")
+    if all(term in text for term in required_terms):
+        return text
+    return f"{text}；{required}"
+
+
+def _derivative_subject_drift_reason(row: DemandRow, semantic) -> str:
+    reference_text = " ".join((row.subject, row.subject_description, row.image_name, row.operation_tag))
+    generated_text = " ".join(
+        (
+            str(getattr(semantic, "subject", "")),
+            str(getattr(semantic, "scene", "")),
+            str(getattr(semantic, "style", "")),
+            " ".join(getattr(semantic, "culture_elements", ()) or ()),
+            " ".join(getattr(semantic, "prompt_keywords", ()) or ()),
+            str(getattr(semantic, "raw_text", "")),
+        )
+    )
+    reference_tokens = _derivative_anchor_tokens(reference_text)
+    generated_tokens = _derivative_anchor_tokens(generated_text)
+    if _has_road_anchor(reference_tokens):
+        if not _has_road_anchor(generated_tokens):
+            return "参考图主构图是道路/大道/步道纵深，生成图未保留道路纵深结构。"
+        if any(word in generated_text for word in ("小屋", "房屋", "建筑", "寺庙", "森林")) and not any(word in generated_text for word in ("大道", "步道", "道路", "小路", "街道")):
+            return "参考图主视觉是道路场景，生成图转成小屋/建筑/森林主体。"
+    missing = [token for token in reference_tokens if token not in generated_tokens]
+    if len(reference_tokens) >= 2 and len(missing) >= max(1, len(reference_tokens) - 1):
+        return f"生成图未保留关键主体元素：{','.join(missing[:3])}。"
+    return ""
+
+
+def _derivative_anchor_tokens(text: str) -> set[str]:
+    anchors = (
+        "樱花",
+        "大道",
+        "步道",
+        "道路",
+        "小路",
+        "街道",
+        "猫咪",
+        "猫",
+        "锦鲤",
+        "鲤鱼",
+        "柴犬",
+        "铃兰",
+        "薰衣草",
+        "窗台",
+        "花田",
+        "庭院",
+        "石屋",
+        "面包店",
+        "塔楼",
+        "游客",
+    )
+    return {anchor for anchor in anchors if anchor in str(text or "")}
+
+
+def _has_road_anchor(tokens: set[str]) -> bool:
+    return bool(tokens & {"大道", "步道", "道路", "小路", "街道"})
+
+
+def _strip_description_source(remark: str) -> str:
+    parts = [part.strip() for part in str(remark or "").split("；") if part.strip()]
+    return "；".join(part for part in parts if not part.startswith("描述来源：") and not part.startswith("视觉LLM："))
+
+
+def _description_source_text(semantic, vision_client) -> str:
+    if not semantic:
+        return "描述来源：本地视觉解析；未调用远程视觉模型"
+    status = {}
+    if vision_client and hasattr(vision_client, "config_status"):
+        try:
+            raw_status = vision_client.config_status()
+            status = raw_status if isinstance(raw_status, dict) else {}
+        except Exception:
+            status = {}
+    provider = str(status.get("provider") or getattr(semantic, "provider", "") or "视觉模型")
+    model = str(status.get("model") or "").strip()
+    model_label = f"{provider.capitalize()} {model}".strip() if model else provider.capitalize()
+    return f"描述来源：{model_label}；视觉置信度 {float(getattr(semantic, 'confidence', 0.0)):.2f}"
 
 
 def _generated_subject_description(country: str, visual, semantic) -> str:
@@ -5443,11 +8319,12 @@ def _demand_row_payload_for_skill(row: DemandRow) -> dict[str, object]:
         "张数": row.count,
         "需求等级": row.priority,
         "加工方式": row.method,
+        "提需日期": date.today().strftime("%Y%m%d"),
         "交付日期": row.delivery_date,
         "主体描述": row.subject_description,
         "备注": row.remark,
     }
-    if row.value_match:
+    if row.need_type != "常规" and row.value_match:
         payload["价值观匹配度"] = row.value_match
     return payload
 
@@ -5889,8 +8766,318 @@ def _trace_satisfaction_score(trace: dict[str, object]) -> int | None:
     return None
 
 
+def _success_rate(*results: ToolResult) -> float:
+    if not results:
+        return 0.0
+    return sum(1 for result in results if result.success) / len(results)
+
+
+def _dashboard_sa_ratio(country: str) -> str:
+    return {
+        "日本": "32% / 35%",
+        "法国": "28% / 30%",
+    }.get(country, "30% / 35%")
+
+
+def _country_holidays(country: str, year: int) -> tuple[tuple[date, HolidayRecommendation], ...]:
+    if country == "日本":
+        return (
+            (date(year, 1, 1), _holiday("元日", "1月1日", "新年团聚、初诣和家庭祝福题材。", ("新年祈福", "家庭团聚", "初诣散步"), ("门松", "神社参道", "日式年菜"))),
+            (_nth_weekday(year, 1, 0, 2), _holiday("成人の日", _date_label(_nth_weekday(year, 1, 0, 2)), "成人礼与和服仪式感题材。", ("成人礼仪式", "和服人物", "家庭纪念"), ("振袖和服", "花束", "纪念合影"))),
+            (date(year, 2, 11), _holiday("建国記念の日", "2月11日", "适合稳重的传统文化和自然风景，不建议政治化表达。", ("传统文化", "宁静风景", "家庭出游"), ("富士山", "梅花", "神社远景"))),
+            (date(year, 4, 29), _holiday("昭和の日", "4月29日", "黄金周前段，适合怀旧春游和家庭出行题材。", ("春季郊游", "家庭团聚", "怀旧街景"), ("公园草地", "便当", "电车"))),
+            (date(year, 5, 3), _holiday("憲法記念日", "5月3日", "黄金周中段，建议以旅行和家庭陪伴为主，避免政治化。", ("短途旅行", "家庭陪伴", "春季街景"), ("新干线", "温泉街", "花海"))),
+            (date(year, 5, 5), _holiday("こどもの日", "5月5日", "儿童节和家庭主题，适合亲子、鲤鱼旗和春季庭院。", ("亲子时光", "家庭庭院", "儿童节装饰"), ("鲤鱼旗", "柏饼", "庭院"))),
+            (_nth_weekday(year, 7, 0, 3), _holiday("海の日", _date_label(_nth_weekday(year, 7, 0, 3)), "日本夏季海洋日，适合海边出行、家庭旅行和清爽夏日元素。", ("海边小旅行", "家庭出游", "夏日治愈"), ("海岸线", "帆船", "亲子散步", "蓝天白云"))),
+            (date(year, 8, 11), _holiday("山の日", "8月11日", "夏季山林出游题材，适合自然、登山、避暑。", ("山林避暑", "家庭徒步", "自然风景"), ("山路", "森林", "远山"))),
+            (_nth_weekday(year, 9, 0, 3), _holiday("敬老の日", _date_label(_nth_weekday(year, 9, 0, 3)), "适合家庭陪伴、温暖礼物和传统生活场景。", ("家庭陪伴", "温馨礼物", "传统庭院"), ("茶点", "花束", "和室"))),
+            (_nth_weekday(year, 10, 0, 2), _holiday("スポーツの日", _date_label(_nth_weekday(year, 10, 0, 2)), "适合户外运动、秋季公园和家庭活动。", ("秋季运动", "公园活动", "家庭出游"), ("运动场", "秋叶", "野餐垫"))),
+            (date(year, 11, 3), _holiday("文化の日", "11月3日", "适合艺术、传统工艺、书院和展览氛围。", ("传统工艺", "艺术展览", "文化散步"), ("茶室", "书卷", "庭院"))),
+            (date(year, 11, 23), _holiday("勤労感謝の日", "11月23日", "适合家庭感谢、秋季餐桌和温暖生活方式。", ("感谢礼物", "家庭餐桌", "秋季生活"), ("餐桌", "花束", "暖色灯光"))),
+        )
+    if country == "法国":
+        return (
+            (date(year, 1, 1), _holiday("Jour de l'An", "1月1日", "法国新年，适合家庭聚会、餐桌和城市灯光。", ("新年餐桌", "家庭聚会", "城市灯光"), ("香槟杯", "餐桌", "烟火远景"))),
+            (date(year, 5, 1), _holiday("Fête du Travail / Muguet", "5月1日", "劳动节与铃兰花传统，适合法式窗台、花束和祝福题材。", ("铃兰祝福", "法式窗台", "春季花束"), ("铃兰花", "窗台", "白绿花束"))),
+            (date(year, 5, 8), _holiday("Victoire 1945", "5月8日", "胜利日题材需避免政治化，建议以城市纪念和花束表达。", ("纪念花束", "城市散步", "家庭纪念"), ("三色旗远景", "花束", "石板街"))),
+            (date(year, 7, 14), _holiday("法国国庆日", "7月14日", "法国国庆日，适合烟火、城市广场、家庭聚会和法式夏夜氛围。", ("夏夜烟火", "家庭聚会", "城市广场"), ("烟火", "三色旗", "巴黎街景", "露台餐桌"))),
+            (date(year, 8, 15), _holiday("Assomption", "8月15日", "夏季假期节点，适合南法旅行、海岸和乡村度假。", ("南法假期", "海岸旅行", "乡村度假"), ("海岸线", "石屋", "露台"))),
+            (date(year, 11, 1), _holiday("Toussaint", "11月1日", "万圣节/诸圣节期间，建议偏秋季花艺和温和纪念氛围。", ("秋季花艺", "家庭纪念", "温和静物"), ("菊花", "烛光", "秋叶"))),
+            (date(year, 11, 11), _holiday("Armistice", "11月11日", "停战纪念日需避免战争画面，建议以和平、花束、城市纪念为主。", ("和平纪念", "城市纪念", "花束静物"), ("蓝白红花束", "石碑远景", "鸽子剪影"))),
+            (date(year, 12, 25), _holiday("Noël", "12月25日", "法国圣诞，适合家庭餐桌、窗边灯光和冬季街景。", ("圣诞餐桌", "家庭团聚", "冬季街景"), ("圣诞树", "壁炉", "甜点"))),
+        )
+    return ()
+
+
+def _holiday(name: str, date_range: str, meaning: str, ai_themes: tuple[str, ...], elements: tuple[str, ...]) -> HolidayRecommendation:
+    return HolidayRecommendation(
+        name=name,
+        date_range=date_range,
+        meaning=meaning,
+        content=f"围绕{ai_themes[0]}、{ai_themes[1]}、{ai_themes[2]}展开，画面需要保持本国文化语境清晰。",
+        ai_themes=ai_themes,
+        elements=elements,
+        history_good_images=(),
+    )
+
+
+def _holiday_direct_history_matches(records: tuple[object, ...], holiday: HolidayRecommendation) -> tuple[object, ...]:
+    keywords = _holiday_keywords(holiday)
+    matches = []
+    for record in records:
+        haystack = _record_holiday_text(record)
+        if any(keyword and keyword in haystack for keyword in keywords):
+            matches.append(record)
+    return tuple(matches)
+
+
+def _rank_holiday_records(records: tuple[object, ...], holiday: HolidayRecommendation, *, positive: bool) -> tuple[object, ...]:
+    target_grades = {"S", "A"} if positive else {"C", "D"}
+    candidates = [record for record in records if record.grade in target_grades]
+    if not candidates and not positive:
+        candidates = [record for record in records if record.grade in {"B", "C", "D"}]
+    keywords = _holiday_keywords(holiday)
+
+    def score(record) -> tuple[int, float, float]:
+        text = _record_holiday_text(record)
+        keyword_score = sum(1 for keyword in keywords if keyword and keyword in text)
+        if positive:
+            return (keyword_score, float(record.open_rate), float(record.completion_rate))
+        return (keyword_score, -float(record.open_rate), -float(record.completion_rate))
+
+    return tuple(sorted(candidates, key=score, reverse=True))
+
+
+def _holiday_keywords(holiday: HolidayRecommendation) -> tuple[str, ...]:
+    raw = (holiday.name, holiday.meaning, holiday.content) + holiday.ai_themes + holiday.elements
+    tokens: list[str] = []
+    generic = {"日本", "法国", "家庭", "城市", "旅行", "出游", "风景", "节日", "主题", "夏季", "春季", "秋季", "冬季"}
+    for item in raw:
+        text = str(item)
+        tokens.append(text)
+        if "海" in text:
+            tokens.extend(("海边", "海岸", "海滨"))
+        if "山" in text:
+            tokens.extend(("山林", "远山", "登山"))
+        if "花" in text:
+            tokens.extend(("花田", "花艺", "花束"))
+        for chunk in re.split(r"[、，。/／\s（）()；;+-]+", text):
+            chunk = chunk.strip()
+            if 2 <= len(chunk) <= 8 and chunk not in generic:
+                tokens.append(chunk)
+    return tuple(dict.fromkeys(tokens))
+
+
+def _record_holiday_text(record) -> str:
+    return " ".join(
+        str(value)
+        for value in (
+            record.operation_tag,
+            record.subject_tag,
+            record.js_category,
+            record.remark,
+            record.distribution_date,
+            record.distribution_cycle,
+        )
+        if value
+    )
+
+
+def _holiday_value_rule_citations(country_data: dict[str, object], holiday: HolidayRecommendation) -> tuple[str, ...]:
+    rules = tuple(country_data.get("value_rules", ()))
+    selected = []
+    for name, text in rules:
+        if name in {"文化真实性", "节日适配", "版权与风格风险", "主体清晰度", "构图可拼性", "AI质量"}:
+            selected.append(f"{name}：{text}")
+    return tuple(selected[:4])
+
+
+def _holiday_planning_note(
+    holiday: HolidayRecommendation,
+    good_images: tuple[ImageAsset, ...],
+    bad_images: tuple[ImageAsset, ...],
+    citations: tuple[str, ...],
+    direct_count: int,
+) -> str:
+    good_subjects = "、".join(image.title for image in good_images[:2]) or "暂无可引用好图"
+    bad_subjects = "、".join(image.title for image in bad_images[:2]) or "暂无可引用坏图"
+    source = "真实节日历史样本" if direct_count else "同国家历史好坏图规律"
+    rule = citations[0] if citations else "国家价值观规则"
+    return (
+        f"LLM策划建议（待人工确认）：基于节日表、{source}和价值观规则生成。"
+        f"历史好图规律可参考 {good_subjects}；历史坏图避雷参考 {bad_subjects}。"
+        f"建议围绕{holiday.ai_themes[0]}、{holiday.ai_themes[1]}组织主体，突出{holiday.elements[0]}等可识别元素；"
+        f"同时遵守 {rule}。"
+    )
+
+
+def _holiday_llm_payload(
+    country: str,
+    holiday: HolidayRecommendation,
+    good_images: tuple[ImageAsset, ...],
+    bad_images: tuple[ImageAsset, ...],
+    citations: tuple[str, ...],
+    direct_count: int,
+    model: str,
+) -> dict[str, object]:
+    return {
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "你是 PuzzleOps 拼图运营节日策划助手。只能基于输入的节日表、真实历史样本和价值观规则生成建议；"
+                    "不要编造历史图片、指标或节日。输出中文，给运营可执行建议，并标注需要人工确认。"
+                ),
+            },
+            {
+                "role": "user",
+                "content": _holiday_llm_user_prompt(country, holiday, good_images, bad_images, citations, direct_count),
+            },
+        ],
+        "temperature": 0.2,
+    }
+
+
+def _holiday_llm_user_prompt(
+    country: str,
+    holiday: HolidayRecommendation,
+    good_images: tuple[ImageAsset, ...],
+    bad_images: tuple[ImageAsset, ...],
+    citations: tuple[str, ...],
+    direct_count: int,
+) -> str:
+    good = "\n".join(_holiday_image_line(image) for image in good_images) or "无"
+    bad = "\n".join(_holiday_image_line(image) for image in bad_images) or "无"
+    rules = "\n".join(f"- {rule}" for rule in citations) or "无"
+    return (
+        f"国家：{country}\n"
+        f"节日：{holiday.name}\n"
+        f"日期范围：{holiday.date_range}\n"
+        f"节日含义：{holiday.meaning}\n"
+        f"维护表推荐主题：{'、'.join(holiday.ai_themes)}\n"
+        f"维护表推荐元素：{'、'.join(holiday.elements)}\n"
+        f"直接历史样本数：{direct_count}\n"
+        f"真实历史好图参考：\n{good}\n"
+        f"真实历史坏图避雷：\n{bad}\n"
+        f"价值观规则依据：\n{rules}\n\n"
+        "请输出一段 120 字以内的节日提需策划建议，必须包含：推荐主体方向、可用元素、历史依据、风险避雷、人工确认提示。"
+    )
+
+
+def _holiday_image_line(image: ImageAsset) -> str:
+    return f"- {image.title}｜等级{image.grade}｜开图{image.open_rate}｜完成{image.finish_rate}｜时长{image.finish_time}｜来源{image.source}"
+
+
+def _nth_weekday(year: int, month: int, weekday: int, nth: int) -> date:
+    current = date(year, month, 1)
+    offset = (weekday - current.weekday()) % 7
+    return current + timedelta(days=offset + (nth - 1) * 7)
+
+
+def _date_label(value: date) -> str:
+    return f"{value.month}月{value.day}日"
+
+
+def _real_inventory_images_for_tag(records: tuple[object, ...], country: str, operation_tag: str, subject: str, limit: int) -> tuple[ImageAsset, ...]:
+    if not records:
+        return ()
+    selected = [record for record in records if _tag_stem(record.operation_tag) == _tag_stem(operation_tag)]
+    return tuple(_image_asset_from_record(record) for record in selected[:limit])
+
+
+def _image_asset_from_record(record) -> ImageAsset:
+    return ImageAsset(
+        title=record.subject_tag or record.operation_tag,
+        grade=record.grade,
+        open_rate=_metric_percent(record.open_rate),
+        finish_rate=_metric_percent(record.completion_rate),
+        finish_time=_metric_number(record.avg_finish_time),
+        source=record.source,
+        thumb=record.local_image_path or record.thumbnail_path or record.subject_tag,
+        remark=record.remark,
+    )
+
+
+def _unverified_metric_image(image: ImageAsset) -> ImageAsset:
+    return ImageAsset(
+        title=image.title,
+        grade=image.grade,
+        open_rate="未接入真实指标",
+        finish_rate="未接入真实指标",
+        finish_time="未接入真实指标",
+        source=image.source,
+        thumb=image.thumb,
+        remark=image.remark,
+    )
+
+
+def _tag_stem(tag: str) -> str:
+    return re.sub(r"\d{4}$", "", str(tag))
+
+
+def _metric_percent(value: float) -> str:
+    return f"{float(value) * 100:.2f}%"
+
+
+def _metric_number(value: float) -> str:
+    return f"{float(value):.2f}"
+
+
+def _real_inventory_dir() -> Path | None:
+    configured = os.getenv("PUZZLEOPS_REAL_IMAGE_DIR", "").strip()
+    candidates = [Path(configured).expanduser()] if configured else []
+    candidates.append(Path("/Users/fanglemin/Desktop/图片"))
+    for path in candidates:
+        if path.is_dir():
+            return path
+    return None
+
+
+def _image_content_type_from_path(path: str) -> str:
+    suffix = Path(str(path)).suffix.lower()
+    if suffix in {".jpg", ".jpeg"}:
+        return "image/jpeg"
+    if suffix == ".webp":
+        return "image/webp"
+    return "image/png"
+
+
+def _image_dimensions(path: str) -> tuple[int, int]:
+    try:
+        from PIL import Image
+
+        with Image.open(Path(path).expanduser()) as image:
+            return int(image.width), int(image.height)
+    except Exception:
+        return 0, 0
+
+
 def _looks_like_audit_query(query: str) -> bool:
     return any(word in query for word in ("风险", "审核", "水印", "IP", "版权", "商标", "文化混淆", "AI质量"))
+
+
+def _readable_citation_label(citation_id: str) -> str:
+    parent_id = citation_id.split("#", 1)[0]
+    if "HARNESS_GOLD" in parent_id:
+        return "历史人工 gold 样本"
+    if "VALUE" in parent_id:
+        return "国家价值观规则"
+    if "AUDIT" in parent_id:
+        return "审核/风险规则"
+    if "MEMORY" in parent_id:
+        return "人工确认 Memory"
+    return parent_id.replace("GLOBAL_KB_", "").replace("_", " ")
+
+
+def _is_emergency_rag_patch_candidate(item: dict[str, object]) -> bool:
+    text = " ".join(
+        str(item.get(key, ""))
+        for key in ("priority_band", "query", "note", "draft_text", "expected_parent_id", "diagnosis", "gold_grade", "label_source")
+    )
+    if "P0" in text or "human_gold" in text or "S" == str(item.get("gold_grade", "")).strip().upper():
+        return True
+    return any(token in text for token in ("版权", "IP", "商标", "文化禁忌", "文化混淆", "节日", "紧急", "风险漏召回"))
 
 
 def _records_from_static_country(country: str):

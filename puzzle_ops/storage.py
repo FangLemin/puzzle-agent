@@ -678,6 +678,80 @@ class PuzzleRepository:
             events.append(item)
         return tuple(events)
 
+    def record_tool_invocation(
+        self,
+        *,
+        invocation_id: str,
+        tool_name: str,
+        country: str,
+        actor: str,
+        skill_id: str,
+        source_trace_id: str,
+        proposal_id: str,
+        side_effect: str,
+        input_hash: str,
+        input_preview: dict[str, object],
+        output_preview: dict[str, object],
+        success: bool,
+        error_code: str,
+        error_message: str,
+        latency_ms: int,
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO tool_invocations(
+                    invocation_id, tool_name, country, actor, skill_id, source_trace_id,
+                    proposal_id, side_effect, input_hash, input_preview, output_preview,
+                    success, error_code, error_message, latency_ms
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    invocation_id,
+                    tool_name,
+                    country,
+                    actor,
+                    skill_id,
+                    source_trace_id,
+                    proposal_id,
+                    side_effect,
+                    input_hash,
+                    json.dumps(input_preview, ensure_ascii=False, sort_keys=True, default=str),
+                    json.dumps(output_preview, ensure_ascii=False, sort_keys=True, default=str),
+                    1 if success else 0,
+                    error_code,
+                    error_message,
+                    latency_ms,
+                ),
+            )
+
+    def tool_invocations(self, *, country: str = "", limit: int = 50) -> tuple[dict[str, object], ...]:
+        where = "WHERE country = ?" if country else ""
+        params: tuple[object, ...] = (country, limit) if country else (limit,)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT invocation_id, tool_name, country, actor, skill_id, source_trace_id,
+                       proposal_id, side_effect, input_hash, input_preview, output_preview,
+                       success, error_code, error_message, latency_ms, created_at
+                FROM tool_invocations {where}
+                ORDER BY created_at DESC, rowid DESC LIMIT ?
+                """,
+                params,
+            ).fetchall()
+        invocations = []
+        for row in rows:
+            item = dict(row)
+            item["success"] = bool(item["success"])
+            for field in ("input_preview", "output_preview"):
+                try:
+                    item[field] = json.loads(str(item[field]))
+                except json.JSONDecodeError:
+                    item[field] = {}
+            invocations.append(item)
+        return tuple(invocations)
+
     def save_harness_run(self, run) -> None:
         payload = json.dumps(asdict(run), ensure_ascii=False)
         with self._connect() as conn:
@@ -736,6 +810,119 @@ class PuzzleRepository:
                 )
             )
         return tuple(runs)
+
+    def add_description_benchmark_score(self, payload: dict[str, object]) -> int:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO description_benchmark_scores(
+                    country, actor, image_name, operation_tag, template_scores, prompt_scores,
+                    template_label, prompt_label, template_output, prompt_output, metadata
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(payload.get("country", "")),
+                    str(payload.get("actor", "")),
+                    str(payload.get("image_name", "")),
+                    str(payload.get("operation_tag", "")),
+                    json.dumps(payload.get("template_scores", {}), ensure_ascii=False, sort_keys=True),
+                    json.dumps(payload.get("prompt_scores", {}), ensure_ascii=False, sort_keys=True),
+                    str(payload.get("template_label", "")),
+                    str(payload.get("prompt_label", "")),
+                    str(payload.get("template_output", "")),
+                    str(payload.get("prompt_output", "")),
+                    json.dumps(payload.get("metadata", {}), ensure_ascii=False, sort_keys=True),
+                ),
+            )
+            return int(cursor.lastrowid)
+
+    def description_benchmark_scores(self, country: str, *, limit: int = 100) -> tuple[dict[str, object], ...]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT record_id, country, actor, image_name, operation_tag, template_scores, prompt_scores,
+                       template_label, prompt_label, template_output, prompt_output, metadata, created_at
+                FROM description_benchmark_scores
+                WHERE country = ?
+                ORDER BY record_id DESC
+                LIMIT ?
+                """,
+                (country, limit),
+            ).fetchall()
+        return tuple(_decode_description_benchmark_row(row) for row in rows)
+
+    def description_benchmark_summary(self, country: str) -> dict[str, object]:
+        rows = self.description_benchmark_scores(country, limit=10_000)
+        template_scores = [_score_average(row.get("template_scores", {})) for row in rows]
+        prompt_scores = [_score_average(row.get("prompt_scores", {})) for row in rows]
+        light_labels = {"可直接用", "轻微修改"}
+        return {
+            "count": len(rows),
+            "template_average": round(sum(template_scores) / len(template_scores), 2) if template_scores else 0.0,
+            "prompt_average": round(sum(prompt_scores) / len(prompt_scores), 2) if prompt_scores else 0.0,
+            "template_light_or_direct_rate": round(
+                sum(1 for row in rows if row.get("template_label") in light_labels) / len(rows), 4
+            ) if rows else 0.0,
+            "prompt_light_or_direct_rate": round(
+                sum(1 for row in rows if row.get("prompt_label") in light_labels) / len(rows), 4
+            ) if rows else 0.0,
+        }
+
+    def add_value_prediction_benchmark_score(self, payload: dict[str, object]) -> int:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO value_prediction_benchmark_scores(
+                    country, actor, candidate_id, operation_tag, baseline_scores, candidate_scores,
+                    baseline_label, candidate_label, baseline_output, candidate_output, metadata
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(payload.get("country", "")),
+                    str(payload.get("actor", "")),
+                    str(payload.get("candidate_id", "")),
+                    str(payload.get("operation_tag", "")),
+                    json.dumps(payload.get("baseline_scores", {}), ensure_ascii=False, sort_keys=True),
+                    json.dumps(payload.get("candidate_scores", {}), ensure_ascii=False, sort_keys=True),
+                    str(payload.get("baseline_label", "")),
+                    str(payload.get("candidate_label", "")),
+                    str(payload.get("baseline_output", "")),
+                    str(payload.get("candidate_output", "")),
+                    json.dumps(payload.get("metadata", {}), ensure_ascii=False, sort_keys=True),
+                ),
+            )
+            return int(cursor.lastrowid)
+
+    def value_prediction_benchmark_scores(self, country: str, *, limit: int = 100) -> tuple[dict[str, object], ...]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT record_id, country, actor, candidate_id, operation_tag, baseline_scores, candidate_scores,
+                       baseline_label, candidate_label, baseline_output, candidate_output, metadata, created_at
+                FROM value_prediction_benchmark_scores
+                WHERE country = ?
+                ORDER BY record_id DESC
+                LIMIT ?
+                """,
+                (country, limit),
+            ).fetchall()
+        return tuple(_decode_value_prediction_benchmark_row(row) for row in rows)
+
+    def value_prediction_benchmark_summary(self, country: str) -> dict[str, object]:
+        rows = self.value_prediction_benchmark_scores(country, limit=10_000)
+        baseline_scores = [_score_average(row.get("baseline_scores", {})) for row in rows]
+        candidate_scores = [_score_average(row.get("candidate_scores", {})) for row in rows]
+        light_labels = {"可直接用", "轻微修改"}
+        return {
+            "count": len(rows),
+            "baseline_average": round(sum(baseline_scores) / len(baseline_scores), 2) if baseline_scores else 0.0,
+            "candidate_average": round(sum(candidate_scores) / len(candidate_scores), 2) if candidate_scores else 0.0,
+            "candidate_light_or_direct_rate": round(
+                sum(1 for row in rows if row.get("candidate_label") in light_labels) / len(rows), 4
+            ) if rows else 0.0,
+        }
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
@@ -818,6 +1005,18 @@ class PuzzleRepository:
                 )
                 """,
                 """
+                CREATE TABLE IF NOT EXISTS tool_invocations (
+                    invocation_id TEXT PRIMARY KEY, tool_name TEXT NOT NULL, country TEXT NOT NULL DEFAULT '',
+                    actor TEXT NOT NULL DEFAULT '', skill_id TEXT NOT NULL DEFAULT '',
+                    source_trace_id TEXT NOT NULL DEFAULT '', proposal_id TEXT NOT NULL DEFAULT '',
+                    side_effect TEXT NOT NULL DEFAULT 'read', input_hash TEXT NOT NULL DEFAULT '',
+                    input_preview TEXT NOT NULL DEFAULT '{}', output_preview TEXT NOT NULL DEFAULT '{}',
+                    success INTEGER NOT NULL DEFAULT 0, error_code TEXT NOT NULL DEFAULT '',
+                    error_message TEXT NOT NULL DEFAULT '', latency_ms INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """,
+                """
                 CREATE TABLE IF NOT EXISTS harness_runs (
                     run_id TEXT PRIMARY KEY, version TEXT NOT NULL, dataset_name TEXT NOT NULL,
                     model_provider TEXT NOT NULL, generator_provider TEXT NOT NULL,
@@ -845,6 +1044,40 @@ class PuzzleRepository:
                     updated_at TEXT DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(provider, model, text_hash)
                 )
                 """,
+                """
+                CREATE TABLE IF NOT EXISTS description_benchmark_scores (
+                    record_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    country TEXT NOT NULL,
+                    actor TEXT NOT NULL DEFAULT '',
+                    image_name TEXT NOT NULL DEFAULT '',
+                    operation_tag TEXT NOT NULL DEFAULT '',
+                    template_scores TEXT NOT NULL DEFAULT '{}',
+                    prompt_scores TEXT NOT NULL DEFAULT '{}',
+                    template_label TEXT NOT NULL DEFAULT '',
+                    prompt_label TEXT NOT NULL DEFAULT '',
+                    template_output TEXT NOT NULL DEFAULT '',
+                    prompt_output TEXT NOT NULL DEFAULT '',
+                    metadata TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS value_prediction_benchmark_scores (
+                    record_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    country TEXT NOT NULL,
+                    actor TEXT NOT NULL DEFAULT '',
+                    candidate_id TEXT NOT NULL DEFAULT '',
+                    operation_tag TEXT NOT NULL DEFAULT '',
+                    baseline_scores TEXT NOT NULL DEFAULT '{}',
+                    candidate_scores TEXT NOT NULL DEFAULT '{}',
+                    baseline_label TEXT NOT NULL DEFAULT '',
+                    candidate_label TEXT NOT NULL DEFAULT '',
+                    baseline_output TEXT NOT NULL DEFAULT '',
+                    candidate_output TEXT NOT NULL DEFAULT '',
+                    metadata TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """,
             )
             for statement in statements:
                 conn.execute(statement)
@@ -870,6 +1103,8 @@ class PuzzleRepository:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_memory_audit_country_action ON memory_audit_events(country, action, created_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_guarded_action_country_status ON guarded_action_proposals(country, guard_status, created_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_guarded_action_events_proposal ON guarded_action_events(proposal_id, event_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tool_invocations_country_created ON tool_invocations(country, created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tool_invocations_tool_created ON tool_invocations(tool_name, created_at)")
 
     @staticmethod
     def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
@@ -952,3 +1187,50 @@ def _normalize_harness_rag_artifact(item: object) -> dict[str, object]:
     if isinstance(citations, list):
         normalized["citations"] = tuple(str(citation) for citation in citations)
     return normalized
+
+
+def _decode_description_benchmark_row(row: sqlite3.Row) -> dict[str, object]:
+    item = dict(row)
+    for key in ("template_scores", "prompt_scores", "metadata"):
+        try:
+            value = json.loads(str(item.get(key, "{}") or "{}"))
+        except json.JSONDecodeError:
+            value = {}
+        item[key] = value if isinstance(value, dict) else {}
+    score_keys = (
+        "subject_accuracy",
+        "production_actionability",
+        "conciseness",
+        "market_fit",
+        "remark_usefulness",
+    )
+    for prefix in ("template", "prompt"):
+        scores = item.get(f"{prefix}_scores", {})
+        if not isinstance(scores, dict):
+            continue
+        for index, key in enumerate(score_keys):
+            item[f"{prefix}_score_{index}"] = scores.get(key)
+    return item
+
+
+def _decode_value_prediction_benchmark_row(row: sqlite3.Row) -> dict[str, object]:
+    item = dict(row)
+    for key in ("baseline_scores", "candidate_scores", "metadata"):
+        try:
+            value = json.loads(str(item.get(key, "{}") or "{}"))
+        except json.JSONDecodeError:
+            value = {}
+        item[key] = value if isinstance(value, dict) else {}
+    return item
+
+
+def _score_average(scores: object) -> float:
+    if not isinstance(scores, dict):
+        return 0.0
+    values = []
+    for value in scores.values():
+        try:
+            values.append(float(value))
+        except (TypeError, ValueError):
+            continue
+    return sum(values) / len(values) if values else 0.0
