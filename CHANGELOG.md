@@ -2,6 +2,60 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.53 - Visual Similarity Proxy Eval
+
+日期：2026-08-03
+
+阶段目标：
+
+- 先做“图像相似检索增强”的第 1 步：建立可量化评测基线。
+- 不直接改价值观大师主预测逻辑，避免把等级预测再次改偏。
+- 用自动 proxy eval 快速暴露“历史依据图片不相关”的问题。
+
+已完成：
+
+- 新增 `PuzzleOpsAgent.export_visual_similarity_eval_report(...)`：
+  - 自动遍历日本/法国历史图片样本。
+  - 重建视觉相似索引。
+  - 逐张图片做以图搜图 TopK 检索。
+  - 输出 `Hit@K`、`MRR@K`、`NDCG@K`、`Precision@K`、`Recall@K`、`Bad Match Rate@K`。
+- 新增视觉相似 proxy 相关性判断：
+  - 同国家。
+  - 主体 token/短主体互相包含。
+  - 或同 JS 分类且等级桶接近。
+- 新增导出报告：
+  - `docs/eval/visual_similarity_eval_report.json`。
+  - `docs/eval/visual_similarity_eval_report.md`。
+- 新增单测覆盖报告导出、指标字段和 Markdown 结果。
+
+当前基线：
+
+- Case 数：45。
+- `Hit@5=0.2444`。
+- `MRR@5=0.1407`。
+- `NDCG@5=0.1029`。
+- `Precision@5=0.0533`。
+- `Recall@5=0.1267`。
+- `Bad Match Rate@5=0.9111`。
+
+结论：
+
+- 当前视觉相似检索链路已可评测，但本地 fallback embedding 的历史图匹配质量明显不足。
+- 这个结果支持下一步继续做真实 Qwen 多模态 embedding 在线验证、人工 TopK 标注集，以及将检索结果作为价值观大师证据前的 relevance gate。
+
+验证：
+
+- `python -m py_compile puzzle_ops/agents.py puzzle_ops/visual_similarity.py`：通过。
+- `PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_visual_similarity_eval_report_with_proxy_metrics -q`：1 passed。
+- `VISUAL_EMBEDDING_ENABLE_REMOTE_CALLS=false VISUAL_MILVUS_ENABLE_REMOTE_CALLS=false PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_visual_similarity_eval_report_with_proxy_metrics tests/test_visual_similarity.py tests/test_agents.py::test_agent_visual_similarity_groups_good_and_risk_history_without_changing_grade_model tests/test_agents.py::test_value_candidate_prediction_includes_visual_similarity_evidence_and_keeps_legacy_grade_model tests/test_agents.py::test_value_master_passes_visual_similarity_evidence_to_llm_rules -q`：8 passed。
+- `ANALYSIS_LLM_ENABLE_REMOTE_CALLS=0 RAG_ENABLE_REMOTE_CALLS=false RAG_EMBEDDING_PROVIDER=local RAG_RERANK_PROVIDER=local VISUAL_EMBEDDING_ENABLE_REMOTE_CALLS=false VISUAL_MILVUS_ENABLE_REMOTE_CALLS=false VISION_LLM_PROVIDER=qwen QWEN_API_KEY= IMAGE_GENERATION_PROVIDER=mock PYTHONPATH=. pytest tests -q`：589 passed。
+
+当前限制：
+
+- 本报告是自动 proxy eval，不替代人工标注的图像相似 TopK gold set。
+- 本地 fallback embedding 只能证明工程链路，不证明 Qwen3-VL-Embedding 的真实效果。
+- v0.7.53 只做评测基线，不改变价值观大师等级预测主链路。
+
 ## v0.7.52 - Value Master Visual Similarity Evidence
 
 日期：2026-08-03

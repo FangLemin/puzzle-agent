@@ -3715,6 +3715,95 @@ def test_value_master_passes_visual_similarity_evidence_to_llm_rules(monkeypatch
     assert "系统RAG召回" in judged.value_match
 
 
+def test_agent_exports_visual_similarity_eval_report_with_proxy_metrics(tmp_path):
+    sushi = tmp_path / "sushi.png"
+    sushi_variant = tmp_path / "sushi-variant.png"
+    matcha = tmp_path / "matcha.png"
+    Image.new("RGB", (48, 48), (230, 80, 50)).save(sushi)
+    Image.new("RGB", (48, 48), (228, 84, 54)).save(sushi_variant)
+    Image.new("RGB", (48, 48), (40, 90, 220)).save(matcha)
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent.visual_embedding_provider = LocalVisualEmbeddingProvider(dimension=16)
+    agent._history_cache["日本"] = (
+        HistoricalRecord(
+            grade="A",
+            image_formula="",
+            image_id="jp-sushi-1",
+            image_url="",
+            local_image_path=str(sushi),
+            thumbnail_path="",
+            position=1,
+            dimension_grade="高高中",
+            open_rate=0.2,
+            completion_rate=0.93,
+            avg_finish_time=20,
+            operation_tag="常规_日本_寿司拼盘0701",
+            subject_tag="寿司拼盘",
+            js_category="food",
+            source="真实历史",
+            remark="日式料理桌面近景",
+            distribution_date="2026-07-01",
+            distribution_cycle="",
+            country="日本",
+        ),
+        HistoricalRecord(
+            grade="S",
+            image_formula="",
+            image_id="jp-sushi-2",
+            image_url="",
+            local_image_path=str(sushi_variant),
+            thumbnail_path="",
+            position=2,
+            dimension_grade="高高高",
+            open_rate=0.24,
+            completion_rate=0.95,
+            avg_finish_time=22,
+            operation_tag="常规_日本_寿司料理0702",
+            subject_tag="寿司料理",
+            js_category="food",
+            source="真实历史",
+            remark="日式料理桌面近景",
+            distribution_date="2026-07-02",
+            distribution_cycle="",
+            country="日本",
+        ),
+        HistoricalRecord(
+            grade="D",
+            image_formula="",
+            image_id="jp-matcha",
+            image_url="",
+            local_image_path=str(matcha),
+            thumbnail_path="",
+            position=3,
+            dimension_grade="低低低",
+            open_rate=0.03,
+            completion_rate=0.82,
+            avg_finish_time=12,
+            operation_tag="常规_日本_抹茶0703",
+            subject_tag="抹茶",
+            js_category="food",
+            source="真实历史",
+            remark="主体过小",
+            distribution_date="2026-07-03",
+            distribution_cycle="",
+            country="日本",
+        ),
+    )
+
+    result = agent.export_visual_similarity_eval_report(("日本",), output_dir=tmp_path / "eval", top_k=2)
+
+    data = json.loads(Path(result["json_report"]).read_text(encoding="utf-8"))
+    markdown = Path(result["markdown_report"]).read_text(encoding="utf-8")
+    assert data["mode"] == "visual_similarity_proxy_eval"
+    assert data["metrics"]["hit@2"] >= 0
+    assert data["metrics"]["mrr@2"] >= 0
+    assert data["metrics"]["ndcg@2"] >= 0
+    assert "bad_match_rate@2" in data["metrics"]
+    assert data["case_count"] == 3
+    assert "自动 proxy eval" in markdown
+    assert "Hit@2" in markdown
+
+
 
 def test_agent_harness_readiness_guides_next_steps_for_silver_and_missing_metrics(tmp_path):
     picnic = tmp_path / "france-picnic.png"

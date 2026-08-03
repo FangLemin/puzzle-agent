@@ -4,6 +4,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 import csv
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -5232,6 +5233,31 @@ class PuzzleOpsAgent:
         markdown_report.write_text(_value_master_prompt_benchmark_v2_markdown(report), encoding="utf-8")
         return {"json_report": str(json_report), "markdown_report": str(markdown_report), **report}
 
+    def export_visual_similarity_eval_report(
+        self,
+        countries: tuple[str, ...] | list[str] | None = None,
+        *,
+        output_dir: Path | str | None = None,
+        top_k: int = 5,
+    ) -> dict[str, object]:
+        selected_countries = tuple(countries or self.countries())
+        cases = []
+        for country in selected_countries:
+            self.rebuild_visual_similarity_index(country)
+            records = tuple(record for record in self._history_records(country) if getattr(record, "local_image_path", ""))
+            for record in records:
+                case = _visual_similarity_eval_case(self, record, records, top_k=top_k)
+                if case:
+                    cases.append(case)
+        report = _visual_similarity_eval_report_payload(tuple(cases), selected_countries, top_k)
+        export_dir = Path(output_dir) if output_dir is not None else self._runtime_dir / "resume_evidence"
+        export_dir.mkdir(parents=True, exist_ok=True)
+        json_report = export_dir / "visual_similarity_eval_report.json"
+        markdown_report = export_dir / "visual_similarity_eval_report.md"
+        json_report.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        markdown_report.write_text(_visual_similarity_eval_report_markdown(report), encoding="utf-8")
+        return {"json_report": str(json_report), "markdown_report": str(markdown_report), **report}
+
     def harness_readiness(self, country: str) -> dict[str, object]:
         samples = tuple(sample for sample in self.harness_samples(country) if sample.is_real)
         gold_complete_samples = tuple(sample for sample in samples if not _missing_gold_fields(sample))
@@ -7786,6 +7812,159 @@ def _history_shadow_report_markdown(report: dict[str, object]) -> str:
             "",
             f"- {report.get('acceptance', {}).get('promote_to_main_chain_when', '')}",
             f"- {report.get('acceptance', {}).get('current_action', '')}",
+        ]
+    ) + "\n"
+
+
+def _visual_similarity_eval_case(agent, record, records: tuple, *, top_k: int) -> dict[str, object] | None:
+    path = Path(str(getattr(record, "local_image_path", "") or "")).expanduser()
+    if not path.is_file():
+        return None
+    embedding = agent.visual_embedding_provider.embed_image(str(path), text=_visual_similarity_text_from_history(record))
+    hits = []
+    for hit in agent.visual_similarity_index.search(embedding, country=str(getattr(record, "country", "")), top_k=max(top_k + 1, 2)):
+        if str(hit.get("image_id", "")) == str(getattr(record, "image_id", "")):
+            continue
+        hits.append(hit)
+        if len(hits) >= top_k:
+            break
+    record_by_id = {str(getattr(item, "image_id", "")): item for item in records}
+    relevant_ids = tuple(
+        str(getattr(item, "image_id", ""))
+        for item in records
+        if str(getattr(item, "image_id", "")) != str(getattr(record, "image_id", "")) and _visual_similarity_proxy_relevant(record, item)
+    )
+    retrieved_ids = tuple(str(hit.get("image_id", "")) for hit in hits)
+    relevant_hit_count = sum(1 for image_id in retrieved_ids if image_id in relevant_ids)
+    reciprocal = 0.0
+    for rank, image_id in enumerate(retrieved_ids, start=1):
+        if image_id in relevant_ids:
+            reciprocal = 1.0 / rank
+            break
+    bad_top1 = bool(retrieved_ids and retrieved_ids[0] not in relevant_ids)
+    return {
+        "sample_id": str(getattr(record, "image_id", "")),
+        "country": str(getattr(record, "country", "")),
+        "operation_tag": str(getattr(record, "operation_tag", "")),
+        "subject": str(getattr(record, "subject_tag", "")),
+        "grade": str(getattr(record, "grade", "")),
+        "retrieved_ids": retrieved_ids,
+        "relevant_ids": relevant_ids,
+        f"hit@{top_k}": 1.0 if relevant_hit_count > 0 else 0.0,
+        f"mrr@{top_k}": round(reciprocal, 4),
+        f"precision@{top_k}": round(relevant_hit_count / top_k, 4) if top_k else 0.0,
+        f"recall@{top_k}": round(relevant_hit_count / len(relevant_ids), 4) if relevant_ids else 0.0,
+        f"ndcg@{top_k}": _visual_similarity_ndcg(retrieved_ids, relevant_ids, top_k),
+        f"bad_match@{top_k}": 1.0 if bad_top1 else 0.0,
+        "top_hits": tuple(
+            {
+                **hit,
+                "proxy_relevant": str(hit.get("image_id", "")) in relevant_ids,
+                "matched_subject": getattr(record_by_id.get(str(hit.get("image_id", ""))), "subject_tag", ""),
+            }
+            for hit in hits
+        ),
+    }
+
+
+def _visual_similarity_proxy_relevant(left, right) -> bool:
+    if getattr(left, "country", "") != getattr(right, "country", ""):
+        return False
+    left_subject = _simple_text_tokens(str(getattr(left, "subject_tag", "")))
+    right_subject = _simple_text_tokens(str(getattr(right, "subject_tag", "")))
+    if left_subject and right_subject and left_subject & right_subject:
+        return True
+    if str(getattr(left, "subject_tag", "")) and str(getattr(left, "subject_tag", "")) in str(getattr(right, "subject_tag", "")):
+        return True
+    if str(getattr(right, "subject_tag", "")) and str(getattr(right, "subject_tag", "")) in str(getattr(left, "subject_tag", "")):
+        return True
+    if getattr(left, "js_category", "") and getattr(left, "js_category", "") == getattr(right, "js_category", ""):
+        return _grade_bucket_match_bonus(getattr(left, "grade", ""), getattr(right, "grade", "")) > 0
+    return False
+
+
+def _visual_similarity_ndcg(retrieved_ids: tuple[str, ...], relevant_ids: tuple[str, ...], top_k: int) -> float:
+    relevant = set(relevant_ids)
+    dcg = 0.0
+    for rank, image_id in enumerate(retrieved_ids[:top_k], start=1):
+        if image_id in relevant:
+            dcg += 1.0 / math.log2(rank + 1)
+    ideal_hits = min(len(relevant), top_k)
+    ideal = sum(1.0 / math.log2(rank + 1) for rank in range(1, ideal_hits + 1))
+    return round(dcg / ideal, 4) if ideal else 0.0
+
+
+def _visual_similarity_eval_report_payload(cases: tuple[dict[str, object], ...], countries: tuple[str, ...], top_k: int) -> dict[str, object]:
+    metrics = {
+        f"hit@{top_k}": _case_avg(cases, f"hit@{top_k}"),
+        f"mrr@{top_k}": _case_avg(cases, f"mrr@{top_k}"),
+        f"precision@{top_k}": _case_avg(cases, f"precision@{top_k}"),
+        f"recall@{top_k}": _case_avg(cases, f"recall@{top_k}"),
+        f"ndcg@{top_k}": _case_avg(cases, f"ndcg@{top_k}"),
+        f"bad_match_rate@{top_k}": _case_avg(cases, f"bad_match@{top_k}"),
+    }
+    failure_cases = tuple(case for case in cases if float(case.get(f"hit@{top_k}", 0.0) or 0.0) <= 0.0)
+    return {
+        "mode": "visual_similarity_proxy_eval",
+        "countries": countries,
+        "top_k": top_k,
+        "case_count": len(cases),
+        "metrics": metrics,
+        "failure_case_count": len(failure_cases),
+        "failure_cases": failure_cases[:20],
+        "cases": cases,
+        "limitations": (
+            "本报告是自动 proxy eval：相关性由同国家、主体 token、JS 分类和等级桶近似判断。",
+            "它用于上线前快速暴露明显不相关的历史图依据，不替代人工 TopK 标注。",
+            "本地 fallback embedding 只能验证链路，真实效果需要 Qwen3-VL-Embedding + 人工复核。",
+        ),
+    }
+
+
+def _case_avg(cases: tuple[dict[str, object], ...], key: str) -> float:
+    return round(sum(float(case.get(key, 0.0) or 0.0) for case in cases) / len(cases), 4) if cases else 0.0
+
+
+def _visual_similarity_eval_report_markdown(report: dict[str, object]) -> str:
+    top_k = int(report.get("top_k", 5) or 5)
+    metrics = report.get("metrics", {}) if isinstance(report.get("metrics"), dict) else {}
+    failures = report.get("failure_cases", ()) if isinstance(report.get("failure_cases"), (list, tuple)) else ()
+    failure_lines = [
+        f"- {case.get('country')}｜{case.get('operation_tag')}：retrieved={','.join(case.get('retrieved_ids', ())) or '无'}；relevant={','.join(case.get('relevant_ids', ())) or '无'}"
+        for case in failures[:8]
+        if isinstance(case, dict)
+    ] or ["- 暂无失败样例"]
+    return "\n".join(
+        [
+            "# PuzzleOps Visual Similarity Eval Report",
+            "",
+            "## 结论",
+            "",
+            "- 本报告是自动 proxy eval，用于评估图像相似检索是否改善历史依据不相关问题。",
+            "- 指标只能作为上线前快速诊断，不替代人工 TopK 标注。",
+            "",
+            "## 范围",
+            "",
+            f"- 国家：{'、'.join(report.get('countries', ())) or '无'}",
+            f"- Case 数：{report.get('case_count', 0)}",
+            f"- TopK：{top_k}",
+            "",
+            "## 指标",
+            "",
+            f"- Hit@{top_k}：{_metric_markdown_value(metrics.get(f'hit@{top_k}', 0.0))}",
+            f"- MRR@{top_k}：{_metric_markdown_value(metrics.get(f'mrr@{top_k}', 0.0))}",
+            f"- NDCG@{top_k}：{_metric_markdown_value(metrics.get(f'ndcg@{top_k}', 0.0))}",
+            f"- Precision@{top_k}：{_metric_markdown_value(metrics.get(f'precision@{top_k}', 0.0))}",
+            f"- Recall@{top_k}：{_metric_markdown_value(metrics.get(f'recall@{top_k}', 0.0))}",
+            f"- Bad Match Rate@{top_k}：{_metric_markdown_value(metrics.get(f'bad_match_rate@{top_k}', 0.0))}",
+            "",
+            "## 失败样例",
+            "",
+            *failure_lines,
+            "",
+            "## 限制",
+            "",
+            *[f"- {item}" for item in report.get("limitations", ())],
         ]
     ) + "\n"
 
