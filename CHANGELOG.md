@@ -2,6 +2,63 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.55 - Qwen Visual Embedding Smoke & TopK Labeling
+
+日期：2026-08-03
+
+阶段目标：
+
+- 把图像相似检索从 proxy eval 推进到真实 Qwen 多模态 embedding 连通性验证。
+- 导出人工 TopK 标注模板，为后续 gold eval 和 gate 调参做准备。
+- 继续不改变价值观大师等级预测主链路。
+
+已完成：
+
+- 新增 `PuzzleOpsAgent.export_visual_embedding_smoke_report(...)`：
+  - 自动抽样日本/法国历史真实图片。
+  - 调用当前 visual embedding provider 生成图像向量。
+  - 导出 smoke JSON/Markdown 报告。
+  - 报告记录 provider、model、向量维度、成功/失败数。
+- 新增 `PuzzleOpsAgent.export_visual_similarity_topk_labeling_template(...)`：
+  - 对未分发候选图导出原始 TopK 历史相似图。
+  - 每行带候选图、历史图、相似分、gate 状态、gate/filter 原因。
+  - 预留人工标注列：`manual_relevance`、`same_subject`、`same_style`、`usable_as_value_evidence`、`human_note`。
+- 新增报告：
+  - `docs/eval/visual_embedding_smoke_report.json`。
+  - `docs/eval/visual_embedding_smoke_report.md`。
+  - `docs/eval/visual_similarity_topk_labeling_template.csv`。
+  - `docs/eval/visual_similarity_topk_labeling_guide.md`。
+
+真实 Qwen smoke：
+
+- Provider：`qwen-vl-embedding`。
+- Model：`qwen3-vl-embedding`。
+- 抽样：日本/法国共 4 张历史图片。
+- 结果：`status=ok`，`embedded_count=4`，`error_count=0`，`dimension=2560`。
+- 说明：本次只验证在线 embedding 连通性和向量维度，不代表 TopK 检索相关性已经达标。
+
+人工 TopK 标注模板：
+
+- 国家：日本、法国。
+- 候选图：每国 3 张。
+- TopK：5。
+- 导出行数：30。
+- 用途：后续基于人工 gold label 计算真实 `Hit@5/MRR/NDCG/Precision@5/Recall@5/Bad Match Rate`。
+
+验证：
+
+- `VISUAL_EMBEDDING_ENABLE_REMOTE_CALLS=false VISUAL_MILVUS_ENABLE_REMOTE_CALLS=false PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_visual_embedding_smoke_report_for_qwen_provider tests/test_agents.py::test_agent_exports_visual_similarity_topk_labeling_template -q`：2 passed。
+- 真实 Qwen 在线 smoke：`status=ok`，4/4 成功，向量维度 2560。
+- `python -m py_compile puzzle_ops/agents.py puzzle_ops/visual_similarity.py`：通过。
+- `VISUAL_EMBEDDING_ENABLE_REMOTE_CALLS=false VISUAL_MILVUS_ENABLE_REMOTE_CALLS=false PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_visual_embedding_smoke_report_for_qwen_provider tests/test_agents.py::test_agent_exports_visual_similarity_topk_labeling_template tests/test_agents.py::test_agent_exports_visual_similarity_eval_report_with_proxy_metrics tests/test_agents.py::test_visual_similarity_relevance_gate_filters_semantic_mismatch_from_value_evidence tests/test_visual_similarity.py -q`：8 passed。
+- `ANALYSIS_LLM_ENABLE_REMOTE_CALLS=0 RAG_ENABLE_REMOTE_CALLS=false RAG_EMBEDDING_PROVIDER=local RAG_RERANK_PROVIDER=local VISUAL_EMBEDDING_ENABLE_REMOTE_CALLS=false VISUAL_MILVUS_ENABLE_REMOTE_CALLS=false VISION_LLM_PROVIDER=qwen QWEN_API_KEY= IMAGE_GENERATION_PROVIDER=mock PYTHONPATH=. pytest tests -q`：592 passed。
+
+当前限制：
+
+- TopK 模板尚未被人工标注，因此 v0.7.55 还不能声称图像相似检索准确率已提升。
+- 当前 smoke 只证明 Qwen embedding API 可用；下一步需要把人工标注结果导回，计算 gold eval 指标。
+- 不提交 `.env`，真实 API key 仍只保留在本地环境。
+
 ## v0.7.54 - Visual Similarity Relevance Gate
 
 日期：2026-08-03

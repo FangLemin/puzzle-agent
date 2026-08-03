@@ -1,0 +1,66 @@
+{
+  "mode": "qwen_visual_embedding_smoke",
+  "status": "ok",
+  "countries": [
+    "日本",
+    "法国"
+  ],
+  "provider": "qwen-vl-embedding",
+  "model": "qwen3-vl-embedding",
+  "sample_limit": 2,
+  "embedded_count": 4,
+  "error_count": 0,
+  "dimension": 2560,
+  "cases": [
+    {
+      "country": "日本",
+      "image_id": "550e8400-e29b-41d4-a716-446655440000",
+      "operation_tag": "常规_日本_猫咪鲤鱼0605",
+      "subject": "猫",
+      "grade": "S",
+      "local_image_path": "/Users/fanglemin/Desktop/puzzle_ops_runtime_prod/images/日本/550e8400-e29b-41d4-a716-446655440000.png",
+      "provider": "qwen-vl-embedding",
+      "model": "qwen3-vl-embedding",
+      "dimension": 2560,
+      "vector_norm": 1.0
+    },
+    {
+      "country": "日本",
+      "image_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+      "operation_tag": "常规_日本_天桥立0421",
+      "subject": "景观",
+      "grade": "A",
+      "local_image_path": "/Users/fanglemin/Desktop/puzzle_ops_runtime_prod/images/日本/f47ac10b-58cc-4372-a567-0e02b2c3d479.png",
+      "provider": "qwen-vl-embedding",
+      "model": "qwen3-vl-embedding",
+      "dimension": 2560,
+      "vector_norm": 1.0
+    },
+    {
+      "country": "法国",
+      "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c29",
+      "operation_tag": "试新_法国_赛车0526",
+      "subject": "F1赛车Haas",
+      "grade": "B",
+      "local_image_path": "/Users/fanglemin/Desktop/puzzle_ops_runtime_prod/images/法国/6ba7b812-9dad-11d1-80b4-00c04fd430c29.png",
+      "provider": "qwen-vl-embedding",
+      "model": "qwen3-vl-embedding",
+      "dimension": 2560,
+      "vector_norm": 1.0
+    },
+    {
+      "country": "法国",
+      "image_id": "6ba7b812-9dad-11d1-80b4-00c04fd430c30",
+      "operation_tag": "常规_法国_德国巴伐利亚服饰0421",
+      "subject": "男性身着传统巴伐",
+      "grade": "A",
+      "local_image_path": "/Users/fanglemin/Desktop/puzzle_ops_runtime_prod/images/法国/6ba7b812-9dad-11d1-80b4-00c04fd430c30.png",
+      "provider": "qwen-vl-embedding",
+      "model": "qwen3-vl-embedding",
+      "dimension": 2560,
+      "vector_norm": 1.0
+    }
+  ],
+  "errors": [],
+  "version": "v0.7.55-qwen-visual-embedding-smoke"
+}

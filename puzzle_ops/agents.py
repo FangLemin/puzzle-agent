@@ -70,6 +70,32 @@ RAG_TASK_INDEX_SOURCE_TYPES: dict[str, tuple[str, ...] | None] = {
 
 VALUE_CANDIDATE_WORKBOOK = Path("/Users/fanglemin/Desktop/未分发候选拼图_价值观大师填写模板.xlsx")
 
+VISUAL_SIMILARITY_LABELING_FIELDS = (
+    "country",
+    "candidate_id",
+    "candidate_operation_tag",
+    "candidate_subject",
+    "candidate_js_category",
+    "candidate_image_path",
+    "rank",
+    "top_k",
+    "history_image_id",
+    "history_operation_tag",
+    "history_subject",
+    "history_js_category",
+    "history_grade",
+    "history_image_path",
+    "score",
+    "gate_status",
+    "gate_reason",
+    "filter_reason",
+    "manual_relevance",
+    "same_subject",
+    "same_style",
+    "usable_as_value_evidence",
+    "human_note",
+)
+
 
 def _default_repository_path(runtime_dir: Path) -> Path:
     if os.environ.get("PYTEST_CURRENT_TEST") or "pytest" in Path(sys.argv[0]).name:
@@ -5260,6 +5286,125 @@ class PuzzleOpsAgent:
         markdown_report.write_text(_visual_similarity_eval_report_markdown(report), encoding="utf-8")
         return {"json_report": str(json_report), "markdown_report": str(markdown_report), **report}
 
+    def export_visual_embedding_smoke_report(
+        self,
+        countries: tuple[str, ...] | list[str] | None = None,
+        *,
+        output_dir: Path | str | None = None,
+        sample_limit: int = 10,
+    ) -> dict[str, object]:
+        selected_countries = tuple(countries or self.countries())
+        provider = getattr(self.visual_embedding_provider, "provider_name", "unknown")
+        model = getattr(self.visual_embedding_provider, "model", "")
+        cases = []
+        errors = []
+        for country in selected_countries:
+            records = tuple(
+                record
+                for record in self._history_records(country)
+                if Path(str(getattr(record, "local_image_path", "") or "")).expanduser().is_file()
+            )[: max(int(sample_limit), 0)]
+            for record in records:
+                path = Path(str(getattr(record, "local_image_path", ""))).expanduser()
+                try:
+                    embedding = self.visual_embedding_provider.embed_image(str(path), text=_visual_similarity_text_from_history(record))
+                    cases.append(
+                        {
+                            "country": country,
+                            "image_id": str(getattr(record, "image_id", "")),
+                            "operation_tag": str(getattr(record, "operation_tag", "")),
+                            "subject": str(getattr(record, "subject_tag", "")),
+                            "grade": str(getattr(record, "grade", "")),
+                            "local_image_path": str(path),
+                            "provider": embedding.provider,
+                            "model": embedding.model,
+                            "dimension": embedding.dimension,
+                            "vector_norm": round(math.sqrt(sum(float(value) * float(value) for value in embedding.vector)), 4),
+                        }
+                    )
+                except Exception as exc:
+                    errors.append(
+                        {
+                            "country": country,
+                            "image_id": str(getattr(record, "image_id", "")),
+                            "operation_tag": str(getattr(record, "operation_tag", "")),
+                            "error": str(exc),
+                        }
+                    )
+        status = "ok" if cases and provider == "qwen-vl-embedding" and not errors else "skipped" if provider != "qwen-vl-embedding" else "failed" if errors and not cases else "partial"
+        report = {
+            "mode": "qwen_visual_embedding_smoke",
+            "status": status,
+            "countries": selected_countries,
+            "provider": provider,
+            "model": model,
+            "sample_limit": sample_limit,
+            "embedded_count": len(cases),
+            "error_count": len(errors),
+            "dimension": int(cases[0]["dimension"]) if cases else 0,
+            "cases": tuple(cases),
+            "errors": tuple(errors),
+            "version": "v0.7.55-qwen-visual-embedding-smoke",
+        }
+        export_dir = Path(output_dir) if output_dir is not None else self._runtime_dir / "resume_evidence"
+        export_dir.mkdir(parents=True, exist_ok=True)
+        json_report = export_dir / "visual_embedding_smoke_report.json"
+        markdown_report = export_dir / "visual_embedding_smoke_report.md"
+        json_report.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        markdown_report.write_text(_visual_embedding_smoke_report_markdown(report), encoding="utf-8")
+        return {"json_report": str(json_report), "markdown_report": str(markdown_report), **report}
+
+    def export_visual_similarity_topk_labeling_template(
+        self,
+        countries: tuple[str, ...] | list[str] | None = None,
+        *,
+        output_dir: Path | str | None = None,
+        candidate_limit: int = 10,
+        top_k: int = 5,
+    ) -> dict[str, object]:
+        selected_countries = tuple(countries or self.countries())
+        rows = []
+        for country in selected_countries:
+            self.rebuild_visual_similarity_index(country)
+            for candidate in _visual_similarity_labeling_candidates(self, country, candidate_limit):
+                path = Path(str(candidate.get("local_image_path", "") or "")).expanduser()
+                if not path.is_file():
+                    continue
+                embedding = self.visual_embedding_provider.embed_image(str(path), text=_visual_similarity_text_from_candidate(candidate))
+                hits = self.visual_similarity_index.search(embedding, country=country, top_k=top_k)
+                accepted_by_id = {}
+                filtered_by_id = {}
+                for hit in hits:
+                    accepted, reason = _visual_similarity_hit_gate_decision(candidate, hit)
+                    if accepted:
+                        accepted_by_id[str(hit.get("image_id", ""))] = {**hit, "gate_reason": reason}
+                    else:
+                        filtered_by_id[str(hit.get("image_id", ""))] = {**hit, "filter_reason": reason}
+                evidence = {"accepted_by_id": accepted_by_id, "filtered_by_id": filtered_by_id}
+                for rank, hit in enumerate(hits[:top_k], start=1):
+                    if not isinstance(hit, dict):
+                        continue
+                    rows.append(_visual_similarity_labeling_row(candidate, hit, country, rank, top_k, evidence))
+        export_dir = Path(output_dir) if output_dir is not None else self._runtime_dir / "resume_evidence"
+        export_dir.mkdir(parents=True, exist_ok=True)
+        csv_template = export_dir / "visual_similarity_topk_labeling_template.csv"
+        markdown_guide = export_dir / "visual_similarity_topk_labeling_guide.md"
+        with csv_template.open("w", encoding="utf-8-sig", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=VISUAL_SIMILARITY_LABELING_FIELDS)
+            writer.writeheader()
+            writer.writerows(rows)
+        guide = _visual_similarity_topk_labeling_guide(selected_countries, len(rows), top_k)
+        markdown_guide.write_text(guide, encoding="utf-8")
+        return {
+            "mode": "visual_similarity_topk_labeling_template",
+            "countries": selected_countries,
+            "top_k": top_k,
+            "row_count": len(rows),
+            "csv_template": str(csv_template),
+            "markdown_guide": str(markdown_guide),
+            "version": "v0.7.55-qwen-visual-embedding-smoke",
+        }
+
     def harness_readiness(self, country: str) -> dict[str, object]:
         samples = tuple(sample for sample in self.harness_samples(country) if sample.is_real)
         gold_complete_samples = tuple(sample for sample in samples if not _missing_gold_fields(sample))
@@ -8081,6 +8226,112 @@ def _visual_similarity_eval_report_markdown(report: dict[str, object]) -> str:
             "## 限制",
             "",
             *[f"- {item}" for item in report.get("limitations", ())],
+        ]
+    ) + "\n"
+
+
+def _visual_embedding_smoke_report_markdown(report: dict[str, object]) -> str:
+    return "\n".join(
+        [
+            "# Qwen visual embedding smoke",
+            "",
+            "## 结论",
+            "",
+            f"- 状态：{report.get('status', '')}",
+            f"- Provider：{report.get('provider', '')}",
+            f"- Model：{report.get('model', '')}",
+            f"- Embedded：{report.get('embedded_count', 0)}",
+            f"- Dimension：{report.get('dimension', 0)}",
+            f"- Error：{report.get('error_count', 0)}",
+            "",
+            "## 说明",
+            "",
+            "- `status=ok` 表示当前 provider 是 Qwen visual embedding，并且样本成功生成向量。",
+            "- `status=skipped` 表示当前仍是 local fallback，本报告只验证导出链路，不代表真实 Qwen 效果。",
+            "- smoke 只验证连通性和向量维度，不替代人工 TopK 相关性评测。",
+        ]
+    ) + "\n"
+
+
+def _visual_similarity_labeling_candidates(agent, country: str, candidate_limit: int) -> tuple[dict[str, object], ...]:
+    candidates = tuple(
+        candidate
+        for candidate in agent.undistributed_value_candidates(country)
+        if Path(str(candidate.get("local_image_path", "") or "")).expanduser().is_file()
+    )
+    if not candidates:
+        candidates = tuple(
+            {
+                "candidate_id": sample.sample_id,
+                "country": sample.country,
+                "local_image_path": sample.local_image_path,
+                "operation_tag": sample.operation_tag,
+                "subject": sample.gold_subject or sample.subject,
+                "js_category": sample.js_category,
+                "subject_description": "；".join(part for part in (sample.gold_subject, sample.gold_color_mood, sample.gold_composition) if part),
+            }
+            for sample in agent.harness_samples(country)
+            if Path(str(sample.local_image_path or "")).expanduser().is_file()
+        )
+    return candidates[: max(int(candidate_limit), 0)]
+
+
+def _visual_similarity_labeling_row(candidate: dict[str, object], hit: dict[str, object], country: str, rank: int, top_k: int, evidence: dict[str, object]) -> dict[str, object]:
+    image_id = str(hit.get("image_id", ""))
+    filtered = evidence.get("filtered_by_id", {}).get(image_id, {}) if isinstance(evidence.get("filtered_by_id"), dict) else {}
+    accepted = evidence.get("accepted_by_id", {}).get(image_id, {}) if isinstance(evidence.get("accepted_by_id"), dict) else {}
+    gate_status = "filtered" if filtered else "kept"
+    return {
+        "country": country,
+        "candidate_id": str(candidate.get("candidate_id", "")),
+        "candidate_operation_tag": str(candidate.get("operation_tag", "")),
+        "candidate_subject": str(candidate.get("subject", "") or candidate.get("visual_subject", "")),
+        "candidate_js_category": str(candidate.get("js_category", "")),
+        "candidate_image_path": str(candidate.get("local_image_path", "")),
+        "rank": rank,
+        "top_k": top_k,
+        "history_image_id": image_id,
+        "history_operation_tag": str(hit.get("operation_tag", "")),
+        "history_subject": str(hit.get("subject", "")),
+        "history_js_category": str(hit.get("js_category", "")),
+        "history_grade": str(hit.get("grade", "")),
+        "history_image_path": str(hit.get("local_image_path", "")),
+        "score": str(hit.get("score", "")),
+        "gate_status": gate_status,
+        "gate_reason": str(accepted.get("gate_reason", "")),
+        "filter_reason": str(filtered.get("filter_reason", "")),
+        "manual_relevance": "",
+        "same_subject": "",
+        "same_style": "",
+        "usable_as_value_evidence": "",
+        "human_note": "",
+    }
+
+
+def _visual_similarity_topk_labeling_guide(countries: tuple[str, ...], row_count: int, top_k: int) -> str:
+    return "\n".join(
+        [
+            "# 视觉相似人工 TopK 标注说明",
+            "",
+            "## 用途",
+            "",
+            "- 这是人工 TopK 标注模板，用来把 v0.7.53/v0.7.54 的 proxy eval 升级为 gold eval。",
+            "- 每一行是一张候选图和一张历史依据图的配对。",
+            "- 标注后可用于计算真实 Hit@K、MRR、NDCG、Precision@K、Recall@K 和 Bad Match Rate。",
+            "",
+            "## 范围",
+            "",
+            f"- 国家：{'、'.join(countries) or '无'}",
+            f"- TopK：{top_k}",
+            f"- 行数：{row_count}",
+            "",
+            "## 标注口径",
+            "",
+            "- `manual_relevance`：相关填 1，不相关填 0，不确定填 unsure。",
+            "- `same_subject`：主体是否相同或强相关，填 1/0/unsure。",
+            "- `same_style`：风格、色彩、构图是否可参考，填 1/0/unsure。",
+            "- `usable_as_value_evidence`：是否能作为价值观大师判断依据，填 1/0/unsure。",
+            "- `human_note`：写明不相关原因，比如主体错、国家文化错、风格不一致、历史图质量差。",
         ]
     ) + "\n"
 

@@ -5,6 +5,7 @@ from PIL import Image
 from puzzle_ops.visual_similarity import (
     LocalVisualEmbeddingProvider,
     QwenVLImageEmbeddingProvider,
+    VisualEmbedding,
     VisualIndexRecord,
     VisualMilvusImageStore,
     VisualSimilarityIndex,
@@ -151,4 +152,3 @@ def test_visual_milvus_image_store_uses_image_collection_payload():
     assert upsert["insert_count"] == 1
     assert hits[0]["image_id"] == "jp-good"
     assert any(call[2].get("collectionName") == "puzzleops_image_embeddings" for call in calls if isinstance(call[2], dict))
-

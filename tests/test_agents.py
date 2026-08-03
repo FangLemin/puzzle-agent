@@ -7,9 +7,10 @@ from puzzle_ops.audit import AuditPolicyRetriever
 from puzzle_ops.rag import BGERerankProvider, RagGeneratedAnswer, RagProviderConfig, RagRuntimeStats
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.vision_llm import VisionLLMResult
-from puzzle_ops.visual_similarity import LocalVisualEmbeddingProvider
+from puzzle_ops.visual_similarity import LocalVisualEmbeddingProvider, VisualEmbedding
 from datetime import date
 from pathlib import Path
+import csv
 import json
 from PIL import Image
 import pytest
@@ -3869,6 +3870,157 @@ def test_agent_exports_visual_similarity_eval_report_with_proxy_metrics(tmp_path
     assert "自动 proxy eval" in markdown
     assert "Hit@2" in markdown
     assert "Gate 后 Bad Match Rate@2" in markdown
+
+
+def test_agent_exports_visual_embedding_smoke_report_for_qwen_provider(tmp_path):
+    sushi = tmp_path / "sushi.png"
+    matcha = tmp_path / "matcha.png"
+    Image.new("RGB", (48, 48), (230, 80, 50)).save(sushi)
+    Image.new("RGB", (48, 48), (40, 90, 220)).save(matcha)
+
+    class FakeQwenEmbeddingProvider:
+        provider_name = "qwen-vl-embedding"
+        model = "qwen3-vl-embedding"
+
+        def embed_image(self, path, text=""):
+            name = Path(path).name
+            vector = (1.0, 0.0, 0.0) if "sushi" in name else (0.0, 1.0, 0.0)
+            return VisualEmbedding(vector=vector, provider=self.provider_name, model=self.model, dimension=3, source=str(path))
+
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent.visual_embedding_provider = FakeQwenEmbeddingProvider()
+    agent._history_cache["日本"] = (
+        HistoricalRecord(
+            grade="A",
+            image_formula="",
+            image_id="jp-sushi",
+            image_url="",
+            local_image_path=str(sushi),
+            thumbnail_path="",
+            position=1,
+            dimension_grade="高高中",
+            open_rate=0.2,
+            completion_rate=0.93,
+            avg_finish_time=20,
+            operation_tag="常规_日本_寿司0701",
+            subject_tag="寿司",
+            js_category="food",
+            source="真实历史",
+            remark="日式料理",
+            distribution_date="2026-07-01",
+            distribution_cycle="",
+            country="日本",
+        ),
+        HistoricalRecord(
+            grade="D",
+            image_formula="",
+            image_id="jp-matcha",
+            image_url="",
+            local_image_path=str(matcha),
+            thumbnail_path="",
+            position=2,
+            dimension_grade="低低低",
+            open_rate=0.03,
+            completion_rate=0.82,
+            avg_finish_time=12,
+            operation_tag="常规_日本_抹茶0702",
+            subject_tag="抹茶",
+            js_category="food",
+            source="真实历史",
+            remark="主体过小",
+            distribution_date="2026-07-02",
+            distribution_cycle="",
+            country="日本",
+        ),
+    )
+
+    result = agent.export_visual_embedding_smoke_report(("日本",), output_dir=tmp_path / "eval", sample_limit=2)
+
+    data = json.loads(Path(result["json_report"]).read_text(encoding="utf-8"))
+    markdown = Path(result["markdown_report"]).read_text(encoding="utf-8")
+    assert data["mode"] == "qwen_visual_embedding_smoke"
+    assert data["status"] == "ok"
+    assert data["provider"] == "qwen-vl-embedding"
+    assert data["embedded_count"] == 2
+    assert data["dimension"] == 3
+    assert "Qwen visual embedding smoke" in markdown
+
+
+def test_agent_exports_visual_similarity_topk_labeling_template(tmp_path):
+    candidate = tmp_path / "candidate-sushi.png"
+    good = tmp_path / "good-sushi.png"
+    bad = tmp_path / "bad-matcha.png"
+    Image.new("RGB", (48, 48), (230, 80, 50)).save(candidate)
+    Image.new("RGB", (48, 48), (228, 82, 52)).save(good)
+    Image.new("RGB", (48, 48), (40, 90, 220)).save(bad)
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent.visual_embedding_provider = LocalVisualEmbeddingProvider(dimension=16)
+    agent._history_cache["日本"] = (
+        HistoricalRecord(
+            grade="A",
+            image_formula="",
+            image_id="jp-sushi",
+            image_url="",
+            local_image_path=str(good),
+            thumbnail_path="",
+            position=1,
+            dimension_grade="高高中",
+            open_rate=0.2,
+            completion_rate=0.93,
+            avg_finish_time=20,
+            operation_tag="常规_日本_寿司0701",
+            subject_tag="寿司",
+            js_category="food",
+            source="真实历史",
+            remark="日式料理",
+            distribution_date="2026-07-01",
+            distribution_cycle="",
+            country="日本",
+        ),
+        HistoricalRecord(
+            grade="D",
+            image_formula="",
+            image_id="jp-matcha",
+            image_url="",
+            local_image_path=str(bad),
+            thumbnail_path="",
+            position=2,
+            dimension_grade="低低低",
+            open_rate=0.03,
+            completion_rate=0.82,
+            avg_finish_time=12,
+            operation_tag="常规_日本_抹茶0702",
+            subject_tag="抹茶",
+            js_category="food",
+            source="真实历史",
+            remark="主体过小",
+            distribution_date="2026-07-02",
+            distribution_cycle="",
+            country="日本",
+        ),
+    )
+    monkeypatch_candidates = (
+        {
+            "candidate_id": "jp-cand-sushi",
+            "country": "日本",
+            "local_image_path": str(candidate),
+            "operation_tag": "试新_日本_寿司0803",
+            "subject": "寿司",
+            "js_category": "food",
+        },
+    )
+    agent.undistributed_value_candidates = lambda country: monkeypatch_candidates
+
+    result = agent.export_visual_similarity_topk_labeling_template(("日本",), output_dir=tmp_path / "eval", candidate_limit=1, top_k=2)
+
+    csv_rows = list(csv.DictReader(Path(result["csv_template"]).read_text(encoding="utf-8-sig").splitlines()))
+    markdown = Path(result["markdown_guide"]).read_text(encoding="utf-8")
+    assert result["row_count"] == 2
+    assert csv_rows[0]["candidate_id"] == "jp-cand-sushi"
+    assert "manual_relevance" in csv_rows[0]
+    assert "same_subject" in csv_rows[0]
+    assert "usable_as_value_evidence" in csv_rows[0]
+    assert "人工 TopK 标注" in markdown
 
 
 
