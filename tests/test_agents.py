@@ -7,6 +7,7 @@ from puzzle_ops.audit import AuditPolicyRetriever
 from puzzle_ops.rag import BGERerankProvider, RagGeneratedAnswer, RagProviderConfig, RagRuntimeStats
 from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.vision_llm import VisionLLMResult
+from puzzle_ops.visual_similarity import LocalVisualEmbeddingProvider
 from datetime import date
 from pathlib import Path
 import json
@@ -3505,6 +3506,214 @@ def test_agent_exports_value_master_prompt_benchmark_v2_without_changing_grade_m
     assert data["benchmark_summary"]["candidate_grade_credibility_avg"] == 4.0
     assert "不改等级预测主链路" in markdown
     assert "RAG依据较弱" in markdown
+
+
+def test_agent_visual_similarity_groups_good_and_risk_history_without_changing_grade_model(tmp_path):
+    candidate_image = tmp_path / "candidate-sushi.png"
+    good_image = tmp_path / "good-sushi.png"
+    risk_image = tmp_path / "risk-matcha.png"
+    Image.new("RGB", (48, 48), (230, 80, 50)).save(candidate_image)
+    Image.new("RGB", (48, 48), (230, 80, 50)).save(good_image)
+    Image.new("RGB", (48, 48), (40, 90, 220)).save(risk_image)
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent.visual_embedding_provider = LocalVisualEmbeddingProvider(dimension=16)
+    agent._history_cache["日本"] = (
+        HistoricalRecord(
+            grade="A",
+            image_formula="",
+            image_id="good-sushi",
+            image_url="",
+            local_image_path=str(good_image),
+            thumbnail_path="",
+            position=1,
+            dimension_grade="高高中",
+            open_rate=0.2,
+            completion_rate=0.93,
+            avg_finish_time=20,
+            operation_tag="常规_日本_寿司拼盘0701",
+            subject_tag="寿司拼盘",
+            js_category="food",
+            source="真实历史",
+            remark="日式料理桌面近景",
+            distribution_date="2026-07-01",
+            distribution_cycle="",
+            country="日本",
+        ),
+        HistoricalRecord(
+            grade="D",
+            image_formula="",
+            image_id="risk-matcha",
+            image_url="",
+            local_image_path=str(risk_image),
+            thumbnail_path="",
+            position=2,
+            dimension_grade="低低低",
+            open_rate=0.03,
+            completion_rate=0.82,
+            avg_finish_time=12,
+            operation_tag="常规_日本_抹茶0702",
+            subject_tag="抹茶",
+            js_category="food",
+            source="真实历史",
+            remark="主体过小，层次不足",
+            distribution_date="2026-07-02",
+            distribution_cycle="",
+            country="日本",
+        ),
+    )
+
+    rebuild = agent.rebuild_visual_similarity_index("日本")
+    evidence = agent.similar_visual_history_for_candidate(
+        {
+            "country": "日本",
+            "candidate_id": "jp-candidate-sushi",
+            "local_image_path": str(candidate_image),
+            "operation_tag": "试新_日本_寿司0803",
+            "subject": "寿司拼盘",
+        },
+        top_k=5,
+    )
+
+    assert rebuild["indexed_count"] == 2
+    assert evidence["status"] == "ok"
+    assert evidence["similar_good"][0]["image_id"] == "good-sushi"
+    assert evidence["similar_risk"][0]["image_id"] == "risk-matcha"
+    assert evidence["version"] == "v0.7.52-visual-similarity-evidence"
+
+
+def test_value_candidate_prediction_includes_visual_similarity_evidence_and_keeps_legacy_grade_model(monkeypatch, tmp_path):
+    candidate_image = tmp_path / "candidate-sushi.png"
+    good_image = tmp_path / "good-sushi.png"
+    Image.new("RGB", (48, 48), (230, 80, 50)).save(candidate_image)
+    Image.new("RGB", (48, 48), (230, 80, 50)).save(good_image)
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent.visual_embedding_provider = LocalVisualEmbeddingProvider(dimension=16)
+    agent._history_cache["日本"] = (
+        HistoricalRecord(
+            grade="A",
+            image_formula="",
+            image_id="good-sushi",
+            image_url="",
+            local_image_path=str(good_image),
+            thumbnail_path="",
+            position=1,
+            dimension_grade="高高中",
+            open_rate=0.2,
+            completion_rate=0.93,
+            avg_finish_time=20,
+            operation_tag="常规_日本_寿司拼盘0701",
+            subject_tag="寿司拼盘",
+            js_category="food",
+            source="真实历史",
+            remark="日式料理桌面近景",
+            distribution_date="2026-07-01",
+            distribution_cycle="",
+            country="日本",
+        ),
+    )
+
+    class FakeVision:
+        def analyze(self, images, country, category, local_summary):
+            return VisionLLMResult(
+                subject="寿司拼盘",
+                scene="日式料理桌面近景",
+                culture_elements=("本土饮食文化",),
+                style="米白与鲑鱼橙",
+                risk_tags=(),
+                prompt_keywords=("寿司",),
+                confidence=0.9,
+                provider="fake-qwen",
+                raw_text="",
+            )
+
+    class FakeRagAnswer:
+        citations = ()
+
+    agent.trial_uploads.vision_client = FakeVision()
+    monkeypatch.setattr(agent, "value_audit_rag_answer", lambda *args, **kwargs: FakeRagAnswer())
+
+    prediction = agent._predict_value_candidate(
+        {
+            "country": "日本",
+            "candidate_id": "jp-candidate-sushi",
+            "local_image_path": str(candidate_image),
+            "operation_tag": "试新_日本_寿司0803",
+            "js_category": "food",
+            "image_hash": "hash",
+        }
+    )
+
+    assert prediction["value_grade_model_version"] == "v0.7.39-legacy"
+    assert prediction["visual_similarity_evidence"]["similar_good"][0]["image_id"] == "good-sushi"
+    assert prediction["visual_similarity_evidence"]["retrieval_mode"] == "visual_embedding"
+
+
+def test_value_master_passes_visual_similarity_evidence_to_llm_rules(monkeypatch, tmp_path):
+    ref = tmp_path / "candidate-sushi.png"
+    good = tmp_path / "good-sushi.png"
+    Image.new("RGB", (48, 48), (230, 80, 50)).save(ref)
+    Image.new("RGB", (48, 48), (230, 80, 50)).save(good)
+    captured = {}
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent.visual_embedding_provider = LocalVisualEmbeddingProvider(dimension=16)
+    agent._history_cache["日本"] = (
+        HistoricalRecord(
+            grade="A",
+            image_formula="",
+            image_id="good-sushi",
+            image_url="",
+            local_image_path=str(good),
+            thumbnail_path="",
+            position=1,
+            dimension_grade="高高中",
+            open_rate=0.2,
+            completion_rate=0.93,
+            avg_finish_time=20,
+            operation_tag="常规_日本_寿司拼盘0701",
+            subject_tag="寿司拼盘",
+            js_category="food",
+            source="真实历史",
+            remark="日式料理桌面近景",
+            distribution_date="2026-07-01",
+            distribution_cycle="",
+            country="日本",
+        ),
+    )
+
+    class FakeVision:
+        provider = "fake-qwen"
+
+        def analyze(self, images, country, category, local_summary):
+            return VisionLLMResult(
+                subject="寿司拼盘",
+                scene="日式料理桌面近景",
+                culture_elements=("本土饮食文化",),
+                style="米白与鲑鱼橙",
+                risk_tags=(),
+                prompt_keywords=("寿司",),
+                confidence=0.9,
+                provider="fake-qwen",
+                raw_text="",
+            )
+
+        def judge_value_match(self, payload, rules):
+            captured["rules"] = rules
+            return '{"value_match":"符合","confidence":0.8,"evidence":[],"risk_tags":[]}'
+
+    agent.trial_uploads.vision_client = FakeVision()
+    monkeypatch.setattr(agent, "_rag_evidence_for_value_master", lambda row: {"rules": (("JP_RULE#chunk-1", "日本饮食文化"),), "generated_answer": ""})
+    row = agent.create_trial_demand("日本", "food", mode="parse").edited(
+        subject="寿司",
+        operation_tag="试新_日本_寿司0803",
+        reference_image_path=str(ref),
+    )
+
+    judged = agent.apply_value_master(row)
+
+    assert "视觉相似历史好图" in str(captured["rules"])
+    assert "good-sushi" in str(captured["rules"])
+    assert "系统RAG召回" in judged.value_match
+
 
 
 def test_agent_harness_readiness_guides_next_steps_for_silver_and_missing_metrics(tmp_path):

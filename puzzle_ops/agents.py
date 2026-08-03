@@ -29,6 +29,7 @@ from puzzle_ops.trial_upload import TrialImageUploadService, _compact_tag_subjec
 from puzzle_ops.eval_suite import AgentEvalSuite
 from puzzle_ops.harness import AgentHarness, EVAL_SAMPLE_CSV_FIELDS, load_eval_samples_csv, _predict_grade as _harness_predict_grade
 from puzzle_ops.image_generation import DerivativeImage, ImageGenerationProviderFactory
+from puzzle_ops.visual_similarity import QwenVLImageEmbeddingProvider, VisualIndexRecord, VisualMilvusImageStore, VisualSimilarityIndex
 from puzzle_ops.visual_analysis import LocalImageAnalyzer
 from puzzle_ops.visual_assets import image_bytes
 
@@ -123,6 +124,9 @@ class PuzzleOpsAgent:
         self.feishu = FeishuClientFactory.create(runtime_dir / "feishu_mock")
         self.trial_uploads = TrialImageUploadService(runtime_dir / "trial_uploads")
         self.image_generator = ImageGenerationProviderFactory.create(runtime_dir / "trial_uploads")
+        self.visual_embedding_provider = QwenVLImageEmbeddingProvider.from_env()
+        self.visual_similarity_index = VisualSimilarityIndex()
+        self.visual_milvus_store = VisualMilvusImageStore.from_env()
         self.rag_provider_config = RagProviderConfig.from_env()
         self.rag_vector_store_config = RagVectorStoreConfig.from_env()
         self._last_rag_stats = RagRuntimeStats()
@@ -622,7 +626,7 @@ class PuzzleOpsAgent:
             try:
                 row_for_judgement, vision_note = self._row_with_fresh_value_vision(row, client)
                 rag_evidence = self._rag_evidence_for_value_master(row_for_judgement)
-                rag_rules = rag_evidence["rules"]
+                rag_rules = tuple(rag_evidence["rules"]) + self._visual_similarity_rules_for_value_master(row_for_judgement)
                 value_match = client.judge_value_match(_value_row_payload(row_for_judgement), rag_rules)
                 if vision_note:
                     value_match = f"{vision_note}；{value_match}"
@@ -653,6 +657,37 @@ class PuzzleOpsAgent:
         )
         remark = _append_unique_note(row.remark, semantic_note)
         return row.edited(subject=subject, subject_description=description, remark=remark), semantic_note
+
+    def _visual_similarity_rules_for_value_master(self, row: DemandRow) -> tuple[tuple[str, str], ...]:
+        path = row.reference_image_path or ""
+        try:
+            evidence = self.similar_visual_history_for_candidate(
+                {
+                    "country": row.country,
+                    "local_image_path": path,
+                    "operation_tag": row.operation_tag,
+                    "subject": row.subject,
+                    "js_category": row.js_category,
+                    "subject_description": row.subject_description,
+                },
+                top_k=6,
+            )
+        except Exception as exc:
+            return (("视觉相似历史依据", f"历史图像相似检索降级：{exc}；需人工复核。"),)
+        if evidence.get("status") != "ok":
+            return (("视觉相似历史依据", "历史图像相似依据不足，需人工复核。"),)
+        rules = []
+        for label, key in (("视觉相似历史好图", "similar_good"), ("视觉相似历史风险图", "similar_risk")):
+            for index, hit in enumerate(evidence.get(key, ()) or (), start=1):
+                if not isinstance(hit, dict):
+                    continue
+                rules.append(
+                    (
+                        f"{label}#{index}",
+                        f"{hit.get('operation_tag', '')}；image_id={hit.get('image_id', '')}；等级={hit.get('grade', '')}；原因={hit.get('reason', '')}",
+                    )
+                )
+        return tuple(rules) or (("视觉相似历史依据", "历史图像相似依据不足，需人工复核。"),)
 
     def upcoming_holiday(self, country: str, *, window_days: int = 15) -> HolidayRecommendation | None:
         next_holiday = self.next_holiday(country, max_days=window_days)
@@ -3074,6 +3109,76 @@ class PuzzleOpsAgent:
         cache_path.write_text(json.dumps(prediction, ensure_ascii=False, indent=2), encoding="utf-8")
         return {"country": country, "candidate_id": candidate_id, "status": "predicted", "predicted_count": 1, "cached_count": 0}
 
+    def rebuild_visual_similarity_index(self, country: str) -> dict[str, object]:
+        records = []
+        skipped = 0
+        for record in self._history_records(country):
+            path = Path(str(getattr(record, "local_image_path", "") or "")).expanduser()
+            if not path.is_file():
+                skipped += 1
+                continue
+            embedding = self.visual_embedding_provider.embed_image(
+                str(path),
+                text=_visual_similarity_text_from_history(record),
+            )
+            records.append(
+                VisualIndexRecord.from_image(
+                    image_id=str(getattr(record, "image_id", "") or getattr(record, "operation_tag", "")),
+                    country=country,
+                    grade=str(getattr(record, "grade", "")),
+                    local_image_path=str(path),
+                    subject=str(getattr(record, "subject_tag", "")),
+                    operation_tag=str(getattr(record, "operation_tag", "")),
+                    embedding=embedding,
+                )
+            )
+        result = self.visual_similarity_index.upsert(tuple(records))
+        milvus_result: dict[str, object] = {"status": "not_configured"}
+        if records and self.visual_milvus_store is not None:
+            self.visual_milvus_store.ensure_collection(len(records[0].vector))
+            milvus_result = self.visual_milvus_store.upsert(tuple(records))
+        return {
+            "country": country,
+            "indexed_count": len(records),
+            "skipped_count": skipped,
+            "provider": getattr(self.visual_embedding_provider, "provider_name", "unknown"),
+            "model": getattr(self.visual_embedding_provider, "model", ""),
+            "local_index": result,
+            "milvus": milvus_result,
+            "version": "v0.7.51-visual-milvus-index",
+        }
+
+    def similar_visual_history_for_candidate(self, candidate: dict[str, object], *, top_k: int = 6) -> dict[str, object]:
+        country = str(candidate.get("country", ""))
+        path = Path(str(candidate.get("local_image_path", ""))).expanduser()
+        if not country or not path.is_file():
+            return {
+                "status": "missing_image",
+                "similar_good": (),
+                "similar_neutral": (),
+                "similar_risk": (),
+                "message": "历史图像相似依据不足，需人工复核。",
+                "version": "v0.7.52-visual-similarity-evidence",
+            }
+        if self.visual_similarity_index.record_count <= 0:
+            self.rebuild_visual_similarity_index(country)
+        embedding = self.visual_embedding_provider.embed_image(str(path), text=_visual_similarity_text_from_candidate(candidate))
+        if self.visual_milvus_store is not None:
+            try:
+                milvus_hits = self.visual_milvus_store.search(embedding.vector, country=country, top_k=top_k)
+            except Exception:
+                milvus_hits = ()
+            if milvus_hits:
+                grouped = _group_visual_similarity_hits(milvus_hits)
+                grouped["retrieval_mode"] = "milvus_image_embedding"
+                grouped["version"] = "v0.7.52-visual-similarity-evidence"
+                return grouped
+        grouped = self.visual_similarity_index.grouped_search(embedding, country=country, top_k=top_k)
+        grouped["version"] = "v0.7.52-visual-similarity-evidence"
+        if grouped.get("status") != "ok":
+            grouped["message"] = "历史图像相似依据不足，需人工复核。"
+        return grouped
+
     def _predict_value_candidate(self, candidate: dict[str, object]) -> dict[str, object]:
         path = Path(str(candidate.get("local_image_path", "")))
         feature = self.local_image_analyzer.analyze_path(path)
@@ -3087,6 +3192,7 @@ class PuzzleOpsAgent:
         similar_positive = self._similar_history_for_candidate(candidate, semantic, positive=True)
         similar_negative = self._similar_history_for_candidate(candidate, semantic, positive=False)
         prediction = _value_candidate_prediction_from_evidence(candidate, semantic, similar_positive, similar_negative)
+        visual_similarity = self.similar_visual_history_for_candidate({**candidate, "subject": semantic.subject}, top_k=6)
         rag_answer = self.value_audit_rag_answer(
             str(candidate.get("country", "")),
             f"{semantic.subject} {semantic.scene} {candidate.get('operation_tag', '')}",
@@ -3105,6 +3211,7 @@ class PuzzleOpsAgent:
                 "risk_points": tuple(semantic.risk_tags),
                 "rag_citations": strong_rag_citations,
                 "rag_citation_details": self.rag_citation_details(str(candidate.get("country", "")), strong_rag_citations),
+                "visual_similarity_evidence": visual_similarity,
                 "rag_filter_version": "v0.7.32",
                 "metric_calibration_version": "v0.7.33",
                 "value_grade_model_version": "v0.7.39-legacy",
@@ -7544,6 +7651,48 @@ def _history_record_text(record) -> str:
             getattr(record, "remark", ""),
         )
     )
+
+
+def _visual_similarity_text_from_history(record) -> str:
+    return "；".join(
+        part
+        for part in (
+            f"国家={getattr(record, 'country', '')}",
+            f"等级={getattr(record, 'grade', '')}",
+            f"主体={getattr(record, 'subject_tag', '')}",
+            f"运营tag={getattr(record, 'operation_tag', '')}",
+            f"JS分类={getattr(record, 'js_category', '')}",
+            f"备注={getattr(record, 'remark', '')}",
+        )
+        if part and not part.endswith("=")
+    )
+
+
+def _visual_similarity_text_from_candidate(candidate: dict[str, object]) -> str:
+    return "；".join(
+        part
+        for part in (
+            f"国家={candidate.get('country', '')}",
+            f"主体={candidate.get('subject', '') or candidate.get('visual_subject', '')}",
+            f"运营tag={candidate.get('operation_tag', '')}",
+            f"JS分类={candidate.get('js_category', '')}",
+            f"描述={candidate.get('subject_description', '')}",
+        )
+        if part and not part.endswith("=")
+    )
+
+
+def _group_visual_similarity_hits(hits: tuple[dict[str, object], ...] | list[dict[str, object]]) -> dict[str, object]:
+    good = tuple(hit for hit in hits if str(hit.get("grade", "")) in {"S", "A"})
+    neutral = tuple(hit for hit in hits if str(hit.get("grade", "")) == "B")
+    risk = tuple(hit for hit in hits if str(hit.get("grade", "")) in {"C", "D"})
+    return {
+        "status": "ok" if hits else "no_hits",
+        "similar_good": good,
+        "similar_neutral": neutral,
+        "similar_risk": risk,
+        "all_hits": tuple(hits),
+    }
 
 
 def _grade_bucket_match_bonus(gold_grade: str, record_grade: str) -> float:

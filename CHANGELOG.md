@@ -2,6 +2,112 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.52 - Value Master Visual Similarity Evidence
+
+日期：2026-08-03
+
+阶段目标：
+
+- 价值观大师接入“视觉相似历史好图/风险图”证据。
+- 改善历史依据只靠运营 tag / JS 分类导致不相关的问题。
+- 保持 `value_grade_model_version=v0.7.39-legacy`，不直接改变主等级预测链路。
+
+已完成：
+
+- `PuzzleOpsAgent.similar_visual_history_for_candidate`：
+  - 对新上传/候选图片生成视觉 embedding。
+  - 检索同国家历史图片。
+  - 分组输出 `similar_good`、`similar_neutral`、`similar_risk`。
+- `PuzzleOpsAgent._visual_similarity_rules_for_value_master`：
+  - 把相似历史好图和相似风险图作为 LLM rules/evidence 注入价值观大师。
+  - 无相似证据时明确输出“历史图像相似依据不足，需人工复核”。
+- 候选预测结果新增：
+  - `visual_similarity_evidence`。
+  - `version=v0.7.52-visual-similarity-evidence`。
+- 主等级预测仍保留旧稳定版本：
+  - `value_grade_model_version=v0.7.39-legacy`。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_visual_similarity.py tests/test_agents.py::test_agent_visual_similarity_groups_good_and_risk_history_without_changing_grade_model tests/test_agents.py::test_value_candidate_prediction_includes_visual_similarity_evidence_and_keeps_legacy_grade_model tests/test_agents.py::test_value_master_passes_visual_similarity_evidence_to_llm_rules -q`：7 passed。
+- `ANALYSIS_LLM_ENABLE_REMOTE_CALLS=0 RAG_ENABLE_REMOTE_CALLS=false RAG_EMBEDDING_PROVIDER=local RAG_RERANK_PROVIDER=local VISUAL_EMBEDDING_ENABLE_REMOTE_CALLS=false VISUAL_MILVUS_ENABLE_REMOTE_CALLS=false VISION_LLM_PROVIDER=qwen QWEN_API_KEY= IMAGE_GENERATION_PROVIDER=mock PYTHONPATH=. pytest tests -q`：588 passed。
+
+当前限制：
+
+- 视觉相似 evidence 当前只作为价值观判断依据，不直接改等级预测。
+- 要证明效果，需要后续补 `visual_similarity_eval`，用人工 TopK 相关性标注计算 Hit@5/MRR/NDCG/Bad Match Rate。
+
+## v0.7.51 - Milvus Image Embedding Collection
+
+日期：2026-08-03
+
+阶段目标：
+
+- 为历史拼图图片建立独立的 Milvus/Zilliz 图像向量 collection。
+- 将“业务事实源”和“图像向量索引”分离：SQLite 保存业务事实，Milvus 只做向量检索。
+
+已完成：
+
+- 新增 `VisualMilvusImageStore`：
+  - `ensure_collection(vector_size)` 自动检查/创建图像 embedding collection。
+  - `upsert(records)` 写入 image_id、country、grade、subject、operation_tag、local_image_path、provider、model、vector。
+  - `search(query_vector, country, top_k)` 支持按国家过滤进行以图搜图。
+- 新增配置：
+  - `VISUAL_MILVUS_URI`。
+  - `VISUAL_MILVUS_COLLECTION=puzzleops_image_embeddings`。
+  - `VISUAL_MILVUS_TOKEN`。
+- Agent 重建视觉索引时：
+  - 本地 `VisualSimilarityIndex` 始终可用。
+  - Milvus/Zilliz 配置存在时同步写入图像 collection。
+
+验证：
+
+- `tests/test_visual_similarity.py::test_visual_milvus_image_store_uses_image_collection_payload`：通过。
+
+当前限制：
+
+- 本版只实现 image embedding collection 的建表/upsert/search 边界。
+- 真实 Zilliz 在线 smoke 需要用户本地配置 token 后单独运行，pytest 不会调用外部服务。
+
+## v0.7.50 - Qwen VL Image Embedding Provider
+
+日期：2026-08-03
+
+阶段目标：
+
+- 接入 Qwen3-VL-Embedding / DashScope Multimodal Embedding provider。
+- 支持给历史图片和新图生成统一多模态向量。
+- 默认不产生远程调用费用。
+
+已完成：
+
+- 新增 `puzzle_ops/visual_similarity.py`。
+- 新增结构：
+  - `VisualEmbedding`。
+  - `VisualIndexRecord`。
+  - `LocalVisualEmbeddingProvider`。
+  - `QwenVLImageEmbeddingProvider`。
+  - `VisualSimilarityIndex`。
+- Qwen provider：
+  - 使用图片 Base64 Data URI。
+  - 支持附加文本语义，例如国家、主体、运营 tag、JS 分类。
+  - 可从 env 读取 `VISUAL_EMBEDDING_MODEL=qwen3-vl-embedding`。
+- 成本保护：
+  - 只有 `VISUAL_EMBEDDING_ENABLE_REMOTE_CALLS=true` 且存在 API key 时才调用远程。
+  - 否则使用本地 deterministic visual embedding fallback。
+- `.env.example` 新增视觉 embedding 配置模板。
+
+验证：
+
+- `tests/test_visual_similarity.py::test_local_visual_embedding_provider_is_deterministic_and_image_sensitive`：通过。
+- `tests/test_visual_similarity.py::test_qwen_vl_image_embedding_provider_builds_multimodal_payload`：通过。
+- `tests/test_visual_similarity.py::test_visual_similarity_index_returns_same_country_nearest_good_and_risk`：通过。
+
+当前限制：
+
+- 本地 fallback 只用于开发与测试，不代表真实视觉语义能力。
+- 真实效果依赖 DashScope 多模态 embedding API、图片质量和后续人工 TopK 评测。
+
 ## v0.7.49 - Resume-Level Closure Draft
 
 日期：2026-07-30

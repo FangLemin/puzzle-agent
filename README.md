@@ -154,6 +154,20 @@ LLM 大脑说明：当前版本支持通过 `VISION_LLM_PROVIDER=qwen` 或 `VISI
 
 DashScope/通义万相说明：先运行 `python -m pip install -r requirements.txt`，再设置 `IMAGE_GENERATION_PROVIDER=dashscope` 和 `IMAGE_GENERATION_MODEL=wan2.6-image`。默认复用现有 `QWEN_API_KEY`，如需独立密钥可设置 `IMAGE_GENERATION_API_KEY` 覆盖。系统通过官方 DashScope Python SDK 把本地参考图临时上传并调用 `ImageGeneration`，不会再把参考图错误地发送到文生图接口。任务失败、额度不足或返回结构异常时，试新页面会保留原始提需并显示可分类错误，不伪造生成图。试新页提供 Provider 诊断；generation trace 记录来源运营 tag、生成图路径、二次审核和人工确认后的飞书附件资格。
 
+图像相似检索说明：项目新增 Qwen3-VL-Embedding 视觉相似层，用来解决“历史依据图片不相关”的问题。SQLite 仍保存历史图的国家、等级、运营 tag、业务指标和 gold label；Milvus/Zilliz 的 `puzzleops_image_embeddings` collection 只保存 image embedding 和轻量 metadata，用于以图搜图。默认使用本地 deterministic visual embedding fallback，避免页面刷新或 pytest 产生费用；设置 `VISUAL_EMBEDDING_ENABLE_REMOTE_CALLS=true`、`VISUAL_EMBEDDING_MODEL=qwen3-vl-embedding` 并提供 `VISUAL_EMBEDDING_API_KEY` 或复用 `QWEN_API_KEY` 后，系统会通过 DashScope Multimodal Embedding API 为历史图和新图生成多模态向量。价值观大师会把检索到的“视觉相似历史好图/风险图”作为 evidence 传给 LLM，但不直接改 `value_grade_model_version=v0.7.39-legacy`。
+
+图像向量库配置示例：
+
+```bash
+VISUAL_EMBEDDING_ENABLE_REMOTE_CALLS=true
+VISUAL_EMBEDDING_MODEL=qwen3-vl-embedding
+VISUAL_EMBEDDING_API_KEY=
+VISUAL_MILVUS_ENABLE_REMOTE_CALLS=true
+VISUAL_MILVUS_URI=https://your-zilliz-endpoint
+VISUAL_MILVUS_COLLECTION=puzzleops_image_embeddings
+VISUAL_MILVUS_TOKEN=your_zilliz_token
+```
+
 Agent Harness 真实评测集说明：默认页面只展示离线 Harness 预览，不调用远程 RAG、视觉 LLM 或图像生成，也不会因刷新页面新增历史 run。点击“运行真实 VLM Harness”后，系统才会使用真实图片解析结果对照人工 gold label；“包含付费生成评测”需要单独勾选。默认 Harness 会从历史样表和合成 demo 生成样本，适合本地演示；如果要证明真实业务效果，请按 `docs/harness_gold_samples_template.csv` 整理 30-50 条真实拼图样本，并在 `.env` 设置 `PUZZLEOPS_HARNESS_DATASET=/absolute/path/to/gold_samples.csv`。导入时会校验真实图片路径，缺图样本会被标记为导入问题而不会让评测崩溃；缺少 gold label 或未执行真实模型的指标会显示为 `not_evaluable`。
 
 Harness 生成 trace 说明：Agent 评测页会读取本地 generation event memory，计算 `生成Trace完整率`、`二次审核通过率`、`飞书附件Ready率`、`生成失败可分类率`，并展示生成失败类型分布。该指标用于证明好图衍生链路是否可回放、可诊断、可评测；没有真实生成事件时指标为 0，不伪造生成效果。
