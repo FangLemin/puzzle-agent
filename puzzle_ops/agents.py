@@ -5405,6 +5405,24 @@ class PuzzleOpsAgent:
             "version": "v0.7.55-qwen-visual-embedding-smoke",
         }
 
+    def export_visual_similarity_gold_eval_report(
+        self,
+        labeled_csv_path: Path | str,
+        *,
+        output_dir: Path | str | None = None,
+        top_k: int = 5,
+    ) -> dict[str, object]:
+        labeled_path = Path(labeled_csv_path).expanduser()
+        rows = _load_visual_similarity_labeled_rows(labeled_path)
+        report = _visual_similarity_gold_eval_report_payload(rows, top_k=top_k, source_path=str(labeled_path))
+        export_dir = Path(output_dir) if output_dir is not None else self._runtime_dir / "resume_evidence"
+        export_dir.mkdir(parents=True, exist_ok=True)
+        json_report = export_dir / "visual_similarity_gold_eval_report.json"
+        markdown_report = export_dir / "visual_similarity_gold_eval_report.md"
+        json_report.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        markdown_report.write_text(_visual_similarity_gold_eval_report_markdown(report), encoding="utf-8")
+        return {"json_report": str(json_report), "markdown_report": str(markdown_report), **report}
+
     def harness_readiness(self, country: str) -> dict[str, object]:
         samples = tuple(sample for sample in self.harness_samples(country) if sample.is_real)
         gold_complete_samples = tuple(sample for sample in samples if not _missing_gold_fields(sample))
@@ -8332,6 +8350,197 @@ def _visual_similarity_topk_labeling_guide(countries: tuple[str, ...], row_count
             "- `same_style`：风格、色彩、构图是否可参考，填 1/0/unsure。",
             "- `usable_as_value_evidence`：是否能作为价值观大师判断依据，填 1/0/unsure。",
             "- `human_note`：写明不相关原因，比如主体错、国家文化错、风格不一致、历史图质量差。",
+        ]
+    ) + "\n"
+
+
+def _load_visual_similarity_labeled_rows(path: Path) -> tuple[dict[str, str], ...]:
+    if not path.exists():
+        raise FileNotFoundError(f"未找到人工标注文件：{path}")
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        return tuple(dict(row) for row in csv.DictReader(handle))
+
+
+def _visual_similarity_gold_eval_report_payload(rows: tuple[dict[str, str], ...], *, top_k: int, source_path: str) -> dict[str, object]:
+    grouped: dict[str, list[dict[str, str]]] = defaultdict(list)
+    for row in rows:
+        candidate_id = str(row.get("candidate_id", "") or row.get("candidate_operation_tag", "") or "unknown")
+        grouped[candidate_id].append(row)
+    cases = tuple(_visual_similarity_gold_eval_case(candidate_id, tuple(items), top_k=top_k) for candidate_id, items in grouped.items())
+    by_country: dict[str, list[dict[str, object]]] = defaultdict(list)
+    for case in cases:
+        by_country[str(case.get("country", ""))].append(case)
+    label_summary = _visual_similarity_label_summary(rows)
+    return {
+        "mode": "visual_similarity_human_gold_eval",
+        "source_path": source_path,
+        "top_k": top_k,
+        "row_count": len(rows),
+        "candidate_count": len(cases),
+        "label_summary": label_summary,
+        "metrics": _visual_similarity_gold_metrics(cases, top_k=top_k),
+        "country_metrics": {
+            country: _visual_similarity_gold_metrics(tuple(country_cases), top_k=top_k)
+            for country, country_cases in sorted(by_country.items())
+        },
+        "cases": cases,
+        "failure_cases": tuple(case for case in cases if not case.get(f"hit@{top_k}")),
+        "version": "v0.7.56-visual-similarity-gold-eval",
+        "limitations": (
+            "`manual_relevance=1` 作为相关，`0` 作为不相关，`unsure` 不计入相关/不相关分母。",
+            "本报告评估 TopK 历史依据相关性，不直接评价价值观大师最终等级预测。",
+            "当前样本量较小，适合作为调 gate 和检索策略的第一版人工 gold 基线。",
+        ),
+    }
+
+
+def _visual_similarity_gold_eval_case(candidate_id: str, rows: tuple[dict[str, str], ...], *, top_k: int) -> dict[str, object]:
+    ordered = tuple(sorted(rows, key=lambda row: int(str(row.get("rank", "0") or "0"))))
+    considered = ordered[:top_k]
+    relevant_ranks = tuple(
+        int(str(row.get("rank", "0") or "0"))
+        for row in considered
+        if _normalized_label(row.get("manual_relevance")) == "1"
+    )
+    judged_rows = tuple(row for row in considered if _normalized_label(row.get("manual_relevance")) in {"0", "1"})
+    relevant_count = len(relevant_ranks)
+    reciprocal = 1.0 / min(relevant_ranks) if relevant_ranks else 0.0
+    top1_label = _normalized_label(considered[0].get("manual_relevance")) if considered else ""
+    gate_kept = tuple(row for row in considered if str(row.get("gate_status", "")).strip() == "kept")
+    gate_kept_judged = tuple(row for row in gate_kept if _normalized_label(row.get("manual_relevance")) in {"0", "1"})
+    gate_kept_relevant = tuple(row for row in gate_kept if _normalized_label(row.get("manual_relevance")) == "1")
+    usable_rows = tuple(row for row in considered if _normalized_label(row.get("usable_as_value_evidence")) == "1")
+    return {
+        "candidate_id": candidate_id,
+        "country": str(considered[0].get("country", "")) if considered else "",
+        "candidate_operation_tag": str(considered[0].get("candidate_operation_tag", "")) if considered else "",
+        "candidate_subject": str(considered[0].get("candidate_subject", "")) if considered else "",
+        "retrieved_count": len(considered),
+        "judged_count": len(judged_rows),
+        "relevant_count": relevant_count,
+        "unsure_count": sum(1 for row in considered if _normalized_label(row.get("manual_relevance")) == "unsure"),
+        "relevant_ranks": relevant_ranks,
+        f"hit@{top_k}": bool(relevant_ranks),
+        f"mrr@{top_k}": round(reciprocal, 4),
+        f"precision@{top_k}": round(relevant_count / len(judged_rows), 4) if judged_rows else 0.0,
+        f"recall@{top_k}": 1.0 if relevant_ranks else 0.0,
+        f"ndcg@{top_k}": _visual_similarity_gold_ndcg(considered, top_k=top_k),
+        f"bad_match@{top_k}": top1_label == "0",
+        "gate_kept_count": len(gate_kept),
+        "gate_kept_relevant_count": len(gate_kept_relevant),
+        "gate_precision": round(len(gate_kept_relevant) / len(gate_kept_judged), 4) if gate_kept_judged else 0.0,
+        "gate_recall": round(len(gate_kept_relevant) / relevant_count, 4) if relevant_count else 0.0,
+        "usable_as_value_evidence_count": len(usable_rows),
+        "top_rows": tuple(
+            {
+                "rank": int(str(row.get("rank", "0") or "0")),
+                "history_image_id": row.get("history_image_id", ""),
+                "history_operation_tag": row.get("history_operation_tag", ""),
+                "history_subject": row.get("history_subject", ""),
+                "history_grade": row.get("history_grade", ""),
+                "score": row.get("score", ""),
+                "gate_status": row.get("gate_status", ""),
+                "manual_relevance": _normalized_label(row.get("manual_relevance")),
+                "usable_as_value_evidence": _normalized_label(row.get("usable_as_value_evidence")),
+                "human_note": row.get("human_note", ""),
+            }
+            for row in considered
+        ),
+    }
+
+
+def _visual_similarity_gold_metrics(cases: tuple[dict[str, object], ...], *, top_k: int) -> dict[str, float]:
+    return {
+        f"hit@{top_k}": _eval_ratio(sum(1 for case in cases if case.get(f"hit@{top_k}")), len(cases)),
+        f"mrr@{top_k}": _case_avg(cases, f"mrr@{top_k}"),
+        f"precision@{top_k}": _case_avg(cases, f"precision@{top_k}"),
+        f"recall@{top_k}": _case_avg(cases, f"recall@{top_k}"),
+        f"ndcg@{top_k}": _case_avg(cases, f"ndcg@{top_k}"),
+        f"bad_match_rate@{top_k}": _eval_ratio(sum(1 for case in cases if case.get(f"bad_match@{top_k}")), len(cases)),
+        "gate_precision": _case_avg(cases, "gate_precision"),
+        "gate_recall": _case_avg(cases, "gate_recall"),
+        "avg_judged_count": _case_avg(cases, "judged_count"),
+        "avg_relevant_count": _case_avg(cases, "relevant_count"),
+    }
+
+
+def _visual_similarity_gold_ndcg(rows: tuple[dict[str, str], ...], *, top_k: int) -> float:
+    dcg = 0.0
+    relevant_total = 0
+    for rank, row in enumerate(rows[:top_k], start=1):
+        if _normalized_label(row.get("manual_relevance")) == "1":
+            relevant_total += 1
+            dcg += 1.0 / math.log2(rank + 1)
+    ideal = sum(1.0 / math.log2(rank + 1) for rank in range(1, relevant_total + 1))
+    return round(dcg / ideal, 4) if ideal else 0.0
+
+
+def _visual_similarity_label_summary(rows: tuple[dict[str, str], ...]) -> dict[str, int]:
+    labels = tuple(_normalized_label(row.get("manual_relevance")) for row in rows)
+    return {
+        "relevant": sum(1 for label in labels if label == "1"),
+        "not_relevant": sum(1 for label in labels if label == "0"),
+        "unsure": sum(1 for label in labels if label == "unsure"),
+        "blank": sum(1 for label in labels if not label),
+    }
+
+
+def _normalized_label(value: object) -> str:
+    label = str(value or "").strip().lower()
+    if label in {"1", "yes", "y", "true", "相关", "是", "可参考"}:
+        return "1"
+    if label in {"0", "no", "n", "false", "不相关", "否", "不可参考"}:
+        return "0"
+    if label in {"unsure", "unknown", "不确定", "?"}:
+        return "unsure"
+    return label
+
+
+def _visual_similarity_gold_eval_report_markdown(report: dict[str, object]) -> str:
+    top_k = int(report.get("top_k", 5) or 5)
+    metrics = report.get("metrics", {}) if isinstance(report.get("metrics"), dict) else {}
+    label_summary = report.get("label_summary", {}) if isinstance(report.get("label_summary"), dict) else {}
+    cases = report.get("cases", ()) if isinstance(report.get("cases"), (tuple, list)) else ()
+    failure_lines = [
+        f"- {case.get('country')}｜{case.get('candidate_operation_tag')}：相关排名={case.get('relevant_ranks') or '无'}，Top1 判定={'不相关' if case.get(f'bad_match@{top_k}') else '非明确不相关'}"
+        for case in cases
+        if isinstance(case, dict) and not case.get(f"hit@{top_k}")
+    ][:8] or ["- 暂无未命中样例"]
+    return "\n".join(
+        [
+            "# PuzzleOps Visual Similarity Human Gold Eval Report",
+            "",
+            "## 结论",
+            "",
+            "- 本报告是人工 gold eval，基于运营人工标注的 TopK 历史依据相关性。",
+            "- 它用于判断图像相似检索和 relevance gate 是否真的改善历史依据质量。",
+            "",
+            "## 标注概览",
+            "",
+            f"- 行数：{report.get('row_count', 0)}",
+            f"- 候选图数：{report.get('candidate_count', 0)}",
+            f"- 相关：{label_summary.get('relevant', 0)}",
+            f"- 不相关：{label_summary.get('not_relevant', 0)}",
+            f"- 不确定：{label_summary.get('unsure', 0)}",
+            "",
+            "## 指标",
+            "",
+            f"- Hit@{top_k}：{_metric_markdown_value(metrics.get(f'hit@{top_k}', 0.0))}",
+            f"- MRR@{top_k}：{_metric_markdown_value(metrics.get(f'mrr@{top_k}', 0.0))}",
+            f"- NDCG@{top_k}：{_metric_markdown_value(metrics.get(f'ndcg@{top_k}', 0.0))}",
+            f"- Precision@{top_k}：{_metric_markdown_value(metrics.get(f'precision@{top_k}', 0.0))}",
+            f"- Recall@{top_k}：{_metric_markdown_value(metrics.get(f'recall@{top_k}', 0.0))}",
+            f"- Bad Match Rate@{top_k}：{_metric_markdown_value(metrics.get(f'bad_match_rate@{top_k}', 0.0))}",
+            f"- Gate Precision：{_metric_markdown_value(metrics.get('gate_precision', 0.0))}",
+            f"- Gate Recall：{_metric_markdown_value(metrics.get('gate_recall', 0.0))}",
+            "",
+            "## 未命中样例",
+            "",
+            *failure_lines,
+            "",
+            "## 限制",
+            "",
+            *[f"- {item}" for item in report.get("limitations", ())],
         ]
     ) + "\n"
 

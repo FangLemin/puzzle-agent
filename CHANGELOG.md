@@ -2,6 +2,69 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.56 - Visual Similarity Human Gold Eval
+
+日期：2026-08-03
+
+阶段目标：
+
+- 将 v0.7.55 的人工 TopK 标注导回项目。
+- 从 proxy eval 升级为人工 gold eval。
+- 用真实人工判断定位图像相似检索问题：是召回差、排序差，还是 gate 过严。
+
+已完成：
+
+- 新增 `PuzzleOpsAgent.export_visual_similarity_gold_eval_report(...)`：
+  - 读取人工标注 CSV。
+  - 按候选图聚合 TopK 历史依据。
+  - 计算 `Hit@K`、`MRR@K`、`NDCG@K`、`Precision@K`、`Recall@K`、`Bad Match Rate@K`。
+  - 计算 `Gate Precision` 和 `Gate Recall`。
+  - 输出失败样例和限制说明。
+- 导入人工标注：
+  - `docs/eval/visual_similarity_topk_labeled_v0.7.55.csv`。
+- 新增报告：
+  - `docs/eval/visual_similarity_gold_eval_report.json`。
+  - `docs/eval/visual_similarity_gold_eval_report.md`。
+
+人工标注概览：
+
+- 行数：30。
+- 候选图数：6。
+- 相关：5。
+- 不相关：19。
+- 不确定：6。
+
+真实 gold 指标：
+
+- `Hit@5=0.6667`。
+- `MRR@5=0.2778`。
+- `NDCG@5=0.3843`。
+- `Precision@5=0.2472`。
+- `Recall@5=0.6667`。
+- `Bad Match Rate@5=1.0`。
+- `Gate Precision=0.0`。
+- `Gate Recall=0.0`。
+
+结论：
+
+- 当前不是完全“召回不到相关图”，而是“TopK 里有相关图，但排序靠后”。
+- Top1 被人工标注为不相关的比例很高，说明历史依据排序需要优先优化。
+- v0.7.54 的 gate 过保守，没有保住人工认为相关的依据，下一步要基于人工标注重调 gate。
+- 价值观大师接入历史图证据前，必须先做 rerank 或 relevance gate v2，否则会继续污染解释。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_visual_similarity_gold_eval_report_from_human_labels -q`：1 passed。
+- `python -m py_compile puzzle_ops/agents.py puzzle_ops/visual_similarity.py`：通过。
+- `VISUAL_EMBEDDING_ENABLE_REMOTE_CALLS=false VISUAL_MILVUS_ENABLE_REMOTE_CALLS=false PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_visual_similarity_gold_eval_report_from_human_labels tests/test_agents.py::test_agent_exports_visual_embedding_smoke_report_for_qwen_provider tests/test_agents.py::test_agent_exports_visual_similarity_topk_labeling_template tests/test_agents.py::test_agent_exports_visual_similarity_eval_report_with_proxy_metrics tests/test_agents.py::test_visual_similarity_relevance_gate_filters_semantic_mismatch_from_value_evidence tests/test_visual_similarity.py -q`：9 passed。
+- `ANALYSIS_LLM_ENABLE_REMOTE_CALLS=0 RAG_ENABLE_REMOTE_CALLS=false RAG_EMBEDDING_PROVIDER=local RAG_RERANK_PROVIDER=local VISUAL_EMBEDDING_ENABLE_REMOTE_CALLS=false VISUAL_MILVUS_ENABLE_REMOTE_CALLS=false VISION_LLM_PROVIDER=qwen QWEN_API_KEY= IMAGE_GENERATION_PROVIDER=mock PYTHONPATH=. pytest tests -q`：593 passed。
+
+当前限制：
+
+- 当前人工 gold 只有 6 个候选图、30 条 TopK 配对，足够定位问题，但还不足以证明最终上线效果。
+- `unsure` 不计入相关/不相关分母，后续可以针对 unsure 单独复核。
+- 本版只做评估闭环，不改变价值观大师主预测链路。
+
 ## v0.7.55 - Qwen Visual Embedding Smoke & TopK Labeling
 
 日期：2026-08-03

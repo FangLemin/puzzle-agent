@@ -4023,6 +4023,37 @@ def test_agent_exports_visual_similarity_topk_labeling_template(tmp_path):
     assert "人工 TopK 标注" in markdown
 
 
+def test_agent_exports_visual_similarity_gold_eval_report_from_human_labels(tmp_path):
+    labeled = tmp_path / "labeled.csv"
+    labeled.write_text(
+        "\n".join(
+            (
+                "country,candidate_id,candidate_operation_tag,candidate_subject,candidate_js_category,candidate_image_path,rank,top_k,history_image_id,history_operation_tag,history_subject,history_js_category,history_grade,history_image_path,score,gate_status,gate_reason,filter_reason,manual_relevance,same_subject,same_style,usable_as_value_evidence,human_note",
+                "日本,jp-cand,试新_日本_寿司0803,寿司,food,/tmp/cand.png,1,3,jp-cat,常规_日本_猫咪0601,猫咪,,A,/tmp/cat.png,0.9,filtered,,主体不匹配,0,0,0,0,主体错",
+                "日本,jp-cand,试新_日本_寿司0803,寿司,food,/tmp/cand.png,2,3,jp-sushi,常规_日本_寿司0701,寿司,,A,/tmp/sushi.png,0.8,kept,主体重合,,1,1,1,1,可参考",
+                "日本,jp-cand,试新_日本_寿司0803,寿司,food,/tmp/cand.png,3,3,jp-unsure,常规_日本_料理0702,料理,,B,/tmp/food.png,0.7,filtered,,不确定,unsure,unsure,unsure,unsure,不确定",
+            )
+        ),
+        encoding="utf-8",
+    )
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+
+    result = agent.export_visual_similarity_gold_eval_report(labeled, output_dir=tmp_path / "eval", top_k=3)
+
+    data = json.loads(Path(result["json_report"]).read_text(encoding="utf-8"))
+    markdown = Path(result["markdown_report"]).read_text(encoding="utf-8")
+    assert data["mode"] == "visual_similarity_human_gold_eval"
+    assert data["candidate_count"] == 1
+    assert data["label_summary"]["relevant"] == 1
+    assert data["label_summary"]["not_relevant"] == 1
+    assert data["label_summary"]["unsure"] == 1
+    assert data["metrics"]["hit@3"] == 1.0
+    assert data["metrics"]["mrr@3"] == 0.5
+    assert data["metrics"]["bad_match_rate@3"] == 1.0
+    assert data["metrics"]["gate_precision"] == 1.0
+    assert "人工 gold eval" in markdown
+
+
 
 def test_agent_harness_readiness_guides_next_steps_for_silver_and_missing_metrics(tmp_path):
     picnic = tmp_path / "france-picnic.png"
