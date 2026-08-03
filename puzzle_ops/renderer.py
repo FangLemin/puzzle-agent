@@ -1304,6 +1304,7 @@ def render_undistributed_candidate_card(agent: PuzzleOpsAgent, candidate: dict[s
     similar_bad = candidate.get("similar_negative", ())
     similar_good_copy = render_similar_history_items(similar_good)
     similar_bad_copy = render_similar_history_items(similar_bad)
+    visual_similarity_copy = render_visual_similarity_evidence(candidate.get("visual_similarity_evidence", {}))
     risk_badges = render_value_risk_badges(candidate.get("risk_points", ()))
     decision_actions = render_value_candidate_decision_actions(candidate, state, decision)
     retry_action = render_value_candidate_retry_action(candidate, state)
@@ -1330,12 +1331,50 @@ def render_undistributed_candidate_card(agent: PuzzleOpsAgent, candidate: dict[s
   {risk_badges}
   <p class="candidate-evidence-summary">预测理由：{escape(evidence_summary)}</p>
   <details class="candidate-details"><summary>展开视觉解析</summary><dl><div><dt>主体</dt><dd>{escape(visual_subject)}</dd></div><div><dt>场景</dt><dd>{escape(visual_scene or '待预测后生成')}</dd></div><div><dt>风格</dt><dd>{escape(visual_style or '待预测后生成')}</dd></div></dl></details>
+  {visual_similarity_copy}
   <details class="candidate-details"><summary>展开相似历史图</summary><div><strong>相似历史好图</strong>{similar_good_copy}</div><div><strong>相似历史风险图</strong>{similar_bad_copy}</div></details>
   <details class="candidate-details"><summary>展开 RAG 依据</summary>{citation_chips}<p>{escape(str(candidate['evidence']))}</p></details>
   {retry_action}
   {decision_actions}
 </article>
 """
+
+
+def render_visual_similarity_evidence(evidence: object) -> str:
+    if not isinstance(evidence, dict) or not evidence:
+        return ""
+    message = str(evidence.get("message", "") or "")
+    reliability = str(evidence.get("reliability", "") or evidence.get("status", ""))
+    best_score = evidence.get("best_score", "")
+    min_reference_score = evidence.get("min_reference_score", "")
+    good = tuple(item for item in evidence.get("similar_good", ()) or () if isinstance(item, dict))
+    risk = tuple(item for item in evidence.get("similar_risk", ()) or () if isinstance(item, dict))
+    good_items = "".join(render_visual_similarity_hit(item) for item in good) or "<p>暂无可靠相似好图。</p>"
+    risk_items = "".join(render_visual_similarity_hit(item) for item in risk) or "<p>暂无可靠相似风险图。</p>"
+    score_line = ""
+    if best_score != "":
+        score_line = f"<p>最高相似分：{escape(str(best_score))} · 校准提示线：{escape(str(min_reference_score))}</p>"
+    message_line = f"<p>{escape(message)}</p>" if message else ""
+    return (
+        '<details class="candidate-details">'
+        "<summary>展开图像相似依据</summary>"
+        f"<p>可靠性：{escape(reliability or '未评估')}</p>"
+        f"{score_line}{message_line}"
+        f"<div><strong>通过校准的相似好图</strong>{good_items}</div>"
+        f"<div><strong>通过校准的相似风险图</strong>{risk_items}</div>"
+        "</details>"
+    )
+
+
+def render_visual_similarity_hit(hit: dict[str, object]) -> str:
+    return (
+        "<p>"
+        f"{escape(str(hit.get('operation_tag', '') or hit.get('image_id', '')))}"
+        f" · 等级{escape(str(hit.get('grade', '')))}"
+        f" · score={escape(str(hit.get('score', '')))}"
+        f" · {escape(str(hit.get('gate_reason', '') or hit.get('reason', '')))}"
+        "</p>"
+    )
 
 
 def render_value_candidate_decision_note(decision: dict[str, object]) -> str:

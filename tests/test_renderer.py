@@ -313,6 +313,38 @@ def test_value_candidate_card_shows_metric_level_reasoning():
     assert "按业务规则推导等级=A" in html
 
 
+def test_value_candidate_card_shows_low_confidence_visual_similarity_message():
+    agent = PuzzleOpsAgent()
+    candidate = agent.undistributed_value_candidates("法国")[0] | {
+        "prediction_status": "predicted",
+        "predicted_grade": "A",
+        "sa_probability": 0.68,
+        "open_rate_range": "11%-14%",
+        "completion_rate_range": "88%-91%",
+        "finish_time_range": "19-22",
+        "metric_levels": {"open_rate": "高", "completion_rate": "中", "avg_finish_time": "高"},
+        "evidence": "指标分档=高中高，按业务规则推导等级=A。",
+        "visual_subject": "法式花园餐桌",
+        "visual_scene": "庭院下午茶",
+        "visual_style": "明亮写实",
+        "risk_points": (),
+        "rag_citations": (),
+        "rag_citation_details": (),
+        "similar_positive": (),
+        "similar_negative": (),
+        "visual_similarity_evidence": {
+            "status": "low_confidence",
+            "reliability": "low_confidence",
+            "message": "暂无可靠历史相似图：当前最高相似分 0.1000 低于校准提示线。",
+        },
+    }
+
+    html = render_undistributed_candidate_card(agent, candidate, AppState(country="法国", view="value"))
+
+    assert "暂无可靠历史相似图" in html
+    assert "展开图像相似依据" in html
+
+
 def test_eval_page_shows_value_prediction_benchmark_summary(tmp_path):
     agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
     agent.repository.add_value_prediction_benchmark_score(

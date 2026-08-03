@@ -3509,7 +3509,8 @@ def test_agent_exports_value_master_prompt_benchmark_v2_without_changing_grade_m
     assert "RAG依据较弱" in markdown
 
 
-def test_agent_visual_similarity_groups_good_and_risk_history_without_changing_grade_model(tmp_path):
+def test_agent_visual_similarity_groups_good_and_risk_history_without_changing_grade_model(monkeypatch, tmp_path):
+    monkeypatch.setenv("VISUAL_SIMILARITY_MIN_REFERENCE_SCORE", "0")
     candidate_image = tmp_path / "candidate-sushi.png"
     good_image = tmp_path / "good-sushi.png"
     risk_image = tmp_path / "risk-matcha.png"
@@ -3580,7 +3581,7 @@ def test_agent_visual_similarity_groups_good_and_risk_history_without_changing_g
     assert evidence["similar_good"][0]["image_id"] == "good-sushi"
     assert evidence["similar_risk"][0]["image_id"] == "risk-matcha"
     assert evidence["gate_version"] == "v0.7.54"
-    assert evidence["version"] == "v0.7.54-visual-similarity-gate"
+    assert evidence["version"] == "v0.7.58-visual-similarity-confidence"
 
 
 def test_visual_similarity_relevance_gate_filters_semantic_mismatch_from_value_evidence(tmp_path):
@@ -3643,10 +3644,11 @@ def test_visual_similarity_relevance_gate_filters_semantic_mismatch_from_value_e
     assert evidence["similar_good"] == ()
     assert evidence["filtered_out"][0]["image_id"] == "jp-cat-koi"
     assert "主体/分类不匹配" in evidence["filtered_out"][0]["filter_reason"]
-    assert evidence["version"] == "v0.7.54-visual-similarity-gate"
+    assert evidence["version"] == "v0.7.58-visual-similarity-confidence"
 
 
 def test_value_candidate_prediction_includes_visual_similarity_evidence_and_keeps_legacy_grade_model(monkeypatch, tmp_path):
+    monkeypatch.setenv("VISUAL_SIMILARITY_MIN_REFERENCE_SCORE", "0")
     candidate_image = tmp_path / "candidate-sushi.png"
     good_image = tmp_path / "good-sushi.png"
     Image.new("RGB", (48, 48), (230, 80, 50)).save(candidate_image)
@@ -3778,6 +3780,67 @@ def test_value_master_passes_visual_similarity_evidence_to_llm_rules(monkeypatch
     assert "视觉相似历史好图" in str(captured["rules"])
     assert "good-sushi" in str(captured["rules"])
     assert "系统RAG召回" in judged.value_match
+
+
+def test_value_master_does_not_pass_low_confidence_visual_similarity_to_llm(monkeypatch, tmp_path):
+    ref = tmp_path / "candidate-sushi.png"
+    Image.new("RGB", (48, 48), (230, 80, 50)).save(ref)
+    captured = {}
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+
+    class FakeVision:
+        provider = "fake-qwen"
+
+        def analyze(self, images, country, category, local_summary):
+            return VisionLLMResult(
+                subject="寿司",
+                scene="日式料理桌面",
+                culture_elements=("本土饮食文化",),
+                style="暖色",
+                risk_tags=(),
+                prompt_keywords=("寿司",),
+                confidence=0.9,
+                provider="fake-qwen",
+                raw_text="",
+            )
+
+        def judge_value_match(self, payload, rules):
+            captured["rules"] = rules
+            return '{"value_match":"待复核","confidence":0.5,"evidence":[],"risk_tags":[]}'
+
+    agent.trial_uploads.vision_client = FakeVision()
+    monkeypatch.setattr(agent, "_rag_evidence_for_value_master", lambda row: {"rules": (), "generated_answer": ""})
+    monkeypatch.setattr(
+        agent,
+        "similar_visual_history_for_candidate",
+        lambda candidate, top_k=6: {
+            "status": "ok",
+            "reliability": "low_confidence",
+            "message": "暂无可靠历史相似图，需人工判断。",
+            "similar_good": (
+                {
+                    "image_id": "weak-sushi",
+                    "operation_tag": "常规_日本_寿司0701",
+                    "grade": "A",
+                    "score": 0.11,
+                    "reason": "业务分类一致但相似分偏低。",
+                },
+            ),
+            "similar_risk": (),
+        },
+    )
+    row = agent.create_trial_demand("日本", "food", mode="parse").edited(
+        subject="寿司",
+        operation_tag="试新_日本_寿司0803",
+        reference_image_path=str(ref),
+    )
+
+    judged = agent.apply_value_master(row)
+
+    assert "视觉相似历史好图" not in str(captured["rules"])
+    assert "weak-sushi" not in str(captured["rules"])
+    assert "暂无可靠历史相似图" in str(captured["rules"])
+    assert "待复核" in judged.value_match
 
 
 def test_agent_exports_visual_similarity_eval_report_with_proxy_metrics(tmp_path):

@@ -1,0 +1,18 @@
+{
+  "mode": "visual_similarity_confidence_policy",
+  "version": "v0.7.58-visual-similarity-confidence",
+  "min_reference_score": 0.1208,
+  "threshold_source": "v0.7.57 human gold threshold calibration",
+  "promote_hard_threshold": false,
+  "policy": {
+    "low_confidence": "When all gate-kept visual history evidence is below the calibrated reference score, clear similar_good/similar_risk and show a no reliable history message.",
+    "llm_injection": "Low-confidence visual history is not injected into Value Master LLM rules as concrete evidence.",
+    "page_copy": "Show 暂无可靠历史相似图 and the score context to operations users."
+  },
+  "scope": "Evidence display and LLM context only; value grade model remains v0.7.39-legacy.",
+  "limitations": [
+    "0.1208 is a small-sample calibration hint, not a final production hard threshold.",
+    "The policy should be recalibrated after more human TopK labels are collected.",
+    "It does not prove visual similarity quality; it reduces misleading evidence exposure."
+  ]
+}

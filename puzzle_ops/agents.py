@@ -701,6 +701,8 @@ class PuzzleOpsAgent:
             )
         except Exception as exc:
             return (("视觉相似历史依据", f"历史图像相似检索降级：{exc}；需人工复核。"),)
+        if evidence.get("reliability") in {"low_confidence", "no_reliable_history"}:
+            return (("视觉相似历史依据", str(evidence.get("message", "暂无可靠历史相似图，需人工判断。"))),)
         if evidence.get("status") != "ok":
             return (("视觉相似历史依据", "历史图像相似依据不足，需人工复核。"),)
         rules = []
@@ -3185,7 +3187,7 @@ class PuzzleOpsAgent:
                 "similar_neutral": (),
                 "similar_risk": (),
                 "message": "历史图像相似依据不足，需人工复核。",
-                "version": "v0.7.54-visual-similarity-gate",
+                "version": "v0.7.58-visual-similarity-confidence",
             }
         if self.visual_similarity_index.record_count <= 0:
             self.rebuild_visual_similarity_index(country)
@@ -3198,12 +3200,14 @@ class PuzzleOpsAgent:
             if milvus_hits:
                 grouped = _group_visual_similarity_hits(milvus_hits)
                 grouped = _apply_visual_similarity_relevance_gate(candidate, grouped)
+                grouped = _apply_visual_similarity_confidence_policy(grouped)
                 grouped["retrieval_mode"] = "milvus_image_embedding"
-                grouped["version"] = "v0.7.54-visual-similarity-gate"
+                grouped["version"] = "v0.7.58-visual-similarity-confidence"
                 return grouped
         grouped = self.visual_similarity_index.grouped_search(embedding, country=country, top_k=top_k)
         grouped = _apply_visual_similarity_relevance_gate(candidate, grouped)
-        grouped["version"] = "v0.7.54-visual-similarity-gate"
+        grouped = _apply_visual_similarity_confidence_policy(grouped)
+        grouped["version"] = "v0.7.58-visual-similarity-confidence"
         if grouped.get("status") != "ok":
             grouped["message"] = "历史图像相似依据不足，需人工复核。"
         return grouped
@@ -7927,6 +7931,45 @@ def _apply_visual_similarity_relevance_gate(candidate: dict[str, object], groupe
         "filtered_out": tuple(filtered),
         "gate_version": "v0.7.54",
     }
+
+
+def _apply_visual_similarity_confidence_policy(grouped: dict[str, object]) -> dict[str, object]:
+    if grouped.get("status") != "ok":
+        return {**grouped, "reliability": str(grouped.get("status", "not_available"))}
+    hits = tuple(hit for hit in grouped.get("all_hits", ()) or () if isinstance(hit, dict))
+    best_score = max((float(hit.get("score", 0.0) or 0.0) for hit in hits), default=0.0)
+    min_reference_score = _visual_similarity_min_reference_score()
+    if not hits or best_score < min_reference_score:
+        return {
+            **grouped,
+            "status": "low_confidence",
+            "reliability": "low_confidence",
+            "best_score": round(best_score, 4),
+            "min_reference_score": min_reference_score,
+            "similar_good": (),
+            "similar_neutral": (),
+            "similar_risk": (),
+            "message": (
+                f"暂无可靠历史相似图：当前最高相似分 {best_score:.4f} 低于校准提示线 {min_reference_score:.4f}。"
+                "历史库样本较少时，请人工判断，不将该依据注入价值观大师。"
+            ),
+            "confidence_policy_version": "v0.7.58",
+        }
+    return {
+        **grouped,
+        "reliability": "reliable",
+        "best_score": round(best_score, 4),
+        "min_reference_score": min_reference_score,
+        "confidence_policy_version": "v0.7.58",
+    }
+
+
+def _visual_similarity_min_reference_score() -> float:
+    raw = os.getenv("VISUAL_SIMILARITY_MIN_REFERENCE_SCORE", "0.1208")
+    try:
+        return max(float(raw), 0.0)
+    except (TypeError, ValueError):
+        return 0.1208
 
 
 def _visual_similarity_hit_gate_decision(candidate: dict[str, object], hit: dict[str, object]) -> tuple[bool, str]:

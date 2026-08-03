@@ -2,6 +2,53 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.58 - Visual Similarity Low Confidence UX
+
+日期：2026-08-03
+
+阶段目标：
+
+- 将 v0.7.57 的校准结论接入实际 evidence 层。
+- 当历史库太小、最高相似分偏低时，不强行展示 TopK 历史图。
+- 避免低置信历史依据污染价值观大师 LLM 判断。
+
+已完成：
+
+- `similar_visual_history_for_candidate(...)` 新增 confidence policy：
+  - 默认校准提示线来自 v0.7.57：`0.1208`。
+  - 可通过 `VISUAL_SIMILARITY_MIN_REFERENCE_SCORE` 覆盖。
+  - 当通过 gate 的历史图最高相似分低于提示线时，返回 `status=low_confidence`。
+  - 清空 `similar_good/similar_risk`，保留 message、best_score、min_reference_score 供页面解释。
+- `_visual_similarity_rules_for_value_master(...)`：
+  - 低置信时只注入“暂无可靠历史相似图”的说明。
+  - 不再把具体历史图作为 LLM 证据。
+- 价值观大师候选卡片新增“图像相似依据”详情块：
+  - 显示可靠性、最高相似分、校准提示线。
+  - 低置信时明确展示“暂无可靠历史相似图”。
+- 新增报告：
+  - `docs/eval/visual_similarity_confidence_policy_report.json`。
+  - `docs/eval/visual_similarity_confidence_policy_report.md`。
+
+产品口径：
+
+- 当前不是“相似公式一定错”，而是“历史库样本少，TopK 只是相对最像，不代表真的像”。
+- 当相似分整体低时，系统应显示“暂无可靠历史相似图”，而不是强行拿低分历史图支撑价值观判断。
+- 该策略只作用于 evidence 展示和 LLM 证据注入，不改变价值观等级预测主链路。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_agents.py::test_value_master_does_not_pass_low_confidence_visual_similarity_to_llm -q`：1 passed。
+- `PYTHONPATH=. pytest tests/test_renderer.py::test_value_candidate_card_shows_low_confidence_visual_similarity_message -q`：1 passed。
+- `VISUAL_EMBEDDING_ENABLE_REMOTE_CALLS=false VISUAL_MILVUS_ENABLE_REMOTE_CALLS=false PYTHONPATH=. pytest tests/test_agents.py::test_agent_visual_similarity_groups_good_and_risk_history_without_changing_grade_model tests/test_agents.py::test_visual_similarity_relevance_gate_filters_semantic_mismatch_from_value_evidence tests/test_agents.py::test_value_candidate_prediction_includes_visual_similarity_evidence_and_keeps_legacy_grade_model tests/test_agents.py::test_value_master_passes_visual_similarity_evidence_to_llm_rules tests/test_agents.py::test_value_master_does_not_pass_low_confidence_visual_similarity_to_llm tests/test_renderer.py::test_value_candidate_card_shows_low_confidence_visual_similarity_message tests/test_visual_similarity.py -q`：10 passed。
+- `python -m py_compile puzzle_ops/agents.py puzzle_ops/renderer.py puzzle_ops/visual_similarity.py`：通过。
+- `ANALYSIS_LLM_ENABLE_REMOTE_CALLS=0 RAG_ENABLE_REMOTE_CALLS=false RAG_EMBEDDING_PROVIDER=local RAG_RERANK_PROVIDER=local VISUAL_EMBEDDING_ENABLE_REMOTE_CALLS=false VISUAL_MILVUS_ENABLE_REMOTE_CALLS=false VISION_LLM_PROVIDER=qwen QWEN_API_KEY= IMAGE_GENERATION_PROVIDER=mock PYTHONPATH=. pytest tests -q`：596 passed。
+
+当前限制：
+
+- `0.1208` 是来自 30 条人工标注的低置信提示线，不是最终线上硬阈值。
+- 需要更多候选图和历史图标注后，继续校准 confidence policy。
+- 本版不做 rerank、不改主预测等级。
+
 ## v0.7.57 - Visual Similarity Threshold Calibration
 
 日期：2026-08-03
