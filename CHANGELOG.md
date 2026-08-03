@@ -2,6 +2,60 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.57 - Visual Similarity Threshold Calibration
+
+日期：2026-08-03
+
+阶段目标：
+
+- 回应“样本太少，低相似分不应强行展示 TopK”的业务判断。
+- 不拍脑袋写死 `0.30/0.50`，而是基于人工 gold 标注做 score 分布和阈值校准。
+- 本版只输出校准建议，不把阈值强行接入价值观大师主链路。
+
+已完成：
+
+- 新增 `PuzzleOpsAgent.export_visual_similarity_threshold_calibration_report(...)`：
+  - 读取人工 TopK 标注 CSV。
+  - 按 `manual_relevance=1/0/unsure` 统计 score 分布。
+  - 自动扫描样本中出现过的 score 作为候选阈值。
+  - 输出每个候选阈值下的 precision、recall、隐藏不相关率、误藏相关数。
+  - 判断是否适合上线硬阈值。
+- 新增报告：
+  - `docs/eval/visual_similarity_threshold_calibration_report.json`。
+  - `docs/eval/visual_similarity_threshold_calibration_report.md`。
+
+真实标注分布：
+
+- 相关：count=5，min=0.0541，median=0.1208，max=0.1483，avg=0.1119。
+- 不相关：count=19，min=0.0727，median=0.1206，max=0.2700，avg=0.1554。
+- 不确定：count=6，min=0.0739，median=0.0941，max=0.1352，avg=0.1009。
+
+校准结论：
+
+- 不建议上线硬阈值。
+- 原因：当前 score 与人工相关性不单调，不相关样本最高分高于相关样本最高分。
+- 当前样本太少，阈值只能作为“低置信提示”依据，不能作为主链路硬过滤条件。
+- 推荐产品口径：当历史图整体相似分偏低时，页面显示“暂无可靠历史相似图”，不要强行展示 TopK 给运营造成误导。
+
+候选阈值观察：
+
+- threshold=0.1208：precision=0.25，recall=0.60，隐藏不相关率=0.5263，误藏相关数=2。
+- threshold=0.0541：precision=0.2083，recall=1.00，隐藏不相关率=0.00，误藏相关数=0。
+- 说明当前阈值无法同时做到高 precision 和高 recall。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_visual_similarity_threshold_calibration_report -q`：1 passed。
+- `python -m py_compile puzzle_ops/agents.py puzzle_ops/visual_similarity.py`：通过。
+- `VISUAL_EMBEDDING_ENABLE_REMOTE_CALLS=false VISUAL_MILVUS_ENABLE_REMOTE_CALLS=false PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_visual_similarity_threshold_calibration_report tests/test_agents.py::test_agent_exports_visual_similarity_gold_eval_report_from_human_labels tests/test_agents.py::test_agent_exports_visual_similarity_topk_labeling_template tests/test_agents.py::test_agent_exports_visual_similarity_eval_report_with_proxy_metrics tests/test_visual_similarity.py -q`：8 passed。
+- `ANALYSIS_LLM_ENABLE_REMOTE_CALLS=0 RAG_ENABLE_REMOTE_CALLS=false RAG_EMBEDDING_PROVIDER=local RAG_RERANK_PROVIDER=local VISUAL_EMBEDDING_ENABLE_REMOTE_CALLS=false VISUAL_MILVUS_ENABLE_REMOTE_CALLS=false VISION_LLM_PROVIDER=qwen QWEN_API_KEY= IMAGE_GENERATION_PROVIDER=mock PYTHONPATH=. pytest tests -q`：594 passed。
+
+当前限制：
+
+- 只基于 30 条人工标注做校准，样本不足。
+- 当前 visual score 不能单独代表业务相似，需要结合主体、JS 分类、国家价值观和 VLM 语义。
+- 本版不改变价值观大师主预测链路。
+
 ## v0.7.56 - Visual Similarity Human Gold Eval
 
 日期：2026-08-03

@@ -1,0 +1,289 @@
+{
+  "mode": "visual_similarity_threshold_calibration",
+  "source_path": "docs/eval/visual_similarity_topk_labeled_v0.7.55.csv",
+  "row_count": 30,
+  "judged_count": 30,
+  "score_distribution": {
+    "relevant": {
+      "count": 5,
+      "min": 0.0541,
+      "p25": 0.0893,
+      "median": 0.1208,
+      "p75": 0.1469,
+      "max": 0.1483,
+      "avg": 0.1119,
+      "scores": [
+        0.0541,
+        0.0893,
+        0.1208,
+        0.1469,
+        0.1483
+      ]
+    },
+    "not_relevant": {
+      "count": 19,
+      "min": 0.0727,
+      "p25": 0.101,
+      "median": 0.1206,
+      "p75": 0.2195,
+      "max": 0.27,
+      "avg": 0.1554,
+      "scores": [
+        0.0727,
+        0.0786,
+        0.0961,
+        0.101,
+        0.101,
+        0.1048,
+        0.1056,
+        0.1074,
+        0.1183,
+        0.1206,
+        0.1568,
+        0.1803,
+        0.1873,
+        0.1952,
+        0.2195,
+        0.2236,
+        0.2524,
+        0.2612,
+        0.27
+      ]
+    },
+    "unsure": {
+      "count": 6,
+      "min": 0.0739,
+      "p25": 0.0761,
+      "median": 0.0941,
+      "p75": 0.1188,
+      "max": 0.1352,
+      "avg": 0.1009,
+      "scores": [
+        0.0739,
+        0.0761,
+        0.0941,
+        0.1071,
+        0.1188,
+        0.1352
+      ]
+    }
+  },
+  "threshold_candidates": [
+    {
+      "threshold": 0.0541,
+      "kept_count": 24,
+      "hidden_count": 0,
+      "precision": 0.2083,
+      "recall": 1.0,
+      "not_relevant_hidden_rate": 0.0,
+      "relevant_hidden_count": 0
+    },
+    {
+      "threshold": 0.0727,
+      "kept_count": 23,
+      "hidden_count": 1,
+      "precision": 0.1739,
+      "recall": 0.8,
+      "not_relevant_hidden_rate": 0.0,
+      "relevant_hidden_count": 1
+    },
+    {
+      "threshold": 0.0786,
+      "kept_count": 22,
+      "hidden_count": 2,
+      "precision": 0.1818,
+      "recall": 0.8,
+      "not_relevant_hidden_rate": 0.0526,
+      "relevant_hidden_count": 1
+    },
+    {
+      "threshold": 0.0893,
+      "kept_count": 21,
+      "hidden_count": 3,
+      "precision": 0.1905,
+      "recall": 0.8,
+      "not_relevant_hidden_rate": 0.1053,
+      "relevant_hidden_count": 1
+    },
+    {
+      "threshold": 0.0961,
+      "kept_count": 20,
+      "hidden_count": 4,
+      "precision": 0.15,
+      "recall": 0.6,
+      "not_relevant_hidden_rate": 0.1053,
+      "relevant_hidden_count": 2
+    },
+    {
+      "threshold": 0.101,
+      "kept_count": 19,
+      "hidden_count": 5,
+      "precision": 0.1579,
+      "recall": 0.6,
+      "not_relevant_hidden_rate": 0.1579,
+      "relevant_hidden_count": 2
+    },
+    {
+      "threshold": 0.1048,
+      "kept_count": 17,
+      "hidden_count": 7,
+      "precision": 0.1765,
+      "recall": 0.6,
+      "not_relevant_hidden_rate": 0.2632,
+      "relevant_hidden_count": 2
+    },
+    {
+      "threshold": 0.1056,
+      "kept_count": 16,
+      "hidden_count": 8,
+      "precision": 0.1875,
+      "recall": 0.6,
+      "not_relevant_hidden_rate": 0.3158,
+      "relevant_hidden_count": 2
+    },
+    {
+      "threshold": 0.1074,
+      "kept_count": 15,
+      "hidden_count": 9,
+      "precision": 0.2,
+      "recall": 0.6,
+      "not_relevant_hidden_rate": 0.3684,
+      "relevant_hidden_count": 2
+    },
+    {
+      "threshold": 0.1183,
+      "kept_count": 14,
+      "hidden_count": 10,
+      "precision": 0.2143,
+      "recall": 0.6,
+      "not_relevant_hidden_rate": 0.4211,
+      "relevant_hidden_count": 2
+    },
+    {
+      "threshold": 0.1206,
+      "kept_count": 13,
+      "hidden_count": 11,
+      "precision": 0.2308,
+      "recall": 0.6,
+      "not_relevant_hidden_rate": 0.4737,
+      "relevant_hidden_count": 2
+    },
+    {
+      "threshold": 0.1208,
+      "kept_count": 12,
+      "hidden_count": 12,
+      "precision": 0.25,
+      "recall": 0.6,
+      "not_relevant_hidden_rate": 0.5263,
+      "relevant_hidden_count": 2
+    },
+    {
+      "threshold": 0.1469,
+      "kept_count": 11,
+      "hidden_count": 13,
+      "precision": 0.1818,
+      "recall": 0.4,
+      "not_relevant_hidden_rate": 0.5263,
+      "relevant_hidden_count": 3
+    },
+    {
+      "threshold": 0.1483,
+      "kept_count": 10,
+      "hidden_count": 14,
+      "precision": 0.1,
+      "recall": 0.2,
+      "not_relevant_hidden_rate": 0.5263,
+      "relevant_hidden_count": 4
+    },
+    {
+      "threshold": 0.1568,
+      "kept_count": 9,
+      "hidden_count": 15,
+      "precision": 0.0,
+      "recall": 0.0,
+      "not_relevant_hidden_rate": 0.5263,
+      "relevant_hidden_count": 5
+    },
+    {
+      "threshold": 0.1803,
+      "kept_count": 8,
+      "hidden_count": 16,
+      "precision": 0.0,
+      "recall": 0.0,
+      "not_relevant_hidden_rate": 0.5789,
+      "relevant_hidden_count": 5
+    },
+    {
+      "threshold": 0.1873,
+      "kept_count": 7,
+      "hidden_count": 17,
+      "precision": 0.0,
+      "recall": 0.0,
+      "not_relevant_hidden_rate": 0.6316,
+      "relevant_hidden_count": 5
+    },
+    {
+      "threshold": 0.1952,
+      "kept_count": 6,
+      "hidden_count": 18,
+      "precision": 0.0,
+      "recall": 0.0,
+      "not_relevant_hidden_rate": 0.6842,
+      "relevant_hidden_count": 5
+    },
+    {
+      "threshold": 0.2195,
+      "kept_count": 5,
+      "hidden_count": 19,
+      "precision": 0.0,
+      "recall": 0.0,
+      "not_relevant_hidden_rate": 0.7368,
+      "relevant_hidden_count": 5
+    },
+    {
+      "threshold": 0.2236,
+      "kept_count": 4,
+      "hidden_count": 20,
+      "precision": 0.0,
+      "recall": 0.0,
+      "not_relevant_hidden_rate": 0.7895,
+      "relevant_hidden_count": 5
+    },
+    {
+      "threshold": 0.2524,
+      "kept_count": 3,
+      "hidden_count": 21,
+      "precision": 0.0,
+      "recall": 0.0,
+      "not_relevant_hidden_rate": 0.8421,
+      "relevant_hidden_count": 5
+    },
+    {
+      "threshold": 0.2612,
+      "kept_count": 2,
+      "hidden_count": 22,
+      "precision": 0.0,
+      "recall": 0.0,
+      "not_relevant_hidden_rate": 0.8947,
+      "relevant_hidden_count": 5
+    },
+    {
+      "threshold": 0.27,
+      "kept_count": 1,
+      "hidden_count": 23,
+      "precision": 0.0,
+      "recall": 0.0,
+      "not_relevant_hidden_rate": 0.9474,
+      "relevant_hidden_count": 5
+    }
+  ],
+  "recommendation": {
+    "promote_hard_threshold": false,
+    "recommended_threshold": 0.1208,
+    "recommended_action": "不建议上线硬阈值；当前样本显示 score 与人工相关性不单调，先作为低置信提示使用。",
+    "overlap_warning": true,
+    "sample_too_small": true,
+    "reason": "相关样本最高分低于/不高于不相关样本最高分，说明当前 score 不能单独承担硬阈值判断。"
+  },
+  "version": "v0.7.57-visual-similarity-threshold-calibration"
+}

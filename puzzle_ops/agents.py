@@ -5423,6 +5423,23 @@ class PuzzleOpsAgent:
         markdown_report.write_text(_visual_similarity_gold_eval_report_markdown(report), encoding="utf-8")
         return {"json_report": str(json_report), "markdown_report": str(markdown_report), **report}
 
+    def export_visual_similarity_threshold_calibration_report(
+        self,
+        labeled_csv_path: Path | str,
+        *,
+        output_dir: Path | str | None = None,
+    ) -> dict[str, object]:
+        labeled_path = Path(labeled_csv_path).expanduser()
+        rows = _load_visual_similarity_labeled_rows(labeled_path)
+        report = _visual_similarity_threshold_calibration_payload(rows, source_path=str(labeled_path))
+        export_dir = Path(output_dir) if output_dir is not None else self._runtime_dir / "resume_evidence"
+        export_dir.mkdir(parents=True, exist_ok=True)
+        json_report = export_dir / "visual_similarity_threshold_calibration_report.json"
+        markdown_report = export_dir / "visual_similarity_threshold_calibration_report.md"
+        json_report.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        markdown_report.write_text(_visual_similarity_threshold_calibration_markdown(report), encoding="utf-8")
+        return {"json_report": str(json_report), "markdown_report": str(markdown_report), **report}
+
     def harness_readiness(self, country: str) -> dict[str, object]:
         samples = tuple(sample for sample in self.harness_samples(country) if sample.is_real)
         gold_complete_samples = tuple(sample for sample in samples if not _missing_gold_fields(sample))
@@ -8541,6 +8558,151 @@ def _visual_similarity_gold_eval_report_markdown(report: dict[str, object]) -> s
             "## 限制",
             "",
             *[f"- {item}" for item in report.get("limitations", ())],
+        ]
+    ) + "\n"
+
+
+def _visual_similarity_threshold_calibration_payload(rows: tuple[dict[str, str], ...], *, source_path: str) -> dict[str, object]:
+    judged = tuple(row for row in rows if _normalized_label(row.get("manual_relevance")) in {"0", "1", "unsure"})
+    score_distribution = {
+        "relevant": _score_distribution(row for row in judged if _normalized_label(row.get("manual_relevance")) == "1"),
+        "not_relevant": _score_distribution(row for row in judged if _normalized_label(row.get("manual_relevance")) == "0"),
+        "unsure": _score_distribution(row for row in judged if _normalized_label(row.get("manual_relevance")) == "unsure"),
+    }
+    threshold_candidates = _visual_similarity_threshold_candidates(tuple(row for row in judged if _normalized_label(row.get("manual_relevance")) in {"0", "1"}))
+    relevant_max = float(score_distribution["relevant"].get("max", 0.0) or 0.0)
+    not_relevant_max = float(score_distribution["not_relevant"].get("max", 0.0) or 0.0)
+    overlap_warning = bool(relevant_max and not_relevant_max and not_relevant_max >= relevant_max)
+    sample_too_small = score_distribution["relevant"]["count"] < 10 or score_distribution["not_relevant"]["count"] < 10
+    recommended = _recommended_visual_similarity_threshold(threshold_candidates)
+    promote = bool(recommended and not overlap_warning and not sample_too_small and float(recommended.get("precision", 0.0)) >= 0.8 and float(recommended.get("recall", 0.0)) >= 0.6)
+    return {
+        "mode": "visual_similarity_threshold_calibration",
+        "source_path": source_path,
+        "row_count": len(rows),
+        "judged_count": len(judged),
+        "score_distribution": score_distribution,
+        "threshold_candidates": threshold_candidates,
+        "recommendation": {
+            "promote_hard_threshold": promote,
+            "recommended_threshold": recommended.get("threshold") if recommended else None,
+            "recommended_action": "不建议上线硬阈值；当前样本显示 score 与人工相关性不单调，先作为低置信提示使用。" if not promote else "可作为候选阈值进入影子评测，暂不直接改主链路。",
+            "overlap_warning": overlap_warning,
+            "sample_too_small": sample_too_small,
+            "reason": "相关样本最高分低于/不高于不相关样本最高分，说明当前 score 不能单独承担硬阈值判断。" if overlap_warning else "当前分数分布具备一定分离度，但仍需更多样本验证。",
+        },
+        "version": "v0.7.57-visual-similarity-threshold-calibration",
+    }
+
+
+def _score_distribution(rows) -> dict[str, object]:
+    scores = sorted(_row_score(row) for row in rows)
+    if not scores:
+        return {"count": 0, "min": 0.0, "p25": 0.0, "median": 0.0, "p75": 0.0, "max": 0.0, "avg": 0.0, "scores": ()}
+    return {
+        "count": len(scores),
+        "min": round(scores[0], 4),
+        "p25": _percentile(scores, 0.25),
+        "median": _percentile(scores, 0.5),
+        "p75": _percentile(scores, 0.75),
+        "max": round(scores[-1], 4),
+        "avg": round(sum(scores) / len(scores), 4),
+        "scores": tuple(round(score, 4) for score in scores),
+    }
+
+
+def _visual_similarity_threshold_candidates(rows: tuple[dict[str, str], ...]) -> tuple[dict[str, object], ...]:
+    thresholds = sorted({round(_row_score(row), 4) for row in rows})
+    candidates = []
+    for threshold in thresholds:
+        kept = tuple(row for row in rows if _row_score(row) >= threshold)
+        hidden = tuple(row for row in rows if _row_score(row) < threshold)
+        relevant_kept = sum(1 for row in kept if _normalized_label(row.get("manual_relevance")) == "1")
+        not_relevant_kept = sum(1 for row in kept if _normalized_label(row.get("manual_relevance")) == "0")
+        relevant_total = sum(1 for row in rows if _normalized_label(row.get("manual_relevance")) == "1")
+        not_relevant_total = sum(1 for row in rows if _normalized_label(row.get("manual_relevance")) == "0")
+        candidates.append(
+            {
+                "threshold": threshold,
+                "kept_count": len(kept),
+                "hidden_count": len(hidden),
+                "precision": round(relevant_kept / len(kept), 4) if kept else 0.0,
+                "recall": round(relevant_kept / relevant_total, 4) if relevant_total else 0.0,
+                "not_relevant_hidden_rate": round((not_relevant_total - not_relevant_kept) / not_relevant_total, 4) if not_relevant_total else 0.0,
+                "relevant_hidden_count": relevant_total - relevant_kept,
+            }
+        )
+    return tuple(candidates)
+
+
+def _recommended_visual_similarity_threshold(candidates: tuple[dict[str, object], ...]) -> dict[str, object]:
+    if not candidates:
+        return {}
+    viable = tuple(
+        candidate
+        for candidate in candidates
+        if float(candidate.get("recall", 0.0) or 0.0) >= 0.6
+    )
+    pool = viable or candidates
+    return max(pool, key=lambda item: (float(item.get("precision", 0.0) or 0.0), float(item.get("not_relevant_hidden_rate", 0.0) or 0.0), -float(item.get("threshold", 0.0) or 0.0)))
+
+
+def _row_score(row: dict[str, str]) -> float:
+    try:
+        return float(row.get("score", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _percentile(scores: list[float], ratio: float) -> float:
+    if not scores:
+        return 0.0
+    index = min(max(int(round((len(scores) - 1) * ratio)), 0), len(scores) - 1)
+    return round(scores[index], 4)
+
+
+def _visual_similarity_threshold_calibration_markdown(report: dict[str, object]) -> str:
+    distribution = report.get("score_distribution", {}) if isinstance(report.get("score_distribution"), dict) else {}
+    recommendation = report.get("recommendation", {}) if isinstance(report.get("recommendation"), dict) else {}
+    candidates = report.get("threshold_candidates", ()) if isinstance(report.get("threshold_candidates"), (tuple, list)) else ()
+    top_candidates = sorted(
+        (candidate for candidate in candidates if isinstance(candidate, dict)),
+        key=lambda item: (float(item.get("precision", 0.0) or 0.0), float(item.get("recall", 0.0) or 0.0)),
+        reverse=True,
+    )[:5]
+    candidate_lines = [
+        f"- threshold={item.get('threshold')}：precision={item.get('precision')}，recall={item.get('recall')}，隐藏不相关率={item.get('not_relevant_hidden_rate')}，误藏相关数={item.get('relevant_hidden_count')}"
+        for item in top_candidates
+    ] or ["- 暂无候选阈值"]
+    label_lines = []
+    for label, title in (("relevant", "相关"), ("not_relevant", "不相关"), ("unsure", "不确定")):
+        item = distribution.get(label, {}) if isinstance(distribution.get(label), dict) else {}
+        label_lines.append(
+            f"- {title}：count={item.get('count', 0)}，min={item.get('min', 0)}，median={item.get('median', 0)}，max={item.get('max', 0)}，avg={item.get('avg', 0)}"
+        )
+    promote = bool(recommendation.get("promote_hard_threshold"))
+    return "\n".join(
+        [
+            "# PuzzleOps Visual Similarity Threshold Calibration Report",
+            "",
+            "## 结论",
+            "",
+            f"- {'可以进入影子评测，但暂不直接上线。' if promote else '不建议上线硬阈值。'}",
+            f"- {recommendation.get('recommended_action', '')}",
+            f"- 原因：{recommendation.get('reason', '')}",
+            "",
+            "## Score 分布",
+            "",
+            *label_lines,
+            "",
+            "## 候选阈值",
+            "",
+            *candidate_lines,
+            "",
+            "## 下一步",
+            "",
+            "- 当前先用于页面提示“暂无可靠历史相似图”，不要直接作为价值观大师硬过滤条件。",
+            "- 增加真实样本后重新运行校准，再决定是否把阈值接入主链路。",
         ]
     ) + "\n"
 
