@@ -3159,7 +3159,7 @@ class PuzzleOpsAgent:
                 "similar_neutral": (),
                 "similar_risk": (),
                 "message": "历史图像相似依据不足，需人工复核。",
-                "version": "v0.7.52-visual-similarity-evidence",
+                "version": "v0.7.54-visual-similarity-gate",
             }
         if self.visual_similarity_index.record_count <= 0:
             self.rebuild_visual_similarity_index(country)
@@ -3171,11 +3171,13 @@ class PuzzleOpsAgent:
                 milvus_hits = ()
             if milvus_hits:
                 grouped = _group_visual_similarity_hits(milvus_hits)
+                grouped = _apply_visual_similarity_relevance_gate(candidate, grouped)
                 grouped["retrieval_mode"] = "milvus_image_embedding"
-                grouped["version"] = "v0.7.52-visual-similarity-evidence"
+                grouped["version"] = "v0.7.54-visual-similarity-gate"
                 return grouped
         grouped = self.visual_similarity_index.grouped_search(embedding, country=country, top_k=top_k)
-        grouped["version"] = "v0.7.52-visual-similarity-evidence"
+        grouped = _apply_visual_similarity_relevance_gate(candidate, grouped)
+        grouped["version"] = "v0.7.54-visual-similarity-gate"
         if grouped.get("status") != "ok":
             grouped["message"] = "历史图像相似依据不足，需人工复核。"
         return grouped
@@ -7721,6 +7723,79 @@ def _group_visual_similarity_hits(hits: tuple[dict[str, object], ...] | list[dic
     }
 
 
+def _apply_visual_similarity_relevance_gate(candidate: dict[str, object], grouped: dict[str, object]) -> dict[str, object]:
+    if grouped.get("status") != "ok":
+        return {**grouped, "filtered_out": (), "gate_version": "v0.7.54"}
+    kept = []
+    filtered = []
+    for hit in grouped.get("all_hits", ()) or ():
+        if not isinstance(hit, dict):
+            continue
+        accepted, reason = _visual_similarity_hit_gate_decision(candidate, hit)
+        enriched = {**hit, "gate_reason": reason}
+        if accepted:
+            base_reason = str(enriched.get("reason", "") or "")
+            enriched["reason"] = f"{base_reason}；gate通过：{reason}" if base_reason else f"gate通过：{reason}"
+            kept.append(enriched)
+        else:
+            filtered.append({**enriched, "filter_reason": reason})
+    regrouped = _group_visual_similarity_hits(tuple(kept))
+    return {
+        **grouped,
+        **regrouped,
+        "status": "ok" if kept else "filtered",
+        "filtered_out": tuple(filtered),
+        "gate_version": "v0.7.54",
+    }
+
+
+def _visual_similarity_hit_gate_decision(candidate: dict[str, object], hit: dict[str, object]) -> tuple[bool, str]:
+    candidate_country = str(candidate.get("country", "") or "")
+    hit_country = str(hit.get("country", "") or "")
+    if candidate_country and hit_country and candidate_country != hit_country:
+        return False, "国家不匹配"
+    candidate_subject = str(candidate.get("subject", "") or candidate.get("visual_subject", "") or "")
+    hit_subject = str(hit.get("subject", "") or "")
+    candidate_text = " ".join(
+        str(candidate.get(key, "") or "")
+        for key in ("subject", "visual_subject", "operation_tag", "js_category", "subject_description")
+    )
+    hit_text = " ".join(str(hit.get(key, "") or "") for key in ("subject", "operation_tag", "reason"))
+    candidate_tokens = _visual_similarity_specific_tokens(candidate_text)
+    hit_tokens = _visual_similarity_specific_tokens(hit_text)
+    if candidate_tokens and hit_tokens and candidate_tokens & hit_tokens:
+        return True, "主体/文本 token 重合"
+    if candidate_subject and hit_subject and (candidate_subject in hit_subject or hit_subject in candidate_subject):
+        return True, "短主体互相包含"
+    candidate_category = str(candidate.get("js_category", "") or "") or _visual_similarity_subject_category(candidate_text)
+    hit_category = str(hit.get("js_category", "") or "") or _visual_similarity_subject_category(hit_text)
+    if candidate_category and hit_category and candidate_category == hit_category:
+        return True, f"业务分类一致：{candidate_category}"
+    score = float(hit.get("score", 0.0) or 0.0)
+    if score >= 0.82:
+        return True, f"图像相似分较高：{score:.2f}"
+    return False, f"主体/分类不匹配，且图像相似分不足：{score:.2f}"
+
+
+def _visual_similarity_specific_tokens(text: str) -> set[str]:
+    stop_words = {"日本", "法国", "常规", "试新", "主体内容", "色彩氛围", "构图环境", "图像向量相似度", "高", "中", "低"}
+    return {token for token in _simple_text_tokens(text) if token not in stop_words and not re.fullmatch(r"\d+(\.\d+)?", token)}
+
+
+def _visual_similarity_subject_category(text: str) -> str:
+    lowered = str(text).lower()
+    category_keywords = {
+        "food": ("寿司", "抹茶", "料理", "甜点", "蛋糕", "面包", "葡萄", "奶酪", "餐", "茶", "sushi", "food"),
+        "animal": ("猫", "狗", "动物", "鲤鱼", "鸟", "鹿", "animal", "cat", "dog"),
+        "landscape": ("风景", "海", "山", "花田", "薰衣草", "庭院", "塔", "城堡", "landscape"),
+        "people": ("少女", "美女", "人物", "游客", "女孩", "女人", "people", "girl"),
+    }
+    for category, keywords in category_keywords.items():
+        if any(keyword in lowered for keyword in keywords):
+            return category
+    return ""
+
+
 def _grade_bucket_match_bonus(gold_grade: str, record_grade: str) -> float:
     if gold_grade in {"S", "A"} and record_grade in {"S", "A"}:
         return 2.0
@@ -7835,13 +7910,35 @@ def _visual_similarity_eval_case(agent, record, records: tuple, *, top_k: int) -
         if str(getattr(item, "image_id", "")) != str(getattr(record, "image_id", "")) and _visual_similarity_proxy_relevant(record, item)
     )
     retrieved_ids = tuple(str(hit.get("image_id", "")) for hit in hits)
+    candidate_payload = {
+        "country": str(getattr(record, "country", "")),
+        "subject": str(getattr(record, "subject_tag", "")),
+        "operation_tag": str(getattr(record, "operation_tag", "")),
+        "js_category": str(getattr(record, "js_category", "")),
+    }
+    gated_hits = []
+    gated_filtered = []
+    for hit in hits:
+        accepted, reason = _visual_similarity_hit_gate_decision(candidate_payload, hit)
+        if accepted:
+            gated_hits.append({**hit, "gate_reason": reason})
+        else:
+            gated_filtered.append({**hit, "filter_reason": reason})
+    gated_retrieved_ids = tuple(str(hit.get("image_id", "")) for hit in gated_hits)
     relevant_hit_count = sum(1 for image_id in retrieved_ids if image_id in relevant_ids)
+    gated_relevant_hit_count = sum(1 for image_id in gated_retrieved_ids if image_id in relevant_ids)
     reciprocal = 0.0
     for rank, image_id in enumerate(retrieved_ids, start=1):
         if image_id in relevant_ids:
             reciprocal = 1.0 / rank
             break
+    gated_reciprocal = 0.0
+    for rank, image_id in enumerate(gated_retrieved_ids, start=1):
+        if image_id in relevant_ids:
+            gated_reciprocal = 1.0 / rank
+            break
     bad_top1 = bool(retrieved_ids and retrieved_ids[0] not in relevant_ids)
+    gated_bad_top1 = bool(gated_retrieved_ids and gated_retrieved_ids[0] not in relevant_ids)
     return {
         "sample_id": str(getattr(record, "image_id", "")),
         "country": str(getattr(record, "country", "")),
@@ -7849,6 +7946,7 @@ def _visual_similarity_eval_case(agent, record, records: tuple, *, top_k: int) -
         "subject": str(getattr(record, "subject_tag", "")),
         "grade": str(getattr(record, "grade", "")),
         "retrieved_ids": retrieved_ids,
+        "gated_retrieved_ids": gated_retrieved_ids,
         "relevant_ids": relevant_ids,
         f"hit@{top_k}": 1.0 if relevant_hit_count > 0 else 0.0,
         f"mrr@{top_k}": round(reciprocal, 4),
@@ -7856,6 +7954,13 @@ def _visual_similarity_eval_case(agent, record, records: tuple, *, top_k: int) -
         f"recall@{top_k}": round(relevant_hit_count / len(relevant_ids), 4) if relevant_ids else 0.0,
         f"ndcg@{top_k}": _visual_similarity_ndcg(retrieved_ids, relevant_ids, top_k),
         f"bad_match@{top_k}": 1.0 if bad_top1 else 0.0,
+        f"gated_hit@{top_k}": 1.0 if gated_relevant_hit_count > 0 else 0.0,
+        f"gated_mrr@{top_k}": round(gated_reciprocal, 4),
+        f"gated_precision@{top_k}": round(gated_relevant_hit_count / top_k, 4) if top_k else 0.0,
+        f"gated_recall@{top_k}": round(gated_relevant_hit_count / len(relevant_ids), 4) if relevant_ids else 0.0,
+        f"gated_ndcg@{top_k}": _visual_similarity_ndcg(gated_retrieved_ids, relevant_ids, top_k),
+        f"gated_bad_match@{top_k}": 1.0 if gated_bad_top1 else 0.0,
+        "gate_filtered_out": tuple(gated_filtered),
         "top_hits": tuple(
             {
                 **hit,
@@ -7902,6 +8007,12 @@ def _visual_similarity_eval_report_payload(cases: tuple[dict[str, object], ...],
         f"recall@{top_k}": _case_avg(cases, f"recall@{top_k}"),
         f"ndcg@{top_k}": _case_avg(cases, f"ndcg@{top_k}"),
         f"bad_match_rate@{top_k}": _case_avg(cases, f"bad_match@{top_k}"),
+        f"gated_hit@{top_k}": _case_avg(cases, f"gated_hit@{top_k}"),
+        f"gated_mrr@{top_k}": _case_avg(cases, f"gated_mrr@{top_k}"),
+        f"gated_precision@{top_k}": _case_avg(cases, f"gated_precision@{top_k}"),
+        f"gated_recall@{top_k}": _case_avg(cases, f"gated_recall@{top_k}"),
+        f"gated_ndcg@{top_k}": _case_avg(cases, f"gated_ndcg@{top_k}"),
+        f"gated_bad_match_rate@{top_k}": _case_avg(cases, f"gated_bad_match@{top_k}"),
     }
     failure_cases = tuple(case for case in cases if float(case.get(f"hit@{top_k}", 0.0) or 0.0) <= 0.0)
     return {
@@ -7913,6 +8024,7 @@ def _visual_similarity_eval_report_payload(cases: tuple[dict[str, object], ...],
         "failure_case_count": len(failure_cases),
         "failure_cases": failure_cases[:20],
         "cases": cases,
+        "gate_version": "v0.7.54",
         "limitations": (
             "本报告是自动 proxy eval：相关性由同国家、主体 token、JS 分类和等级桶近似判断。",
             "它用于上线前快速暴露明显不相关的历史图依据，不替代人工 TopK 标注。",
@@ -7957,6 +8069,10 @@ def _visual_similarity_eval_report_markdown(report: dict[str, object]) -> str:
             f"- Precision@{top_k}：{_metric_markdown_value(metrics.get(f'precision@{top_k}', 0.0))}",
             f"- Recall@{top_k}：{_metric_markdown_value(metrics.get(f'recall@{top_k}', 0.0))}",
             f"- Bad Match Rate@{top_k}：{_metric_markdown_value(metrics.get(f'bad_match_rate@{top_k}', 0.0))}",
+            f"- Gate 后 Hit@{top_k}：{_metric_markdown_value(metrics.get(f'gated_hit@{top_k}', 0.0))}",
+            f"- Gate 后 MRR@{top_k}：{_metric_markdown_value(metrics.get(f'gated_mrr@{top_k}', 0.0))}",
+            f"- Gate 后 NDCG@{top_k}：{_metric_markdown_value(metrics.get(f'gated_ndcg@{top_k}', 0.0))}",
+            f"- Gate 后 Bad Match Rate@{top_k}：{_metric_markdown_value(metrics.get(f'gated_bad_match_rate@{top_k}', 0.0))}",
             "",
             "## 失败样例",
             "",

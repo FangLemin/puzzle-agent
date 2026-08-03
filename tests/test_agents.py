@@ -3578,7 +3578,71 @@ def test_agent_visual_similarity_groups_good_and_risk_history_without_changing_g
     assert evidence["status"] == "ok"
     assert evidence["similar_good"][0]["image_id"] == "good-sushi"
     assert evidence["similar_risk"][0]["image_id"] == "risk-matcha"
-    assert evidence["version"] == "v0.7.52-visual-similarity-evidence"
+    assert evidence["gate_version"] == "v0.7.54"
+    assert evidence["version"] == "v0.7.54-visual-similarity-gate"
+
+
+def test_visual_similarity_relevance_gate_filters_semantic_mismatch_from_value_evidence(tmp_path):
+    candidate_image = tmp_path / "candidate-sushi.png"
+    Image.new("RGB", (48, 48), (230, 80, 50)).save(candidate_image)
+    agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "puzzle.db"))
+    agent.visual_embedding_provider = LocalVisualEmbeddingProvider(dimension=16)
+
+    class FakeVisualIndex:
+        @property
+        def record_count(self):
+            return 1
+
+        def grouped_search(self, query, *, country, top_k):
+            return {
+                "status": "ok",
+                "retrieval_mode": "visual_embedding",
+                "similar_good": (
+                    {
+                        "image_id": "jp-cat-koi",
+                        "country": "日本",
+                        "grade": "A",
+                        "subject": "猫咪鲤鱼",
+                        "operation_tag": "常规_日本_猫咪鲤鱼0605",
+                        "score": 0.61,
+                        "reason": "图像向量相似度 0.61。",
+                    },
+                ),
+                "similar_neutral": (),
+                "similar_risk": (),
+                "all_hits": (
+                    {
+                        "image_id": "jp-cat-koi",
+                        "country": "日本",
+                        "grade": "A",
+                        "subject": "猫咪鲤鱼",
+                        "operation_tag": "常规_日本_猫咪鲤鱼0605",
+                        "score": 0.61,
+                        "reason": "图像向量相似度 0.61。",
+                    },
+                ),
+            }
+
+    agent.visual_similarity_index = FakeVisualIndex()
+
+    evidence = agent.similar_visual_history_for_candidate(
+        {
+            "country": "日本",
+            "candidate_id": "jp-candidate-sushi",
+            "local_image_path": str(candidate_image),
+            "operation_tag": "试新_日本_寿司0803",
+            "subject": "寿司",
+            "js_category": "food",
+            "subject_description": "主体内容：寿司；色彩氛围：暖色；构图环境：日式料理桌面近景。",
+        },
+        top_k=5,
+    )
+
+    assert evidence["status"] == "filtered"
+    assert evidence["similar_good"] == ()
+    assert evidence["filtered_out"][0]["image_id"] == "jp-cat-koi"
+    assert "主体/分类不匹配" in evidence["filtered_out"][0]["filter_reason"]
+    assert evidence["version"] == "v0.7.54-visual-similarity-gate"
 
 
 def test_value_candidate_prediction_includes_visual_similarity_evidence_and_keeps_legacy_grade_model(monkeypatch, tmp_path):
@@ -3799,9 +3863,12 @@ def test_agent_exports_visual_similarity_eval_report_with_proxy_metrics(tmp_path
     assert data["metrics"]["mrr@2"] >= 0
     assert data["metrics"]["ndcg@2"] >= 0
     assert "bad_match_rate@2" in data["metrics"]
+    assert "gated_hit@2" in data["metrics"]
+    assert "gated_bad_match_rate@2" in data["metrics"]
     assert data["case_count"] == 3
     assert "自动 proxy eval" in markdown
     assert "Hit@2" in markdown
+    assert "Gate 后 Bad Match Rate@2" in markdown
 
 
 

@@ -2,6 +2,62 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.54 - Visual Similarity Relevance Gate
+
+日期：2026-08-03
+
+阶段目标：
+
+- 完成“图像相似检索增强”的第 2 步：在历史图像证据进入价值观大师前增加 relevance gate。
+- 解决“历史依据图片很多不相关”时，错误证据被直接喂给 LLM 的问题。
+- 保持价值观大师等级预测主链路不变，继续保护 `value_grade_model_version=v0.7.39-legacy`。
+
+已完成：
+
+- `similar_visual_history_for_candidate(...)` 新增视觉相似 relevance gate：
+  - 同国家是基础前提。
+  - 主体 token 重合、短主体互相包含、业务分类一致，或图像相似分极高时保留。
+  - 主体/分类不匹配且相似分不足时过滤。
+- 证据输出新增：
+  - `filtered_out`：被过滤的历史图。
+  - `filter_reason`：过滤原因。
+  - `gate_reason`：保留原因。
+  - `gate_version=v0.7.54`。
+- 价值观大师继续只注入通过 gate 的 `similar_good` / `similar_risk`。
+- 视觉相似评测报告新增 gate 后指标：
+  - `gated_hit@K`。
+  - `gated_mrr@K`。
+  - `gated_ndcg@K`。
+  - `gated_bad_match_rate@K`。
+
+当前基线：
+
+- Case 数：45。
+- 原始 `Bad Match Rate@5=0.9111`。
+- Gate 后 `Bad Match Rate@5=0.0889`。
+- 原始 `Hit@5=0.2444`。
+- Gate 后 `Hit@5=0.0444`。
+
+结论：
+
+- v0.7.54 的 gate 显著降低了错误历史图进入价值观大师的概率。
+- 当前 gate 偏保守，会牺牲召回；这是有意选择，因为现阶段更怕“错证据污染判断”。
+- 下一步要靠真实 Qwen 多模态 embedding、人工 TopK 标注和更细主题 taxonomy，把召回慢慢拉回来。
+
+验证：
+
+- `VISUAL_EMBEDDING_ENABLE_REMOTE_CALLS=false VISUAL_MILVUS_ENABLE_REMOTE_CALLS=false PYTHONPATH=. pytest tests/test_agents.py::test_visual_similarity_relevance_gate_filters_semantic_mismatch_from_value_evidence -q`：1 passed。
+- `VISUAL_EMBEDDING_ENABLE_REMOTE_CALLS=false VISUAL_MILVUS_ENABLE_REMOTE_CALLS=false PYTHONPATH=. pytest tests/test_agents.py::test_agent_visual_similarity_groups_good_and_risk_history_without_changing_grade_model tests/test_agents.py::test_visual_similarity_relevance_gate_filters_semantic_mismatch_from_value_evidence tests/test_agents.py::test_value_candidate_prediction_includes_visual_similarity_evidence_and_keeps_legacy_grade_model tests/test_agents.py::test_value_master_passes_visual_similarity_evidence_to_llm_rules tests/test_visual_similarity.py -q`：8 passed。
+- `python -m py_compile puzzle_ops/agents.py puzzle_ops/visual_similarity.py`：通过。
+- `VISUAL_EMBEDDING_ENABLE_REMOTE_CALLS=false VISUAL_MILVUS_ENABLE_REMOTE_CALLS=false PYTHONPATH=. pytest tests/test_agents.py::test_agent_visual_similarity_groups_good_and_risk_history_without_changing_grade_model tests/test_agents.py::test_visual_similarity_relevance_gate_filters_semantic_mismatch_from_value_evidence tests/test_agents.py::test_value_candidate_prediction_includes_visual_similarity_evidence_and_keeps_legacy_grade_model tests/test_agents.py::test_value_master_passes_visual_similarity_evidence_to_llm_rules tests/test_agents.py::test_agent_exports_visual_similarity_eval_report_with_proxy_metrics tests/test_visual_similarity.py -q`：9 passed。
+- `ANALYSIS_LLM_ENABLE_REMOTE_CALLS=0 RAG_ENABLE_REMOTE_CALLS=false RAG_EMBEDDING_PROVIDER=local RAG_RERANK_PROVIDER=local VISUAL_EMBEDDING_ENABLE_REMOTE_CALLS=false VISUAL_MILVUS_ENABLE_REMOTE_CALLS=false VISION_LLM_PROVIDER=qwen QWEN_API_KEY= IMAGE_GENERATION_PROVIDER=mock PYTHONPATH=. pytest tests -q`：590 passed。
+
+当前限制：
+
+- gate 仍是规则化 relevance gate，不是人工标注训练出来的排序模型。
+- 本地 fallback embedding 召回质量有限，gate 后 Hit 偏低。
+- 需要后续用真实图片 TopK 标注集评估 `Hit@5/MRR/NDCG/Bad Match Rate` 后再决定是否放宽阈值。
+
 ## v0.7.53 - Visual Similarity Proxy Eval
 
 日期：2026-08-03

@@ -19,6 +19,10 @@
 - Precision@5：5%
 - Recall@5：13%
 - Bad Match Rate@5：91%
+- Gate 后 Hit@5：4%
+- Gate 后 MRR@5：4%
+- Gate 后 NDCG@5：2%
+- Gate 后 Bad Match Rate@5：9%
 
 ## 失败样例
 
