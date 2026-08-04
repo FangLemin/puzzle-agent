@@ -2,6 +2,53 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.59 - Resume README and FastAPI API Spec
+
+日期：2026-08-04
+
+阶段目标：
+
+- 把项目从“功能累计日志”收口成适合 GitHub、简历和面试复习的工程说明。
+- 解释当前本地页面与未来 6 人团队 FastAPI 服务化入口的关系。
+- 固化架构、RAG、Memory、图像相似检索、Harness 和评测证据口径。
+
+已完成：
+
+- 重写 `README.md`：
+  - 首页直接说明项目定位、当前能力、启动方式、环境变量、6 人服务化路线、核心代码和边界。
+  - 明确当前 `127.0.0.1:5199` 是单人本地页面，左侧 `view` 切换覆盖全部已实现功能。
+  - 明确 FastAPI 多人服务层尚未实现，本版先完成接口设计。
+- 新增 `docs/ARCHITECTURE.md`：
+  - 用架构图说明 Python 本地后台、Agent 编排、Qwen VLM、RAG、Memory、图像相似、Harness、飞书同步之间的关系。
+  - 说明 Memory 为什么用 SQLite，Milvus/Zilliz 为什么只负责向量检索。
+  - 说明 RAG 离线和在线阶段，以及价值观大师证据链路。
+- 新增 `docs/API_SPEC.md`：
+  - 设计 FastAPI 入口 `/docs`、`/api/health`、`/api/rag/search`、`/api/value/analyze`、`/api/harness/summary`、`/api/visual-similarity/search`、`/api/feishu/sync/trial`。
+  - 设计 Bearer token 权限控制、viewer/operator/admin 角色和国家权限。
+  - 给出 v0.7.60 的 API 测试计划。
+- 新增 `docs/EVAL_REPORT.md`：
+  - 汇总真实评测集、价值观大师、RAG、Prompt Benchmark、图像相似检索和自动化回归结果。
+  - 明确哪些可以写进简历，哪些不能夸大。
+- 更新 `.env.example`：
+  - 增加 `PUZZLEOPS_API_TOKENS` 占位配置，供后续 FastAPI token 权限实现使用。
+
+产品口径：
+
+- 本版不改变运行时代码，不影响现有本地页面、飞书同步、Qwen 调用和 Harness。
+- FastAPI 是下一步多人服务化实现目标，不是本版已启动的 runtime。
+- 当前项目可以用于 GitHub/简历展示，但价值观预测和图像相似效果仍应按小样本评测谨慎表述。
+
+验证：
+
+- `python -m py_compile puzzle_ops/agents.py puzzle_ops/renderer.py puzzle_ops/rag.py puzzle_ops/visual_similarity.py puzzle_ops/server.py`：通过。
+- `ANALYSIS_LLM_ENABLE_REMOTE_CALLS=0 RAG_ENABLE_REMOTE_CALLS=false RAG_EMBEDDING_PROVIDER=local RAG_RERANK_PROVIDER=local VISUAL_EMBEDDING_ENABLE_REMOTE_CALLS=false VISUAL_MILVUS_ENABLE_REMOTE_CALLS=false VISION_LLM_PROVIDER=qwen QWEN_API_KEY= IMAGE_GENERATION_PROVIDER=mock PYTHONPATH=. pytest tests -q`：596 passed。
+
+当前限制：
+
+- `puzzle_ops.api` 尚未实现；`docs/API_SPEC.md` 是 v0.7.60 的实现蓝图。
+- 多人权限控制还未接入运行时代码。
+- README 中的 FastAPI 启动命令是规划命令，需 v0.7.60 完成后才可执行。
+
 ## v0.7.58 - Visual Similarity Low Confidence UX
 
 日期：2026-08-03
