@@ -2,6 +2,61 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.60 - FastAPI Service Layer
+
+日期：2026-08-04
+
+阶段目标：
+
+- 借鉴优秀 Agent 项目的服务化做法，把 FastAPI 作为薄 API 层接到现有 `PuzzleOpsAgent`。
+- 解决 6 人运营团队不能共用 `127.0.0.1` 本地页面的问题。
+- 提供 `/docs`、health、RAG search、价值观分析、Harness 摘要和图像相似检索接口。
+
+已完成：
+
+- 新增依赖：
+  - `fastapi>=0.115,<1`
+  - `uvicorn[standard]>=0.30,<1`
+- 新增 `puzzle_ops/api.py`：
+  - `create_app(agent=None)` 支持测试注入 fake agent，生产默认创建真实 `PuzzleOpsAgent`。
+  - `app = create_app()` 支持 `uvicorn puzzle_ops.api:app` 直接启动。
+  - `parse_api_tokens(...)` 支持 `user_id:token:role:country|country`。
+  - 统一 Bearer token 鉴权和 `viewer/operator/admin` 角色。
+  - 按 token 限制国家访问，避免日本运营误查/误操作法国数据。
+  - 统一错误格式：`{"error":{"code","message","request_id"}}`。
+- 新增 API：
+  - `GET /api/health`
+  - `POST /api/rag/search`
+  - `POST /api/value/analyze`
+  - `GET /api/harness/summary`
+  - `POST /api/visual-similarity/search`
+- 新增 `tests/test_api.py`：
+  - 覆盖 token 解析、鉴权失败、OpenAPI schema、密钥不泄露、RAG citation、国家权限、价值观分析人工复核标记、Harness 摘要。
+- 更新 `README.md`、`docs/API_SPEC.md`、`docs/ARCHITECTURE.md`：
+  - 将 v0.7.59 的 FastAPI 规划口径更新为 v0.7.60 已实现第一版。
+  - 增加本机和局域网启动命令。
+- 新增 `docs/superpowers/plans/2026-08-04-fastapi-service-layer.md` 记录实现计划。
+
+上线口径：
+
+- 单人页面仍然使用 `http://127.0.0.1:5199`。
+- 6 人团队共用 API 使用 `uvicorn puzzle_ops.api:app --host 0.0.0.0 --port 8000`，并通过 `/docs` 调试。
+- 第一版暂缓开放真实飞书写接口，避免多人共用时误写生产飞书表；飞书同步仍走现有页面人工确认。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_api.py -q`：8 passed。
+- `python -m py_compile puzzle_ops/api.py puzzle_ops/agents.py puzzle_ops/server.py puzzle_ops/renderer.py`：通过。
+- `ANALYSIS_LLM_ENABLE_REMOTE_CALLS=0 RAG_ENABLE_REMOTE_CALLS=false RAG_EMBEDDING_PROVIDER=local RAG_RERANK_PROVIDER=local VISUAL_EMBEDDING_ENABLE_REMOTE_CALLS=false VISUAL_MILVUS_ENABLE_REMOTE_CALLS=false VISION_LLM_PROVIDER=qwen QWEN_API_KEY= IMAGE_GENERATION_PROVIDER=mock PYTHONPATH=. pytest tests -q`：604 passed。
+- `uvicorn puzzle_ops.api:app --host 127.0.0.1 --port 8010` smoke：`GET /openapi.json` 返回 `PuzzleOps Agent API`，包含 5 个核心 API path。
+
+当前限制：
+
+- FastAPI 第一版是 API 服务入口，不含独立前端登录页。
+- token 配置仍来自 `.env`，后续可迁移到 SQLite 用户表。
+- 生产部署前还需要配置 HTTPS、服务器防火墙、运行目录备份和进程守护。
+- 飞书写接口尚未开放到 API。
+
 ## v0.7.59 - Resume README and FastAPI API Spec
 
 日期：2026-08-04

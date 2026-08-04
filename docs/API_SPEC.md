@@ -15,7 +15,7 @@ http://127.0.0.1:5199
 - 支持脚本、内部工具、未来前端或飞书机器人复用同一套 Agent 能力。
 - 保留当前 Python 本地页面作为单人 demo，不强行迁移前端。
 
-v0.7.59 只定义接口和权限口径；FastAPI runtime 建议在 v0.7.60 实现。
+v0.7.60 已实现第一版 FastAPI runtime：health、RAG search、value analyze、harness summary、visual similarity search 和 Bearer token 鉴权。
 
 ## 2. 非目标
 
@@ -24,7 +24,7 @@ v0.7.59 只定义接口和权限口径；FastAPI runtime 建议在 v0.7.60 实�
 - 不提供无鉴权写飞书接口。
 - 不让 API 默认触发远程付费模型调用；仍由 `.env` 显式开关控制。
 
-## 3. 启动方式草案
+## 3. 启动方式
 
 安装依赖后：
 
@@ -364,6 +364,8 @@ GET /api/harness/summary?country=日本
 
 权限：`admin`。
 
+当前状态：暂缓实现。原因是 6 人共用时飞书写入属于高风险动作，第一版 API 先开放只读和分析接口；真实写入仍走现有页面的人工确认链路。
+
 请求：
 
 ```json
@@ -392,7 +394,7 @@ GET /api/harness/summary?country=日本
 
 ## 12. 测试计划
 
-v0.7.60 实现时需要新增：
+v0.7.60 已新增：
 
 - `tests/test_api.py::test_health_requires_token`
 - `tests/test_api.py::test_health_redacts_secrets`
@@ -400,7 +402,13 @@ v0.7.60 实现时需要新增：
 - `tests/test_api.py::test_value_analyze_requires_country_permission`
 - `tests/test_api.py::test_value_analyze_keeps_human_review_flag`
 - `tests/test_api.py::test_harness_summary_separates_real_and_synthetic_samples`
+- `tests/test_api.py::test_openapi_schema_exposes_core_agent_routes`
+
+后续开放飞书写接口时再新增：
+
 - `tests/test_api.py::test_feishu_sync_requires_admin`
+- `tests/test_api.py::test_feishu_sync_does_not_clear_rows_on_failure`
+- `tests/test_api.py::test_feishu_sync_uploads_attachment_file_token_before_record_write`
 
 回归命令：
 

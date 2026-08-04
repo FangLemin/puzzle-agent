@@ -75,18 +75,38 @@ VISUAL_MILVUS_TOKEN=your_token
 
 飞书需要 `FEISHU_APP_ID`、`FEISHU_APP_SECRET`、`FEISHU_SPREADSHEET_TOKEN`、`FEISHU_SHEET_RANGE`。图片附件字段必须是飞书多维表格附件字段；如果字段不存在或类型不匹配，系统会保留提需并显示飞书原始错误。
 
-## 6 人团队服务化路线
+## 6 人团队 FastAPI 服务
 
-当前 `http://127.0.0.1:5199` 只适合你本机单人使用。6 人小组要共用，需要下一版引入 FastAPI 服务化入口：
+当前 `http://127.0.0.1:5199` 仍适合你本机单人使用。6 人小组共用时，使用 FastAPI 服务层：
 
 - `GET /docs`：Swagger/OpenAPI 文档。
 - `GET /api/health`：服务、版本、provider、向量库、飞书配置健康检查。
 - `POST /api/rag/search`：价值观/审核 RAG 检索，返回 citation 和 trace。
 - `POST /api/value/analyze`：候选图价值观分析。
 - `GET /api/harness/summary`：真实评测集和最近 run 摘要。
+- `POST /api/visual-similarity/search`：候选图图搜图历史依据。
 - token 权限控制：运营只调用分析/提需，管理员才可同步飞书和重建索引。
 
-详细设计见 [docs/API_SPEC.md](docs/API_SPEC.md)。v0.7.59 只完成接口设计和上线说明，FastAPI 运行时代码建议作为 v0.7.60 单独实现。
+启动 API：
+
+```bash
+cd /Users/fanglemin/Desktop/puzzle-agent-python/.worktrees/multimodal-agent-runtime
+PYTHONPATH=. uvicorn puzzle_ops.api:app --host 127.0.0.1 --port 8000
+```
+
+本机打开：
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+局域网 6 人测试时，把 host 改成 `0.0.0.0`，并确保服务器防火墙只允许可信网络访问：
+
+```bash
+PYTHONPATH=. uvicorn puzzle_ops.api:app --host 0.0.0.0 --port 8000
+```
+
+当前 FastAPI 第一版没有开放真实飞书写接口，避免多人共用时误写生产表。飞书同步仍走现有页面的人工确认链路。详细接口见 [docs/API_SPEC.md](docs/API_SPEC.md)。
 
 ## 架构与评测文档
 
@@ -137,4 +157,4 @@ v0.7.58 全量回归结果：`596 passed`。每次版本修改都维护 `VERSION
 - 图像相似分数目前用于 evidence 辅助，不直接改主等级预测。
 - RAG 能召回 expected 文档，但 TopK 中仍可能混入同国异主体 hard-negative。
 - Memory 存 SQLite 是因为它保存结构化事实、审批状态、冲突和审计日志；Milvus/Zilliz 只负责向量检索，不适合承载事务型 memory 治理。
-- FastAPI 多人服务化入口尚未实现，v0.7.59 先完成 API 设计和部署口径。
+- FastAPI 已提供多人 API 第一版，但真实飞书写接口暂未开放；生产部署前仍需配置 HTTPS、token、服务器防火墙和运行目录备份。

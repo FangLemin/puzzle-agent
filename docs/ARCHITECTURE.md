@@ -21,14 +21,14 @@ flowchart LR
 
 ## 2. 运行层
 
-当前线上演示入口是 Python 标准库 `ThreadingHTTPServer`：
+当前本地页面入口是 Python 标准库 `ThreadingHTTPServer`：
 
 - `run_app.py` 调用 `puzzle_ops.server.run()`。
 - `puzzle_ops/server.py` 负责 HTTP route、表单提交、文件上传。
 - `puzzle_ops/renderer.py` 生成 HTML。
 - `puzzle_ops/agents.py` 承接业务编排。
 
-这个设计适合单机快速 demo 和本地面试演示。6 人团队共用时，需要在现有 Agent 层外增加 FastAPI service layer，详见 [API_SPEC.md](API_SPEC.md)。
+这个设计适合单机快速 demo 和本地面试演示。6 人团队共用时，v0.7.60 已在现有 Agent 层外增加 FastAPI service layer，详见 [API_SPEC.md](API_SPEC.md)。
 
 ## 3. 试新提需链路
 
@@ -176,11 +176,12 @@ Harness 把每一次 Agent 判断变成可复盘样本：
 - 价值观预测等级可信度和人工评分。
 - HITL 修正是否可回流。
 
-## 10. 下一阶段
+## 10. FastAPI 服务层
 
-v0.7.60 建议实现 FastAPI runtime：
+v0.7.60 已实现 FastAPI runtime 第一版：
 
 - 保留当前本地页面。
 - 新增 `puzzle_ops/api.py`。
-- 使用 FastAPI `TestClient` 覆盖鉴权、health、rag search、value analyze、harness summary。
+- 使用 FastAPI `TestClient` 覆盖鉴权、OpenAPI、health、rag search、value analyze、harness summary。
 - 6 人团队通过 token 访问 API，后续部署到局域网服务器或云服务器。
+- 飞书写入接口暂缓开放，仍由现有页面人工确认同步，避免多人误写生产表。
