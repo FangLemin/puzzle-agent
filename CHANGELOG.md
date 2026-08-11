@@ -2,6 +2,47 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.62 - Production Release Safety
+
+日期：2026-08-11
+
+阶段目标：
+
+- 做 GitHub 公开和上线前的生产安全收口。
+- 用脚本化 preflight 检查替代纯人工记忆，降低 `.env`、真实 key、飞书配置、运行数据误提交风险。
+- 明确真实业务图片、绝对路径、API token 和飞书写入边界。
+
+已完成：
+
+- 新增 `scripts/release_preflight.py`：
+  - 使用 `git ls-files` 检查将被发布的文件。
+  - 拦截 `.env`、运行目录、备份目录、向量索引等禁止追踪文件。
+  - 扫描 OpenAI-style `sk-`、`QWEN_API_KEY`、`DASHSCOPE_API_KEY`、`FEISHU_APP_SECRET`、`FEISHU_ACCESS_TOKEN`、`PUZZLEOPS_API_TOKENS` 等 secret-like pattern。
+  - 区分 `.env.example`、空 key、`your_*`、`replace_me`、`token_jp_1` 等示例占位，减少误报。
+  - 在非 git fixture 目录中 fallback 到文件遍历，便于测试。
+- 新增 `docs/SECURITY_RELEASE_CHECKLIST.md`：
+  - 覆盖 `.env 不提交`、真实 API Key、飞书、真实业务图片、绝对路径、API token、GitHub 发布口径。
+  - 明确公开前必须运行 `python scripts/release_preflight.py`。
+- 新增 `tests/test_release_safety.py`：
+  - 固化 release preflight 脚本必须识别 secret pattern。
+  - 固化 tracked `.env` 和 secret-like 文本会失败。
+  - 固化安全 checklist 必须覆盖公开 GitHub 风险。
+- 更新 `README.md`：
+  - 增加安全发布 checklist 链接和 preflight 命令。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_release_safety.py -q`：3 passed。
+- `python scripts/release_preflight.py`：通过，`checked_files=106`。
+- `PYTHONPATH=. pytest tests/test_release_safety.py tests/test_deployment_docs.py tests/test_api.py -q`：14 passed。
+- `python -m py_compile scripts/release_preflight.py puzzle_ops/api.py puzzle_ops/agents.py puzzle_ops/server.py puzzle_ops/renderer.py`：通过。
+- `ANALYSIS_LLM_ENABLE_REMOTE_CALLS=0 RAG_ENABLE_REMOTE_CALLS=false RAG_EMBEDDING_PROVIDER=local RAG_RERANK_PROVIDER=local VISUAL_EMBEDDING_ENABLE_REMOTE_CALLS=false VISUAL_MILVUS_ENABLE_REMOTE_CALLS=false VISION_LLM_PROVIDER=qwen QWEN_API_KEY= IMAGE_GENERATION_PROVIDER=mock PYTHONPATH=. pytest tests -q`：610 passed。
+
+当前限制：
+
+- preflight 是静态扫描，不替代 GitHub secret scanning 或人工审查真实图片版权。
+- 文档中仍有本机路径用于个人演示，正式公开前可按需要进一步泛化为相对路径。
+
 ## v0.7.61 - FastAPI Deployment Acceptance
 
 日期：2026-08-11

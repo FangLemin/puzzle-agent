@@ -120,6 +120,7 @@ PUZZLEOPS_API_TOKEN=jp_token ./scripts/smoke_api.sh
 - [系统架构](docs/ARCHITECTURE.md)
 - [FastAPI API Spec](docs/API_SPEC.md)
 - [部署与 6 人验收](docs/DEPLOYMENT.md)
+- [安全发布 Checklist](docs/SECURITY_RELEASE_CHECKLIST.md)
 - [评测报告汇总](docs/EVAL_REPORT.md)
 - [最终收口报告 v0.7.49](docs/final_acceptance/v0.7.49_resume_closure_report.md)
 - [价值观大师评测](docs/eval/value_master_eval_report.md)
@@ -141,6 +142,12 @@ PUZZLEOPS_API_TOKEN=jp_token ./scripts/smoke_api.sh
 - `tests/`：自动化测试。
 
 ## 验证
+
+GitHub 公开或上线前先跑安全预检：
+
+```bash
+python scripts/release_preflight.py
+```
 
 默认测试关闭远程模型和向量库调用，避免产生费用：
 
