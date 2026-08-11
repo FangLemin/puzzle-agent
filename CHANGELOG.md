@@ -2,6 +2,51 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.63 - Interview and Resume Materials
+
+日期：2026-08-11
+
+阶段目标：
+
+- 将 PuzzleOps Agent 收口成可背、可讲、可放简历的项目材料。
+- 明确项目的 why、how、架构、RAG、Memory、Harness、FastAPI、飞书、评测结果、不足和面试追问。
+- 保持诚实口径：展示工程闭环和评测能力，不夸大为大规模线上稳定预测。
+
+已完成：
+
+- 新增 `docs/INTERVIEW_NOTES.md`：
+  - 一句话介绍。
+  - 为什么做这个项目。
+  - 系统架构和代码分层。
+  - 多模态理解、RAG、Memory、图像相似检索、Agent Harness、FastAPI、飞书同步。
+  - 评测结果和不足。
+  - 面试高频追问与推荐回答。
+- 新增 `docs/RESUME_PROJECT_BRIEF.md`：
+  - 简历推荐写法。
+  - 可量化成果。
+  - 技术关键词。
+  - 不要写的夸大表述。
+  - 项目价值回答模板。
+- 新增 `tests/test_interview_docs.py`：
+  - 固化面试文档必须覆盖核心知识点。
+  - 固化简历摘要必须保持简洁和诚实。
+  - 固化 README 必须链接最终材料。
+- 更新 `README.md`：
+  - 增加面试复习讲稿和简历项目摘要入口。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_interview_docs.py -q`：3 passed。
+- `PYTHONPATH=. pytest tests/test_interview_docs.py tests/test_release_safety.py -q`：6 passed。
+- `python scripts/release_preflight.py`：通过，`checked_files=109`。
+- `python -m py_compile scripts/release_preflight.py puzzle_ops/api.py puzzle_ops/agents.py puzzle_ops/server.py puzzle_ops/renderer.py`：通过。
+- `ANALYSIS_LLM_ENABLE_REMOTE_CALLS=0 RAG_ENABLE_REMOTE_CALLS=false RAG_EMBEDDING_PROVIDER=local RAG_RERANK_PROVIDER=local VISUAL_EMBEDDING_ENABLE_REMOTE_CALLS=false VISUAL_MILVUS_ENABLE_REMOTE_CALLS=false VISION_LLM_PROVIDER=qwen QWEN_API_KEY= IMAGE_GENERATION_PROVIDER=mock PYTHONPATH=. pytest tests -q`：613 passed。
+
+当前限制：
+
+- 本版是文档收口，不改变运行时代码。
+- 面试材料仍需结合你自己的表达习惯继续背诵和压缩。
+
 ## v0.7.62 - Production Release Safety
 
 日期：2026-08-11

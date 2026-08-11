@@ -22,7 +22,8 @@ def test_release_preflight_blocks_tracked_env_files_and_secret_patterns(tmp_path
     fixture = tmp_path / "repo"
     fixture.mkdir()
     (fixture / ".env.example").write_text("QWEN_API_KEY=\n", encoding="utf-8")
-    (fixture / "README.md").write_text("bad key sk-1234567890abcdef1234567890abcdef\n", encoding="utf-8")
+    fake_secret = "sk-" + "1234567890abcdef1234567890abcdef"
+    (fixture / "README.md").write_text(f"bad key {fake_secret}\n", encoding="utf-8")
 
     result = subprocess.run(
         [sys.executable, str(ROOT / "scripts" / "release_preflight.py"), "--root", str(fixture), "--tracked-file", ".env"],
