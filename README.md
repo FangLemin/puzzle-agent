@@ -106,12 +106,20 @@ http://127.0.0.1:8000/docs
 PYTHONPATH=. uvicorn puzzle_ops.api:app --host 0.0.0.0 --port 8000
 ```
 
+也可以使用脚本启动和验收：
+
+```bash
+PUZZLEOPS_API_TOKENS='ops_jp:jp_token:operator:日本,ops_fr:fr_token:operator:法国,admin:admin_token:admin:日本|法国' ./scripts/run_api.sh
+PUZZLEOPS_API_TOKEN=jp_token ./scripts/smoke_api.sh
+```
+
 当前 FastAPI 第一版没有开放真实飞书写接口，避免多人共用时误写生产表。飞书同步仍走现有页面的人工确认链路。详细接口见 [docs/API_SPEC.md](docs/API_SPEC.md)。
 
 ## 架构与评测文档
 
 - [系统架构](docs/ARCHITECTURE.md)
 - [FastAPI API Spec](docs/API_SPEC.md)
+- [部署与 6 人验收](docs/DEPLOYMENT.md)
 - [评测报告汇总](docs/EVAL_REPORT.md)
 - [最终收口报告 v0.7.49](docs/final_acceptance/v0.7.49_resume_closure_report.md)
 - [价值观大师评测](docs/eval/value_master_eval_report.md)

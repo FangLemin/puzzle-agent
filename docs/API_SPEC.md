@@ -44,6 +44,13 @@ http://127.0.0.1:8000/docs
 PYTHONPATH=. uvicorn puzzle_ops.api:app --host 0.0.0.0 --port 8000
 ```
 
+推荐使用脚本：
+
+```bash
+PUZZLEOPS_API_TOKENS='ops_jp:jp_token:operator:日本,ops_fr:fr_token:operator:法国,admin:admin_token:admin:日本|法国' ./scripts/run_api.sh
+PUZZLEOPS_API_TOKEN=jp_token ./scripts/smoke_api.sh
+```
+
 服务器部署建议：
 
 - 使用 HTTPS 反向代理。

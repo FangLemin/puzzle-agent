@@ -1549,9 +1549,15 @@ class PuzzleOpsAgent:
         ]
         if not patches:
             lines.extend(["暂无已审核 RAG 知识补丁。", ""])
+        seen_expected_ids: dict[str, int] = {}
         for memory, payload in patches:
             expected = str(payload.get("expected_parent_id", "") or f"memory-{memory.get('memory_id', '')}")
-            explicit_id = f" {{#{expected}}}" if re.match(r"^[A-Za-z0-9_\-]+$", expected) else ""
+            document_expected = expected
+            if re.match(r"^[A-Za-z0-9_\-]+$", expected):
+                seen_expected_ids[expected] = seen_expected_ids.get(expected, 0) + 1
+                if seen_expected_ids[expected] > 1:
+                    document_expected = f"{expected}_PATCH_{seen_expected_ids[expected]:02d}"
+            explicit_id = f" {{#{document_expected}}}" if re.match(r"^[A-Za-z0-9_\-]+$", document_expected) else ""
             lines.extend(
                 [
                     f"## RAG补丁：{expected}{explicit_id}",

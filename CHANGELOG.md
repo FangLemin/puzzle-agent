@@ -2,6 +2,54 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.61 - FastAPI Deployment Acceptance
+
+日期：2026-08-11
+
+阶段目标：
+
+- 将 v0.7.60 的 FastAPI 第一版推进到上线前部署验收。
+- 给 6 人运营团队提供明确的启动方式、token 配置方式、局域网访问方式和 smoke 验收脚本。
+- 保持飞书写入接口暂缓开放，避免多人共用 API 时误写生产飞书表。
+
+已完成：
+
+- 新增 `scripts/run_api.sh`：
+  - 要求显式配置 `PUZZLEOPS_API_TOKENS`。
+  - 默认监听 `127.0.0.1:8000`。
+  - 可通过 `PUZZLEOPS_API_HOST=0.0.0.0` 和 `PUZZLEOPS_API_PORT=8000` 做局域网服务。
+- 新增 `scripts/smoke_api.sh`：
+  - 检查 `/openapi.json`。
+  - 检查 `/api/health`。
+  - 用日本 token 请求法国 `/api/value/analyze`，确认返回 `forbidden_country`。
+- 新增 `docs/DEPLOYMENT.md`：
+  - 说明单人 5199 页面和 6 人 FastAPI API 的区别。
+  - 给出 6 人 token 示例、角色说明、国家权限说明。
+  - 给出 `/api/health`、`/api/rag/search`、`/api/value/analyze`、`/api/harness/summary`、`/api/visual-similarity/search` 的 curl 验收命令。
+  - 写清上线前 checklist：`.env` 不提交、token 替换、runtime 目录、局域网防火墙、HTTPS/VPN、运行目录备份。
+- 新增 `tests/test_deployment_docs.py`：
+  - 固化部署脚本、smoke 脚本和部署文档必须覆盖的关键项。
+- 更新 `README.md` 和 `docs/API_SPEC.md`：
+  - 增加 `run_api.sh`、`smoke_api.sh` 和 `docs/DEPLOYMENT.md` 入口。
+- 修复 RAG patch 重建中的重复 document id 问题：
+  - 当多个已审批 patch 使用同一个 `expected_parent_id` 时，导出 markdown 会保留第一个显式 id，后续重复项加 `_PATCH_02` 等后缀。
+  - 避免 `rag_documents.document_id` SQLite 唯一键冲突。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_deployment_docs.py -q`：3 passed。
+- `PUZZLEOPS_API_TOKENS='ops_jp:jp-token:operator:日本,ops_fr:fr-token:operator:法国,admin:admin-token:admin:日本|法国' PUZZLEOPS_API_PORT=8011 ./scripts/run_api.sh` + `PUZZLEOPS_API_BASE_URL=http://127.0.0.1:8011 PUZZLEOPS_API_TOKEN=jp-token ./scripts/smoke_api.sh`：通过，`/openapi.json`、`/api/health` 和 `forbidden_country` 权限拦截均正常。
+- `PYTHONPATH=. pytest tests/test_api.py tests/test_deployment_docs.py -q`：11 passed。
+- `python -m py_compile puzzle_ops/api.py puzzle_ops/agents.py puzzle_ops/server.py puzzle_ops/renderer.py`：通过。
+- `PYTHONPATH=. pytest tests/test_server.py::test_apply_approved_rag_patch_and_rebuild_action_reports_eval tests/test_server.py::test_rollback_latest_rag_patch_and_rebuild_action_reports_eval -q`：2 passed。
+- `ANALYSIS_LLM_ENABLE_REMOTE_CALLS=0 RAG_ENABLE_REMOTE_CALLS=false RAG_EMBEDDING_PROVIDER=local RAG_RERANK_PROVIDER=local VISUAL_EMBEDDING_ENABLE_REMOTE_CALLS=false VISUAL_MILVUS_ENABLE_REMOTE_CALLS=false VISION_LLM_PROVIDER=qwen QWEN_API_KEY= IMAGE_GENERATION_PROVIDER=mock PYTHONPATH=. pytest tests -q`：607 passed。
+
+当前限制：
+
+- 本版仍不开放 `/api/feishu/sync/trial` 写接口。
+- 本版不提供独立登录页；token 仍从环境变量读取。
+- 真正对公网部署仍需 HTTPS、进程守护和服务器级访问控制。
+
 ## v0.7.60 - FastAPI Service Layer
 
 日期：2026-08-04
