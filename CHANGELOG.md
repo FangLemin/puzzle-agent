@@ -2,6 +2,38 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.70 - Online Acceptance and Release Closure
+
+日期：2026-08-13
+
+阶段目标：
+
+- 将 v0.7.64-v0.7.69 的上线工程化能力收口成 GitHub/面试可读的最终验收材料。
+- 明确 PostgreSQL、OSS、Redis/RQ、FastAPI、Metrics dashboard、RAG report 和安全边界的上线验收口径。
+
+已完成：
+
+- 新增最终上线验收报告：
+  - `docs/final_acceptance/v0.7.70_online_acceptance_report.md`
+  - 覆盖 PostgreSQL/Alembic、OSS、Redis/RQ、FastAPI、`/api/metrics/dashboard`、smoke 命令、安全边界和当前限制。
+- 更新 README：
+  - 在架构与评测文档区加入 v0.7.70 上线验收报告链接。
+- 更新 `docs/EVAL_REPORT.md`：
+  - 指向 v0.7.70 上线工程化收口报告。
+- 新增测试：
+  - 验证 v0.7.70 报告存在，并包含上线栈、smoke、633 passed 和不能声称大规模生产稳定性的边界。
+  - 验证 README 和 EVAL_REPORT 都链接到 v0.7.70 报告。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_deployment_docs.py::test_v070_online_acceptance_report_covers_release_stack_and_limits tests/test_deployment_docs.py::test_readme_and_eval_report_link_v070_online_acceptance -q`：2 passed。
+
+当前限制：
+
+- 本轮是发布材料和上线验收收口，不新增业务功能。
+- 真实 ECS/RDS/OSS/Redis 联通仍需要服务器侧 `.env`、白名单、安全组和实际 smoke。
+- 真实样本仍偏小，报告明确不能声称大规模生产稳定性。
+
 ## v0.7.69 - Trace Metrics Dashboard
 
 日期：2026-08-13

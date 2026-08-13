@@ -210,6 +210,7 @@ docs/eval/rag_release_report.json
 - [面试复习讲稿](docs/INTERVIEW_NOTES.md)
 - [简历项目摘要](docs/RESUME_PROJECT_BRIEF.md)
 - [评测报告汇总](docs/EVAL_REPORT.md)
+- [上线验收报告 v0.7.70](docs/final_acceptance/v0.7.70_online_acceptance_report.md)
 - [最终收口报告 v0.7.49](docs/final_acceptance/v0.7.49_resume_closure_report.md)
 - [价值观大师评测](docs/eval/value_master_eval_report.md)
 - [RAG hard-negative 报告](docs/eval/rag_hard_negative_report.md)

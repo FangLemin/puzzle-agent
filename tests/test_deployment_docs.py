@@ -81,3 +81,33 @@ def test_rq_smoke_script_and_worker_mode_are_documented():
     assert "REDIS_URL" in smoke_content
     assert "rq worker" in worker_content
     assert "execute_job_once" in worker_content
+
+
+def test_v070_online_acceptance_report_covers_release_stack_and_limits():
+    report = ROOT / "docs" / "final_acceptance" / "v0.7.70_online_acceptance_report.md"
+
+    assert report.exists()
+    content = report.read_text(encoding="utf-8")
+    for needle in (
+        "v0.7.70",
+        "PostgreSQL",
+        "Alembic",
+        "FastAPI",
+        "OSS",
+        "Redis/RQ",
+        "/api/metrics/dashboard",
+        "scripts/smoke_postgres.py",
+        "scripts/smoke_oss.py",
+        "scripts/smoke_rq.py",
+        "633 passed",
+        "不能声称大规模生产稳定性",
+    ):
+        assert needle in content
+
+
+def test_readme_and_eval_report_link_v070_online_acceptance():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    eval_report = (ROOT / "docs" / "EVAL_REPORT.md").read_text(encoding="utf-8")
+
+    assert "v0.7.70_online_acceptance_report.md" in readme
+    assert "v0.7.70_online_acceptance_report.md" in eval_report

@@ -4,6 +4,8 @@
 
 本报告用于把分散在 `docs/eval/` 和 `docs/final_acceptance/` 的评测结果收口成简历和面试可用的证据口径。
 
+上线工程化收口请看：`docs/final_acceptance/v0.7.70_online_acceptance_report.md`。该报告覆盖 PostgreSQL/Alembic、OSS、Redis/RQ、FastAPI、`/api/metrics/dashboard`、smoke 命令、安全边界和上线限制。
+
 ## 1. 真实评测集
 
 来源：`docs/eval/gold_dataset_summary.md`、`docs/eval/puzzleops_gold_real_samples.csv`。
