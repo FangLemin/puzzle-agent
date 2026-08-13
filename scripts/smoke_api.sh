@@ -41,6 +41,21 @@ status, health = request("/api/health")
 assert status == 200, (status, health)
 assert health["status"] == "ok", health
 
+status, me = request("/api/me")
+assert status == 200, (status, me)
+assert me["user_id"], me
+
+status, job = request(
+    "/api/jobs/vlm-parse",
+    method="POST",
+    payload={"country": "日本", "payload": {"smoke": True}},
+)
+assert status == 200, (status, job)
+assert job["status"] == "queued", job
+
+status, metrics = request("/api/metrics/latency")
+assert status == 200, (status, metrics)
+
 status, forbidden = request(
     "/api/value/analyze",
     method="POST",

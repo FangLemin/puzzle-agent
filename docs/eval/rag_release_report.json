@@ -1,0 +1,23 @@
+{
+  "mode": "rag_release_report",
+  "metrics": {
+    "trace_count": 2,
+    "citation_usable_rate": 1.0,
+    "mrr@5": 0.97,
+    "ndcg@5": 0.98,
+    "precision@5": 0.2,
+    "recall@5": 1.0,
+    "hard_negative_rate": 0.15
+  },
+  "countries": {
+    "日本": {
+      "trace_count": 1,
+      "citation_usable_rate": 1.0
+    },
+    "法国": {
+      "trace_count": 1,
+      "citation_usable_rate": 1.0
+    }
+  },
+  "known_limits": "真实样本规模仍偏小，报告用于上线验收与面试说明，不能声称大规模生产稳定性。"
+}

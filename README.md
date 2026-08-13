@@ -85,6 +85,10 @@ VISUAL_MILVUS_TOKEN=your_token
 - `POST /api/value/analyze`：候选图价值观分析。
 - `GET /api/harness/summary`：真实评测集和最近 run 摘要。
 - `POST /api/visual-similarity/search`：候选图图搜图历史依据。
+- `GET /api/me`：查看当前 token 对应用户、角色、国家权限。
+- `POST /api/jobs/*`：创建 VLM 解析、好图衍生、飞书同步、RAG 重建任务。
+- `GET /api/traces/{trace_id}`：回查价值观/RAG/任务链路 trace。
+- `GET /api/metrics/latency`：查看 P50/P95/P99 延迟。
 - token 权限控制：运营只调用分析/提需，管理员才可同步飞书和重建索引。
 
 启动 API：
@@ -115,6 +119,51 @@ PUZZLEOPS_API_TOKEN=jp_token ./scripts/smoke_api.sh
 
 当前 FastAPI 第一版没有开放真实飞书写接口，避免多人共用时误写生产表。飞书同步仍走现有页面的人工确认链路。详细接口见 [docs/API_SPEC.md](docs/API_SPEC.md)。
 
+### 正式上线主库与异步任务
+
+本地 demo 默认继续使用 SQLite：
+
+```bash
+PUZZLEOPS_DB_PROVIDER=sqlite
+```
+
+6 人上线建议切到阿里云 RDS PostgreSQL：
+
+```bash
+PUZZLEOPS_DB_PROVIDER=postgres
+DATABASE_URL=postgresql+psycopg://user:password@host:5432/puzzleops
+```
+
+图片不再依赖本机路径，建议上传到阿里云 OSS：
+
+```bash
+ASSET_STORAGE_PROVIDER=oss
+ALIYUN_OSS_ENDPOINT=https://oss-cn-xxx.aliyuncs.com
+ALIYUN_OSS_BUCKET=puzzleops-assets
+ALIYUN_OSS_ACCESS_KEY_ID=...
+ALIYUN_OSS_ACCESS_KEY_SECRET=...
+ALIYUN_OSS_PUBLIC_BASE_URL=https://assets.example.com
+```
+
+慢任务由 worker 消费，API 只创建 job：
+
+```bash
+./scripts/run_worker.sh
+```
+
+生产语义：PostgreSQL 存 users、tokens、audit logs、assets、jobs、trace events 和业务主数据；Milvus/Zilliz 只存向量；OSS 存图片；Redis/RQ 用于异步队列，当前本地 worker 提供无 Redis fallback。
+
+## 上线评测结果
+
+正式 RAG release report 输出到：
+
+```text
+docs/eval/rag_release_report.md
+docs/eval/rag_release_report.json
+```
+
+报告覆盖 MRR@5、NDCG@5、Precision@5、Recall@5、citation usable rate、hard-negative rate、日本/法国拆分和已知限制。真实样本仍偏小，报告用于上线验收和面试说明，不能声称大规模生产稳定性。
+
 ## 架构与评测文档
 
 - [系统架构](docs/ARCHITECTURE.md)
@@ -139,6 +188,9 @@ PUZZLEOPS_API_TOKEN=jp_token ./scripts/smoke_api.sh
 - `puzzle_ops/vision_llm.py`：Qwen/OpenAI 视觉 LLM provider。
 - `puzzle_ops/image_generation.py`：DashScope/Mock 图像生成 provider。
 - `puzzle_ops/storage.py`：SQLite 主数据和 Memory。
+- `puzzle_ops/production_db.py`：PostgreSQL 主库 schema 与 repository 工厂。
+- `puzzle_ops/assets.py`：本地/阿里云 OSS 图片对象存储 provider。
+- `puzzle_ops/worker.py`：异步 job 执行入口，供 Redis/RQ worker 或本地 fallback 使用。
 - `puzzle_ops/feishu.py`：飞书同步和附件上传。
 - `puzzle_ops/harness.py`：Agent Harness 数据结构与运行器。
 - `tests/`：自动化测试。

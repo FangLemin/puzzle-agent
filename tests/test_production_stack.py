@@ -1,0 +1,215 @@
+import json
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+from puzzle_ops.api import create_app
+from puzzle_ops.assets import LocalAssetStorageProvider, StoredAsset
+from puzzle_ops.production_db import create_repository_from_env, postgres_schema_statements
+from puzzle_ops.storage import PuzzleRepository
+from puzzle_ops.worker import execute_job_once
+
+
+class ProductionFakeAgent:
+    def __init__(self, repository):
+        self.repository = repository
+        self.rag_provider_config = None
+        self.rag_vector_store_config = None
+        self.visual_embedding_provider = None
+        self.feishu = None
+
+    def value_audit_rag_answer(self, country, query, top_k=5, task_index="value_master"):
+        self.repository.record_trace_event(
+            trace_id="trace-rag-1",
+            request_id="req-rag-1",
+            actor="ops_jp",
+            country=country,
+            task_type="rag_search",
+            provider="local",
+            model="local",
+            input_summary=query,
+            rag_citations=("jp_value#chunk-1",),
+            output_summary="日本价值观依据",
+            status="succeeded",
+            latency_ms=12.5,
+        )
+
+        class Prompt:
+            citations = ("jp_value#chunk-1",)
+            context = "日本价值观：季节感、治愈、主体清晰。"
+            prompt = "只根据资料回答。"
+
+        self._last_rag_trace = {"final_hits": [{"chunk_id": "jp_value#chunk-1"}]}
+        self._last_rag_rewritten_query = query
+        return Prompt()
+
+    def rag_citation_details(self, country, citations):
+        return ({"chunk_id": "jp_value#chunk-1", "parent_id": "jp_value", "title": "日本价值观", "source_type": "value_rule", "text": "季节感、治愈。"},)
+
+    def provider_health_summary(self):
+        return {"qwen_vl": "configured"}
+
+
+def headers(token="jp-token"):
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_create_repository_from_env_keeps_sqlite_default_and_exposes_postgres_config(monkeypatch, tmp_path):
+    monkeypatch.delenv("PUZZLEOPS_DB_PROVIDER", raising=False)
+    repo = create_repository_from_env(tmp_path / "runtime")
+    assert isinstance(repo, PuzzleRepository)
+    assert repo.db_path == tmp_path / "runtime" / "puzzle_ops.db"
+
+    monkeypatch.setenv("PUZZLEOPS_DB_PROVIDER", "postgres")
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:pass@db.example:5432/puzzleops")
+    repo = create_repository_from_env(tmp_path / "runtime")
+    assert repo.backend == "postgres"
+    assert repo.database_url.startswith("postgresql+psycopg://")
+
+
+def test_postgres_schema_contains_release_tables():
+    schema = "\n".join(postgres_schema_statements())
+    for table in (
+        "users",
+        "api_tokens",
+        "audit_logs",
+        "demand_rows",
+        "trial_uploads",
+        "assets",
+        "jobs",
+        "trace_events",
+    ):
+        assert f"CREATE TABLE IF NOT EXISTS {table}" in schema
+
+
+def test_repository_persists_users_tokens_audit_jobs_assets_and_traces(tmp_path):
+    repo = PuzzleRepository(tmp_path / "prod.db")
+    repo.upsert_user("ops_jp", display_name="日本运营", role="operator", countries=("日本",), status="active")
+    token = repo.create_api_token("ops_jp", "jp-token", created_by="admin")
+
+    user = repo.api_user_by_token("jp-token")
+    assert user["user_id"] == "ops_jp"
+    assert user["role"] == "operator"
+    assert user["countries"] == ("日本",)
+    assert token["token_plaintext_preview"] == "jp-..."
+
+    repo.record_audit_log(actor="ops_jp", action="trial.upload", country="日本", resource_type="trial_upload", resource_id="upload-1")
+    assert repo.audit_logs(country="日本")[0]["action"] == "trial.upload"
+
+    asset = repo.create_asset(
+        object_key="uploads/2026/08/test.png",
+        public_url="https://oss.example/test.png",
+        sha256="abc123",
+        content_type="image/png",
+        size_bytes=10,
+        source_filename="test.png",
+        created_by="ops_jp",
+    )
+    repo.update_asset_feishu_token(asset["asset_id"], "file-token-1")
+    assert repo.asset(asset["asset_id"])["feishu_file_token"] == "file-token-1"
+
+    job = repo.create_job("vlm_parse", country="日本", actor="ops_jp", payload={"asset_id": asset["asset_id"]})
+    repo.update_job(job["job_id"], status="succeeded", result={"subject": "寿司"}, progress=100)
+    assert repo.job(job["job_id"])["result"]["subject"] == "寿司"
+
+    repo.record_trace_event(
+        trace_id="trace-1",
+        request_id="req-1",
+        actor="ops_jp",
+        country="日本",
+        task_type="value_analyze",
+        provider="qwen",
+        model="qwen3-vl-plus",
+        input_summary="寿司图",
+        rag_citations=("jp_food#c1",),
+        visual_similarity_evidence={"status": "low_confidence"},
+        output_summary="主体内容：寿司",
+        status="succeeded",
+        latency_ms=123.4,
+    )
+    assert repo.trace_event("trace-1")["rag_citations"] == ("jp_food#c1",)
+    assert repo.latency_metrics()["p95_ms"] == 123.4
+
+
+def test_local_asset_storage_uploads_and_deduplicates_by_hash(tmp_path):
+    source = tmp_path / "sushi.png"
+    source.write_bytes(b"fake-image")
+    provider = LocalAssetStorageProvider(tmp_path / "objects", public_base_url="http://assets.local")
+
+    first = provider.upload(source, "image/png", actor="ops_jp")
+    second = provider.upload(source, "image/png", actor="ops_jp")
+
+    assert isinstance(first, StoredAsset)
+    assert first.sha256 == second.sha256
+    assert first.object_key == second.object_key
+    assert first.public_url.startswith("http://assets.local/")
+    assert provider.download(first.object_key) == b"fake-image"
+
+
+def test_api_uses_repository_tokens_and_exposes_jobs_traces_metrics(monkeypatch, tmp_path):
+    monkeypatch.delenv("PUZZLEOPS_API_TOKENS", raising=False)
+    repo = PuzzleRepository(tmp_path / "api.db")
+    repo.upsert_user("ops_jp", display_name="日本运营", role="operator", countries=("日本",), status="active")
+    repo.create_api_token("ops_jp", "jp-token", created_by="admin")
+    agent = ProductionFakeAgent(repo)
+    client = TestClient(create_app(agent=agent))
+
+    me = client.get("/api/me", headers=headers())
+    assert me.status_code == 200
+    assert me.json()["user_id"] == "ops_jp"
+
+    job = client.post("/api/jobs/vlm-parse", headers=headers(), json={"country": "日本", "payload": {"asset_id": "asset-1"}})
+    assert job.status_code == 200
+    job_id = job.json()["job_id"]
+    assert client.get(f"/api/jobs/{job_id}", headers=headers()).json()["status"] == "queued"
+
+    rag = client.post("/api/rag/search", headers=headers(), json={"country": "日本", "query": "寿司是否符合日本价值观"})
+    assert rag.status_code == 200
+    trace = client.get("/api/traces/trace-rag-1", headers=headers())
+    assert trace.status_code == 200
+    assert trace.json()["task_type"] == "rag_search"
+    metrics = client.get("/api/metrics/latency", headers=headers())
+    assert metrics.status_code == 200
+    assert metrics.json()["p95_ms"] == 12.5
+
+
+def test_rag_release_report_exports_markdown_and_json(tmp_path):
+    repo = PuzzleRepository(tmp_path / "report.db")
+    repo.record_trace_event(
+        trace_id="trace-rag-ok",
+        request_id="req",
+        actor="system",
+        country="日本",
+        task_type="rag_search",
+        provider="local",
+        model="local",
+        input_summary="猫咪鲤鱼",
+        rag_citations=("jp_cat#c1",),
+        output_summary="hit@5=1 mrr@5=1 ndcg@5=1 precision@5=0.2 recall@5=1",
+        status="succeeded",
+        latency_ms=10,
+    )
+
+    report = repo.export_rag_release_report(tmp_path / "rag_release")
+
+    assert Path(report["json_path"]).exists()
+    assert Path(report["markdown_path"]).exists()
+    payload = json.loads(Path(report["json_path"]).read_text(encoding="utf-8"))
+    assert payload["metrics"]["citation_usable_rate"] == 1.0
+    markdown = Path(report["markdown_path"]).read_text(encoding="utf-8")
+    assert "MRR@5" in markdown
+    assert "日本" in markdown
+
+
+def test_worker_executes_known_job_and_records_trace(tmp_path):
+    repo = PuzzleRepository(tmp_path / "worker.db")
+    job = repo.create_job("rag_rebuild", country="日本", actor="admin", payload={"reason": "release_check"})
+
+    result = execute_job_once(repo, job["job_id"])
+
+    assert result["status"] == "succeeded"
+    saved = repo.job(job["job_id"])
+    assert saved["status"] == "succeeded"
+    assert saved["progress"] == 100
+    traces = repo.trace_events(country="日本", task_type="job.rag_rebuild")
+    assert traces[0]["status"] == "succeeded"

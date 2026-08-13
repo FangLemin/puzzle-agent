@@ -6,12 +6,16 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 from pathlib import Path
+import statistics
+import uuid
 
 from puzzle_ops.models import HistoricalRecord
 from puzzle_ops.rag import RagChunk, RagDocument
 
 
 class PuzzleRepository:
+    backend = "sqlite"
+
     def __init__(self, db_path: Path | str):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -385,6 +389,323 @@ class PuzzleRepository:
             item["approved_for_rag"] = bool(item.get("approved_for_rag"))
             items.append(item)
         return tuple(items)
+
+    def upsert_user(
+        self,
+        user_id: str,
+        *,
+        display_name: str = "",
+        role: str = "viewer",
+        countries: tuple[str, ...] = ("*",),
+        status: str = "active",
+    ) -> dict[str, object]:
+        normalized_role = role if role in {"viewer", "operator", "admin"} else "viewer"
+        encoded_countries = json.dumps(tuple(countries) or ("*",), ensure_ascii=False)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO users(user_id, display_name, role, countries, status, updated_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    display_name=excluded.display_name, role=excluded.role, countries=excluded.countries,
+                    status=excluded.status, updated_at=CURRENT_TIMESTAMP
+                """,
+                (user_id, display_name, normalized_role, encoded_countries, status),
+            )
+        return self.user(user_id) or {}
+
+    def user(self, user_id: str) -> dict[str, object] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT user_id, display_name, role, countries, status, created_at, updated_at FROM users WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+        return _decode_user_row(row) if row else None
+
+    def users(self) -> tuple[dict[str, object], ...]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT user_id, display_name, role, countries, status, created_at, updated_at FROM users ORDER BY user_id"
+            ).fetchall()
+        return tuple(_decode_user_row(row) for row in rows)
+
+    def create_api_token(self, user_id: str, token: str, *, created_by: str = "", expires_at: str = "") -> dict[str, object]:
+        token_id = f"tok_{uuid.uuid4().hex[:16]}"
+        token_hash = _text_hash(token)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO api_tokens(token_id, user_id, token_hash, created_by, expires_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (token_id, user_id, token_hash, created_by, expires_at),
+            )
+        return {"token_id": token_id, "user_id": user_id, "token_plaintext_preview": _token_preview(token)}
+
+    def api_user_by_token(self, token: str) -> dict[str, object] | None:
+        token_hash = _text_hash(token)
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT u.user_id, u.display_name, u.role, u.countries, u.status
+                FROM api_tokens t JOIN users u ON u.user_id = t.user_id
+                WHERE t.token_hash = ? AND t.revoked_at IS NULL
+                  AND (t.expires_at = '' OR t.expires_at IS NULL OR t.expires_at > CURRENT_TIMESTAMP)
+                """,
+                (token_hash,),
+            ).fetchone()
+        if not row:
+            return None
+        user = _decode_user_row(row)
+        return user if user.get("status") == "active" else None
+
+    def record_audit_log(
+        self,
+        *,
+        actor: str,
+        action: str,
+        country: str = "",
+        resource_type: str = "",
+        resource_id: str = "",
+        metadata: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        audit_id = f"audit_{uuid.uuid4().hex[:16]}"
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO audit_logs(audit_id, actor, action, country, resource_type, resource_id, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (audit_id, actor, action, country, resource_type, resource_id, json.dumps(metadata or {}, ensure_ascii=False, sort_keys=True)),
+            )
+        return self.audit_log(audit_id) or {}
+
+    def audit_log(self, audit_id: str) -> dict[str, object] | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM audit_logs WHERE audit_id = ?", (audit_id,)).fetchone()
+        return _decode_json_columns(dict(row), ("metadata",)) if row else None
+
+    def audit_logs(self, *, country: str = "", actor: str = "", limit: int = 100) -> tuple[dict[str, object], ...]:
+        where = []
+        params: list[object] = []
+        if country:
+            where.append("country = ?")
+            params.append(country)
+        if actor:
+            where.append("actor = ?")
+            params.append(actor)
+        clause = f"WHERE {' AND '.join(where)}" if where else ""
+        with self._connect() as conn:
+            rows = conn.execute(f"SELECT * FROM audit_logs {clause} ORDER BY created_at DESC, audit_id DESC LIMIT ?", (*params, max(limit, 0))).fetchall()
+        return tuple(_decode_json_columns(dict(row), ("metadata",)) for row in rows)
+
+    def create_asset(
+        self,
+        *,
+        object_key: str,
+        public_url: str,
+        sha256: str,
+        content_type: str,
+        size_bytes: int,
+        source_filename: str,
+        created_by: str = "",
+    ) -> dict[str, object]:
+        asset_id = f"asset_{uuid.uuid4().hex[:16]}"
+        with self._connect() as conn:
+            existing = conn.execute("SELECT * FROM assets WHERE sha256 = ? ORDER BY created_at DESC LIMIT 1", (sha256,)).fetchone()
+            if existing:
+                return dict(existing)
+            conn.execute(
+                """
+                INSERT INTO assets(asset_id, object_key, public_url, sha256, content_type, size_bytes, source_filename, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (asset_id, object_key, public_url, sha256, content_type, size_bytes, source_filename, created_by),
+            )
+        return self.asset(asset_id) or {}
+
+    def asset(self, asset_id: str) -> dict[str, object] | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM assets WHERE asset_id = ?", (asset_id,)).fetchone()
+        return dict(row) if row else None
+
+    def update_asset_feishu_token(self, asset_id: str, file_token: str) -> None:
+        with self._connect() as conn:
+            conn.execute("UPDATE assets SET feishu_file_token = ? WHERE asset_id = ?", (file_token, asset_id))
+
+    def create_job(self, job_type: str, *, country: str = "", actor: str = "", payload: dict[str, object] | None = None) -> dict[str, object]:
+        job_id = f"job_{uuid.uuid4().hex[:16]}"
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO jobs(job_id, job_type, country, actor, status, progress, payload, result)
+                VALUES (?, ?, ?, ?, 'queued', 0, ?, '{}')
+                """,
+                (job_id, job_type, country, actor, json.dumps(payload or {}, ensure_ascii=False, sort_keys=True)),
+            )
+        return self.job(job_id) or {}
+
+    def update_job(
+        self,
+        job_id: str,
+        *,
+        status: str,
+        result: dict[str, object] | None = None,
+        progress: int | None = None,
+        error_code: str = "",
+        error_message: str = "",
+        raw_provider_response: dict[str, object] | None = None,
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE jobs SET status = ?, progress = COALESCE(?, progress), result = COALESCE(?, result),
+                    error_code = ?, error_message = ?, raw_provider_response = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE job_id = ?
+                """,
+                (
+                    status,
+                    progress,
+                    json.dumps(result, ensure_ascii=False, sort_keys=True) if result is not None else None,
+                    error_code,
+                    error_message,
+                    json.dumps(raw_provider_response or {}, ensure_ascii=False, sort_keys=True),
+                    job_id,
+                ),
+            )
+
+    def job(self, job_id: str) -> dict[str, object] | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+        return _decode_json_columns(dict(row), ("payload", "result", "raw_provider_response")) if row else None
+
+    def jobs(self, *, country: str = "", status: str = "", limit: int = 100) -> tuple[dict[str, object], ...]:
+        where = []
+        params: list[object] = []
+        if country:
+            where.append("country = ?")
+            params.append(country)
+        if status:
+            where.append("status = ?")
+            params.append(status)
+        clause = f"WHERE {' AND '.join(where)}" if where else ""
+        with self._connect() as conn:
+            rows = conn.execute(f"SELECT * FROM jobs {clause} ORDER BY created_at DESC, job_id DESC LIMIT ?", (*params, max(limit, 0))).fetchall()
+        return tuple(_decode_json_columns(dict(row), ("payload", "result", "raw_provider_response")) for row in rows)
+
+    def record_trace_event(
+        self,
+        *,
+        trace_id: str,
+        request_id: str = "",
+        actor: str = "",
+        country: str = "",
+        task_type: str,
+        provider: str = "",
+        model: str = "",
+        input_summary: str = "",
+        rag_citations: tuple[str, ...] | list[str] = (),
+        visual_similarity_evidence: dict[str, object] | None = None,
+        output_summary: str = "",
+        status: str = "succeeded",
+        error_message: str = "",
+        latency_ms: float = 0.0,
+    ) -> dict[str, object]:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO trace_events(
+                    trace_id, request_id, actor, country, task_type, provider, model,
+                    input_summary, rag_citations, visual_similarity_evidence, output_summary,
+                    status, error_message, latency_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(trace_id) DO UPDATE SET
+                    status=excluded.status, error_message=excluded.error_message,
+                    output_summary=excluded.output_summary, latency_ms=excluded.latency_ms
+                """,
+                (
+                    trace_id,
+                    request_id,
+                    actor,
+                    country,
+                    task_type,
+                    provider,
+                    model,
+                    input_summary,
+                    json.dumps(tuple(rag_citations), ensure_ascii=False),
+                    json.dumps(visual_similarity_evidence or {}, ensure_ascii=False, sort_keys=True),
+                    output_summary,
+                    status,
+                    error_message,
+                    float(latency_ms),
+                ),
+            )
+        return self.trace_event(trace_id) or {}
+
+    def trace_event(self, trace_id: str) -> dict[str, object] | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM trace_events WHERE trace_id = ?", (trace_id,)).fetchone()
+        return _decode_trace_row(row) if row else None
+
+    def trace_events(self, *, country: str = "", task_type: str = "", limit: int = 100) -> tuple[dict[str, object], ...]:
+        where = []
+        params: list[object] = []
+        if country:
+            where.append("country = ?")
+            params.append(country)
+        if task_type:
+            where.append("task_type = ?")
+            params.append(task_type)
+        clause = f"WHERE {' AND '.join(where)}" if where else ""
+        with self._connect() as conn:
+            rows = conn.execute(f"SELECT * FROM trace_events {clause} ORDER BY created_at DESC, trace_id DESC LIMIT ?", (*params, max(limit, 0))).fetchall()
+        return tuple(_decode_trace_row(row) for row in rows)
+
+    def latency_metrics(self, *, country: str = "", task_type: str = "") -> dict[str, object]:
+        traces = self.trace_events(country=country, task_type=task_type, limit=1000)
+        values = sorted(float(trace.get("latency_ms") or 0) for trace in traces if float(trace.get("latency_ms") or 0) >= 0)
+        return {
+            "count": len(values),
+            "p50_ms": _percentile(values, 0.50),
+            "p95_ms": _percentile(values, 0.95),
+            "p99_ms": _percentile(values, 0.99),
+            "average_ms": round(statistics.mean(values), 4) if values else 0.0,
+        }
+
+    def export_rag_release_report(self, output_dir: Path | str) -> dict[str, object]:
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        traces = self.trace_events(task_type="rag_search", limit=1000)
+        by_country: dict[str, list[dict[str, object]]] = {}
+        for trace in traces:
+            by_country.setdefault(str(trace.get("country", "") or "GLOBAL"), []).append(trace)
+        usable = sum(1 for trace in traces if trace.get("rag_citations"))
+        metrics = {
+            "trace_count": len(traces),
+            "citation_usable_rate": round(usable / len(traces), 4) if traces else 0.0,
+            "mrr@5": _extract_metric_from_traces(traces, "mrr@5"),
+            "ndcg@5": _extract_metric_from_traces(traces, "ndcg@5"),
+            "precision@5": _extract_metric_from_traces(traces, "precision@5"),
+            "recall@5": _extract_metric_from_traces(traces, "recall@5"),
+            "hard_negative_rate": _extract_metric_from_traces(traces, "hard_negative_rate"),
+        }
+        payload = {
+            "mode": "rag_release_report",
+            "metrics": metrics,
+            "countries": {
+                country: {
+                    "trace_count": len(items),
+                    "citation_usable_rate": round(sum(1 for item in items if item.get("rag_citations")) / len(items), 4) if items else 0.0,
+                }
+                for country, items in sorted(by_country.items())
+            },
+            "known_limits": "真实样本规模仍偏小，报告用于上线验收与面试说明，不能声称大规模生产稳定性。",
+        }
+        json_path = output_path / "rag_release_report.json"
+        markdown_path = output_path / "rag_release_report.md"
+        json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        markdown_path.write_text(_rag_release_report_markdown(payload), encoding="utf-8")
+        return {"json_path": str(json_path), "markdown_path": str(markdown_path), "payload": payload}
 
     @staticmethod
     def _record_memory_audit_conn(
@@ -1078,6 +1399,74 @@ class PuzzleRepository:
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
                 """,
+                """
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id TEXT PRIMARY KEY, display_name TEXT NOT NULL DEFAULT '',
+                    role TEXT NOT NULL, countries TEXT NOT NULL DEFAULT '[]',
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS api_tokens (
+                    token_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE,
+                    created_by TEXT NOT NULL DEFAULT '', expires_at TEXT NOT NULL DEFAULT '',
+                    revoked_at TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS audit_logs (
+                    audit_id TEXT PRIMARY KEY, actor TEXT NOT NULL, action TEXT NOT NULL,
+                    country TEXT NOT NULL DEFAULT '', resource_type TEXT NOT NULL DEFAULT '',
+                    resource_id TEXT NOT NULL DEFAULT '', metadata TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS demand_rows (
+                    demand_id TEXT PRIMARY KEY, country TEXT NOT NULL, need_type TEXT NOT NULL,
+                    operation_tag TEXT NOT NULL, subject TEXT NOT NULL DEFAULT '', payload TEXT NOT NULL DEFAULT '{}',
+                    created_by TEXT NOT NULL DEFAULT '', updated_by TEXT NOT NULL DEFAULT '',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS trial_uploads (
+                    upload_id TEXT PRIMARY KEY, country TEXT NOT NULL, asset_id TEXT NOT NULL DEFAULT '',
+                    parse_status TEXT NOT NULL DEFAULT 'queued', derivative_status TEXT NOT NULL DEFAULT 'not_requested',
+                    payload TEXT NOT NULL DEFAULT '{}', created_by TEXT NOT NULL DEFAULT '',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS assets (
+                    asset_id TEXT PRIMARY KEY, object_key TEXT NOT NULL, public_url TEXT NOT NULL DEFAULT '',
+                    sha256 TEXT NOT NULL, content_type TEXT NOT NULL DEFAULT '', size_bytes INTEGER NOT NULL DEFAULT 0,
+                    source_filename TEXT NOT NULL DEFAULT '', feishu_file_token TEXT NOT NULL DEFAULT '',
+                    created_by TEXT NOT NULL DEFAULT '', created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS jobs (
+                    job_id TEXT PRIMARY KEY, job_type TEXT NOT NULL, country TEXT NOT NULL DEFAULT '',
+                    actor TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'queued', progress INTEGER NOT NULL DEFAULT 0,
+                    payload TEXT NOT NULL DEFAULT '{}', result TEXT NOT NULL DEFAULT '{}',
+                    error_code TEXT NOT NULL DEFAULT '', error_message TEXT NOT NULL DEFAULT '',
+                    raw_provider_response TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS trace_events (
+                    trace_id TEXT PRIMARY KEY, request_id TEXT NOT NULL DEFAULT '', actor TEXT NOT NULL DEFAULT '',
+                    country TEXT NOT NULL DEFAULT '', task_type TEXT NOT NULL, provider TEXT NOT NULL DEFAULT '',
+                    model TEXT NOT NULL DEFAULT '', input_summary TEXT NOT NULL DEFAULT '',
+                    rag_citations TEXT NOT NULL DEFAULT '[]', visual_similarity_evidence TEXT NOT NULL DEFAULT '{}',
+                    output_summary TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'succeeded',
+                    error_message TEXT NOT NULL DEFAULT '', latency_ms REAL NOT NULL DEFAULT 0,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """,
             )
             for statement in statements:
                 conn.execute(statement)
@@ -1105,6 +1494,11 @@ class PuzzleRepository:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_guarded_action_events_proposal ON guarded_action_events(proposal_id, event_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_tool_invocations_country_created ON tool_invocations(country, created_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_tool_invocations_tool_created ON tool_invocations(tool_name, created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_country_created ON audit_logs(country, created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_sha256 ON assets(sha256)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_country_status ON jobs(country, status, created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_trace_events_country_task ON trace_events(country, task_type, created_at)")
 
     @staticmethod
     def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
@@ -1133,6 +1527,85 @@ def _decode_metadata(item: dict[str, object]) -> dict[str, object]:
     except json.JSONDecodeError:
         item["metadata"] = {}
     return item
+
+
+def _decode_json_columns(item: dict[str, object], keys: tuple[str, ...]) -> dict[str, object]:
+    for key in keys:
+        try:
+            value = json.loads(str(item.get(key, "{}") or "{}"))
+        except json.JSONDecodeError:
+            value = {} if key != "rag_citations" else []
+        if key == "rag_citations":
+            item[key] = tuple(str(part) for part in value) if isinstance(value, list) else ()
+        else:
+            item[key] = value if isinstance(value, dict) else {}
+    return item
+
+
+def _decode_user_row(row) -> dict[str, object]:
+    item = dict(row)
+    try:
+        countries = json.loads(str(item.get("countries", "[]") or "[]"))
+    except json.JSONDecodeError:
+        countries = []
+    item["countries"] = tuple(str(country) for country in countries) if isinstance(countries, list) else ("*",)
+    return item
+
+
+def _decode_trace_row(row) -> dict[str, object]:
+    item = dict(row)
+    return _decode_json_columns(item, ("rag_citations", "visual_similarity_evidence"))
+
+
+def _token_preview(token: str) -> str:
+    if len(token) <= 4:
+        return "***"
+    return f"{token[:3]}..."
+
+
+def _percentile(values: list[float], percentile: float) -> float:
+    if not values:
+        return 0.0
+    index = min(len(values) - 1, max(0, int(round((len(values) - 1) * percentile))))
+    return round(values[index], 4)
+
+
+def _extract_metric_from_traces(traces: tuple[dict[str, object], ...], metric: str) -> float:
+    values: list[float] = []
+    marker = f"{metric}="
+    for trace in traces:
+        text = str(trace.get("output_summary", ""))
+        if marker not in text:
+            continue
+        tail = text.split(marker, 1)[1].split()[0].strip("；;,")
+        try:
+            values.append(float(tail))
+        except ValueError:
+            continue
+    return round(sum(values) / len(values), 4) if values else 0.0
+
+
+def _rag_release_report_markdown(payload: dict[str, object]) -> str:
+    metrics = payload.get("metrics", {}) if isinstance(payload.get("metrics"), dict) else {}
+    countries = payload.get("countries", {}) if isinstance(payload.get("countries"), dict) else {}
+    lines = [
+        "# PuzzleOps RAG Release Report",
+        "",
+        "## 核心指标",
+        f"- MRR@5：{metrics.get('mrr@5', 0.0)}",
+        f"- NDCG@5：{metrics.get('ndcg@5', 0.0)}",
+        f"- Precision@5：{metrics.get('precision@5', 0.0)}",
+        f"- Recall@5：{metrics.get('recall@5', 0.0)}",
+        f"- Citation usable rate：{metrics.get('citation_usable_rate', 0.0)}",
+        f"- Hard-negative rate：{metrics.get('hard_negative_rate', 0.0)}",
+        "",
+        "## 国家拆分",
+    ]
+    for country, item in countries.items():
+        if isinstance(item, dict):
+            lines.append(f"- {country}：trace_count={item.get('trace_count', 0)}，citation_usable_rate={item.get('citation_usable_rate', 0.0)}")
+    lines.extend(["", "## 限制", str(payload.get("known_limits", ""))])
+    return "\n".join(lines) + "\n"
 
 
 def _guarded_action_from_row(row: dict[str, object], action_cls):

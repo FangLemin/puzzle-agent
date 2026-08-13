@@ -62,6 +62,25 @@ class VisualSimilaritySearchRequest(BaseModel):
     min_reference_score: float | None = None
 
 
+class UserCreateRequest(BaseModel):
+    user_id: str
+    display_name: str = ""
+    role: str = "viewer"
+    countries: tuple[str, ...] = ("*",)
+    status: str = "active"
+
+
+class TokenCreateRequest(BaseModel):
+    user_id: str
+    token: str
+    expires_at: str = ""
+
+
+class JobCreateRequest(BaseModel):
+    country: str
+    payload: dict[str, object] = Field(default_factory=dict)
+
+
 def parse_api_tokens(raw: str | None = None) -> dict[str, ApiUser]:
     """Parse PUZZLEOPS_API_TOKENS.
 
@@ -115,6 +134,40 @@ def create_app(agent: PuzzleOpsAgent | None = None) -> FastAPI:
             "auth": {"user_id": user.user_id, "role": user.role, "countries": user.countries},
             "providers": _provider_health(api_agent),
         }
+
+    @app.get("/api/me")
+    def me(user: ApiUser = Depends(_require_role("viewer"))):
+        return {"user_id": user.user_id, "role": user.role, "countries": user.countries}
+
+    @app.get("/api/admin/users")
+    def admin_users(user: ApiUser = Depends(_require_role("admin"))):
+        repo = _repository(app)
+        return {"users": _jsonable(repo.users()) if repo and hasattr(repo, "users") else []}
+
+    @app.post("/api/admin/users")
+    def create_user(payload: UserCreateRequest, user: ApiUser = Depends(_require_role("admin"))):
+        repo = _repository(app)
+        if repo is None or not hasattr(repo, "upsert_user"):
+            raise _api_error(503, "repository_unavailable", "repository does not support user management")
+        created = repo.upsert_user(payload.user_id, display_name=payload.display_name, role=payload.role, countries=payload.countries, status=payload.status)
+        repo.record_audit_log(actor=user.user_id, action="admin.user_upsert", resource_type="user", resource_id=payload.user_id)
+        return _jsonable(created)
+
+    @app.post("/api/admin/tokens")
+    def create_token(payload: TokenCreateRequest, user: ApiUser = Depends(_require_role("admin"))):
+        repo = _repository(app)
+        if repo is None or not hasattr(repo, "create_api_token"):
+            raise _api_error(503, "repository_unavailable", "repository does not support token management")
+        created = repo.create_api_token(payload.user_id, payload.token, created_by=user.user_id, expires_at=payload.expires_at)
+        repo.record_audit_log(actor=user.user_id, action="admin.token_create", resource_type="user", resource_id=payload.user_id)
+        return _jsonable(created)
+
+    @app.get("/api/audit/logs")
+    def audit_logs(country: str = "", actor: str = "", user: ApiUser = Depends(_require_role("admin"))):
+        if country:
+            _ensure_country(user, country)
+        repo = _repository(app)
+        return {"logs": _jsonable(repo.audit_logs(country=country, actor=actor)) if repo and hasattr(repo, "audit_logs") else []}
 
     @app.post("/api/rag/search")
     def rag_search(payload: RagSearchRequest, user: ApiUser = Depends(_require_role("viewer"))):
@@ -226,16 +279,77 @@ def create_app(agent: PuzzleOpsAgent | None = None) -> FastAPI:
             evidence["requested_min_reference_score"] = payload.min_reference_score
         return _jsonable(evidence)
 
+    @app.post("/api/jobs/vlm-parse")
+    def create_vlm_parse_job(payload: JobCreateRequest, user: ApiUser = Depends(_require_role("operator"))):
+        return _create_job_response(app, "vlm_parse", payload, user)
+
+    @app.post("/api/jobs/generate-derivatives")
+    def create_derivative_job(payload: JobCreateRequest, user: ApiUser = Depends(_require_role("operator"))):
+        return _create_job_response(app, "generate_derivatives", payload, user)
+
+    @app.post("/api/jobs/feishu-sync")
+    def create_feishu_sync_job(payload: JobCreateRequest, user: ApiUser = Depends(_require_role("operator"))):
+        job_payload = dict(payload.payload)
+        job_payload["requires_human_review"] = True
+        return _create_job_response(app, "feishu_sync", JobCreateRequest(country=payload.country, payload=job_payload), user)
+
+    @app.post("/api/jobs/rag-rebuild")
+    def create_rag_rebuild_job(payload: JobCreateRequest, user: ApiUser = Depends(_require_role("admin"))):
+        return _create_job_response(app, "rag_rebuild", payload, user)
+
+    @app.get("/api/jobs/{job_id}")
+    def get_job(job_id: str, user: ApiUser = Depends(_require_role("viewer"))):
+        repo = _repository(app)
+        job = repo.job(job_id) if repo and hasattr(repo, "job") else None
+        if not job:
+            raise _api_error(404, "job_not_found", f"job not found: {job_id}")
+        if job.get("country"):
+            _ensure_country(user, str(job.get("country")))
+        return _jsonable(job)
+
+    @app.post("/api/jobs/{job_id}/retry")
+    def retry_job(job_id: str, user: ApiUser = Depends(_require_role("admin"))):
+        repo = _repository(app)
+        job = repo.job(job_id) if repo and hasattr(repo, "job") else None
+        if not job:
+            raise _api_error(404, "job_not_found", f"job not found: {job_id}")
+        repo.update_job(job_id, status="queued", progress=0, result={})
+        repo.record_audit_log(actor=user.user_id, action="job.retry", country=str(job.get("country", "")), resource_type="job", resource_id=job_id)
+        return _jsonable(repo.job(job_id))
+
+    @app.get("/api/traces/{trace_id}")
+    def get_trace(trace_id: str, user: ApiUser = Depends(_require_role("viewer"))):
+        repo = _repository(app)
+        trace = repo.trace_event(trace_id) if repo and hasattr(repo, "trace_event") else None
+        if not trace:
+            raise _api_error(404, "trace_not_found", f"trace not found: {trace_id}")
+        if trace.get("country"):
+            _ensure_country(user, str(trace.get("country")))
+        return _jsonable(trace)
+
+    @app.get("/api/metrics/latency")
+    def latency_metrics(country: str = "", task_type: str = "", user: ApiUser = Depends(_require_role("viewer"))):
+        if country:
+            _ensure_country(user, country)
+        repo = _repository(app)
+        return _jsonable(repo.latency_metrics(country=country, task_type=task_type) if repo and hasattr(repo, "latency_metrics") else {})
+
+    @app.get("/api/metrics/provider-health")
+    def provider_health(user: ApiUser = Depends(_require_role("viewer"))):
+        return _provider_health(_agent(app))
+
     return app
 
 
 def _require_role(required_role: str):
-    def dependency(authorization: str = Header(default="")) -> ApiUser:
+    def dependency(request: Request, authorization: str = Header(default="")) -> ApiUser:
         token = _bearer_token(authorization)
         if not token:
             raise _api_error(401, "unauthorized", "missing bearer token")
-        users = parse_api_tokens()
-        user = users.get(token)
+        user = _repository_user_from_token(request.app, token)
+        if user is None:
+            users = parse_api_tokens()
+            user = users.get(token)
         if user is None:
             raise _api_error(401, "unauthorized", "invalid bearer token")
         if not user.has_role(required_role):
@@ -247,6 +361,25 @@ def _require_role(required_role: str):
 
 def _agent(app: FastAPI):
     return app.state.agent
+
+
+def _repository(app: FastAPI):
+    return getattr(_agent(app), "repository", None)
+
+
+def _repository_user_from_token(current_app: FastAPI, token: str) -> ApiUser | None:
+    repo = _repository(current_app)
+    if repo is None or not hasattr(repo, "api_user_by_token"):
+        return None
+    row = repo.api_user_by_token(token)
+    if not row:
+        return None
+    return ApiUser(
+        user_id=str(row.get("user_id", "")),
+        token=token,
+        role=str(row.get("role", "viewer")),
+        countries=tuple(str(country) for country in row.get("countries", ("*",))),
+    )
 
 
 def _bearer_token(authorization: str) -> str:
@@ -272,7 +405,12 @@ def _provider_health(agent) -> dict[str, object]:
     vector = getattr(agent, "rag_vector_store_config", None)
     visual = getattr(agent, "visual_embedding_provider", None)
     feishu = getattr(agent, "feishu", None)
-    return {
+    repository = getattr(agent, "repository", None)
+    payload = {
+        "database": {
+            "provider": getattr(repository, "backend", os.environ.get("PUZZLEOPS_DB_PROVIDER", "sqlite")),
+            "configured": True,
+        },
         "vision_llm": {
             "provider": os.environ.get("VISION_LLM_PROVIDER", "qwen"),
             "model": os.environ.get("QWEN_VISION_MODEL", ""),
@@ -301,6 +439,19 @@ def _provider_health(agent) -> dict[str, object]:
         },
         "feishu": {"configured": bool(getattr(feishu, "configured", False) or os.environ.get("FEISHU_APP_ID"))},
     }
+    if hasattr(agent, "provider_health_summary"):
+        payload["agent"] = _jsonable(agent.provider_health_summary())
+    return payload
+
+
+def _create_job_response(app: FastAPI, job_type: str, payload: JobCreateRequest, user: ApiUser) -> dict[str, object]:
+    _ensure_country(user, payload.country)
+    repo = _repository(app)
+    if repo is None or not hasattr(repo, "create_job"):
+        raise _api_error(503, "repository_unavailable", "repository does not support jobs")
+    job = repo.create_job(job_type, country=payload.country, actor=user.user_id, payload=payload.payload)
+    repo.record_audit_log(actor=user.user_id, action=f"job.create.{job_type}", country=payload.country, resource_type="job", resource_id=str(job.get("job_id", "")))
+    return _jsonable(job)
 
 
 def _citation_payload(citation: dict[str, object]) -> dict[str, object]:

@@ -2,6 +2,56 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.64 - Production Online Architecture Foundation
+
+日期：2026-08-13
+
+阶段目标：
+
+- 将本地单人 Agent 向 6 人运营团队上线形态推进。
+- 补齐 PostgreSQL 主库、多人权限、异步 job、OSS 图片存储、trace/metrics 和 RAG release report 的工程骨架。
+- 保持 SQLite 本地 demo 兼容，不提交任何密钥。
+
+已完成：
+
+- 新增 `puzzle_ops/production_db.py`：
+  - 支持 `PUZZLEOPS_DB_PROVIDER=sqlite|postgres`。
+  - 保留 SQLite 默认路径。
+  - 提供 PostgreSQL repository 工厂和上线 schema 蓝图，覆盖 users、api_tokens、audit_logs、demand_rows、trial_uploads、assets、Memory、RAG、Harness、jobs、trace_events。
+- 扩展 `puzzle_ops/storage.py`：
+  - 增加 users、api_tokens、audit_logs、assets、jobs、trace_events 表。
+  - 增加 token hash 鉴权查询、用户管理、审计日志、资产记录、job 状态、trace 记录、P50/P95/P99 延迟指标。
+  - 增加 `export_rag_release_report()`，输出 Markdown/JSON release report。
+- 新增 `puzzle_ops/assets.py`：
+  - 本地资产存储 provider。
+  - 阿里云 OSS provider 配置入口。
+  - 数据库只保存 object_key、URL、hash、content type、size、飞书 file_token。
+- 新增 `puzzle_ops/worker.py` 和 `scripts/run_worker.sh`：
+  - 支持 VLM 解析、好图衍生、飞书同步、RAG 重建等 job 的统一执行入口。
+  - 本地 fallback 可测试；ECS 上可接 Redis/RQ worker。
+- 扩展 `puzzle_ops/api.py`：
+  - 鉴权优先读取 repository token，env token 作为本地 demo fallback。
+  - 新增 `/api/me`、用户/token 管理、audit logs、job 创建/查询/重试、trace 查询、latency metrics、provider health。
+  - 飞书同步通过 job 保留人工确认，不做无确认自动写入。
+- 更新 `README.md`、`docs/API_SPEC.md`、`docs/DEPLOYMENT.md`：
+  - 写清本地页面、多人 API、worker、PostgreSQL、OSS、权限、trace/metrics 和上线 checklist。
+- 新增 `docs/eval/rag_release_report.md` 和 `.json`：
+  - 固化上线验收报告结构。
+  - 覆盖 MRR@5、NDCG@5、Precision@5、Recall@5、citation usable rate、hard-negative rate、日本/法国拆分和限制说明。
+- 新增 `tests/test_production_stack.py`：
+  - 覆盖 repository 工厂、PostgreSQL schema、用户/token、审计、asset、job、trace、metrics、worker、RAG release report。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_production_stack.py -q`：7 passed。
+
+当前限制：
+
+- PostgreSQL 当前为上线 schema 与工厂骨架；完整 SQLAlchemy/Alembic 迁移执行和真实 RDS smoke 需要在阿里云环境配置后继续验收。
+- Redis/RQ 当前提供依赖和 worker 统一入口，本地测试使用无 Redis fallback。
+- OSS provider 已有真实接入入口，但本轮测试不调用阿里云，不产生费用。
+- 第一版多人入口仍复用现有页面 + FastAPI，不新建 Vue/React 管理端。
+
 ## v0.7.63 - Interview and Resume Materials
 
 日期：2026-08-11

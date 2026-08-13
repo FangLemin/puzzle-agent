@@ -15,7 +15,7 @@ http://127.0.0.1:5199
 - 支持脚本、内部工具、未来前端或飞书机器人复用同一套 Agent 能力。
 - 保留当前 Python 本地页面作为单人 demo，不强行迁移前端。
 
-v0.7.60 已实现第一版 FastAPI runtime：health、RAG search、value analyze、harness summary、visual similarity search 和 Bearer token 鉴权。
+v0.7.64 起，FastAPI runtime 增加 PostgreSQL 用户/token fallback、job、trace、metrics 和 provider health 骨架。health、RAG search、value analyze、harness summary、visual similarity search 继续保留。
 
 ## 2. 非目标
 
@@ -56,7 +56,9 @@ PUZZLEOPS_API_TOKEN=jp_token ./scripts/smoke_api.sh
 - 使用 HTTPS 反向代理。
 - 只开放 API 端口给可信网络或 VPN。
 - `.env` 放服务器本地，不进 GitHub。
-- 定期备份 `PUZZLEOPS_RUNTIME_DIR` 里的 SQLite、生成图、上传图和报告。
+- 生产环境使用 `PUZZLEOPS_DB_PROVIDER=postgres` 和阿里云 RDS PostgreSQL。
+- 图片使用阿里云 OSS，数据库只存 asset 元数据。
+- worker 使用 `./scripts/run_worker.sh` 或 Redis/RQ 进程守护。
 
 ## 4. 鉴权
 
@@ -72,6 +74,8 @@ Authorization: Bearer <token>
 PUZZLEOPS_API_TOKENS=ops_jp:token1:operator:日本,ops_fr:token2:operator:法国,admin:token3:admin:日本|法国
 ```
 
+生产环境推荐从 PostgreSQL `users` / `api_tokens` 读取 token hash；`PUZZLEOPS_API_TOKENS` 仅作为本地 demo fallback。
+
 解析字段：
 
 - `user_id`：用户标识。
@@ -86,6 +90,35 @@ PUZZLEOPS_API_TOKENS=ops_jp:token1:operator:日本,ops_fr:token2:operator:法国
 | `viewer` | health、rag search、harness summary |
 | `operator` | viewer + value analyze + trial draft |
 | `admin` | operator + feishu sync + rebuild index + provider healthcheck |
+
+## 5.1 GET /api/me
+
+用途：确认当前 token 对应的用户、角色和国家权限。
+
+权限：`viewer`。
+
+响应：
+
+```json
+{
+  "user_id": "ops_jp",
+  "role": "operator",
+  "countries": ["日本"]
+}
+```
+
+## 5.2 管理接口
+
+```text
+GET  /api/admin/users
+POST /api/admin/users
+POST /api/admin/tokens
+GET  /api/audit/logs
+```
+
+权限：`admin`。
+
+说明：生产环境用这些接口把 6 人账号、角色和 token hash 落到 PostgreSQL，并记录审计日志。
 
 ## 5. 通用错误格式
 
@@ -365,13 +398,80 @@ GET /api/harness/summary?country=日本
 }
 ```
 
-## 11. POST /api/feishu/sync/trial
+## 11. Job / Trace / Metrics
+
+### POST /api/jobs/vlm-parse
+
+用途：创建 Qwen-VL 图片解析任务。
+
+权限：`operator`。
+
+```json
+{
+  "country": "日本",
+  "payload": {
+    "asset_id": "asset_xxx"
+  }
+}
+```
+
+响应包含 `job_id`、`status=queued`、`payload`。
+
+### POST /api/jobs/generate-derivatives
+
+用途：创建好图衍生生成任务。生成图必须二次 VLM 解析和人工确认后才能进入提需表。
+
+权限：`operator`。
+
+### POST /api/jobs/feishu-sync
+
+用途：创建飞书同步任务。接口强制保留 `requires_human_review=true`，不做无确认自动写入。
+
+权限：`operator`。
+
+### POST /api/jobs/rag-rebuild
+
+用途：创建 RAG 重建任务。
+
+权限：`admin`。
+
+### GET /api/jobs/{job_id}
+
+用途：查询任务状态。
+
+状态枚举：
+
+```text
+queued / running / succeeded / failed / cancelled / needs_review
+```
+
+### POST /api/jobs/{job_id}/retry
+
+用途：重试任务。
+
+权限：`admin`。
+
+### GET /api/traces/{trace_id}
+
+用途：回查单次价值观分析、RAG、图搜图、飞书同步或 worker 任务链路。
+
+返回字段包括 provider、model、input_summary、rag_citations、visual_similarity_evidence、output_summary、status、error_message、latency_ms。
+
+### GET /api/metrics/latency
+
+用途：返回 P50/P95/P99 和平均延迟，可按 `country`、`task_type` 过滤。
+
+### GET /api/metrics/provider-health
+
+用途：返回数据库、VLM、RAG、Milvus、视觉 embedding、飞书等 provider 配置状态，不返回任何密钥。
+
+## 12. POST /api/feishu/sync/trial
 
 用途：同步试新提需到飞书。
 
 权限：`admin`。
 
-当前状态：暂缓实现。原因是 6 人共用时飞书写入属于高风险动作，第一版 API 先开放只读和分析接口；真实写入仍走现有页面的人工确认链路。
+当前状态：推荐通过 `/api/jobs/feishu-sync` 创建任务并保留人工确认。真实写入仍必须满足字段存在、附件 `file_token` 可用、失败不清空本地提需表。
 
 请求：
 
@@ -399,7 +499,7 @@ GET /api/harness/summary?country=日本
 - 同步失败不清空本地提需表。
 - 返回飞书错误时保留 `log_id`，方便排查。
 
-## 12. 测试计划
+## 13. 测试计划
 
 v0.7.60 已新增：
 
@@ -415,6 +515,8 @@ v0.7.60 已新增：
 
 - `tests/test_api.py::test_feishu_sync_requires_admin`
 - `tests/test_api.py::test_feishu_sync_does_not_clear_rows_on_failure`
+- `tests/test_production_stack.py::test_api_uses_repository_tokens_and_exposes_jobs_traces_metrics`
+- `tests/test_production_stack.py::test_worker_executes_known_job_and_records_trace`
 - `tests/test_api.py::test_feishu_sync_uploads_attachment_file_token_before_record_write`
 
 回归命令：
