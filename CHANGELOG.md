@@ -2,6 +2,49 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.65 - PostgreSQL Alembic Migration and RDS Smoke
+
+日期：2026-08-13
+
+阶段目标：
+
+- 将 v0.7.64 的 PostgreSQL schema 蓝图推进为可执行迁移和可验收 RDS smoke。
+- 让 ECS/RDS 上线时可以通过 Alembic 或脚本一键建表，并用 healthcheck 检查表完整性。
+
+已完成：
+
+- 新增 Alembic scaffold：
+  - `alembic.ini`
+  - `migrations/env.py`
+  - `migrations/script.py.mako`
+  - `migrations/versions/20260813_0765_production_online_schema.py`
+- 迁移文件复用 `postgres_schema_statements()`，避免 schema 定义两套漂移。
+- 扩展 `puzzle_ops/production_db.py`：
+  - `initialize_database(database_url)`：执行生产 schema。
+  - `database_healthcheck(database_url)`：连接数据库、检查 15 张 release table。
+  - SQLite 兼容 schema 用于本地 dry-run 和测试。
+  - 输出脱敏 `safe_database_url`，不打印真实密码。
+- 新增脚本：
+  - `scripts/init_postgres_schema.py`
+  - `scripts/smoke_postgres.py`
+- 更新 README 和部署文档：
+  - 明确 `alembic upgrade head`。
+  - 明确 `PUZZLEOPS_INIT_DB=1 python scripts/smoke_postgres.py`。
+  - 明确 RDS smoke 不泄露密码。
+- 更新 `tests/test_production_stack.py` 和 `tests/test_deployment_docs.py`：
+  - 覆盖 Alembic scaffold、迁移文件、SQLite 兼容建表、healthcheck、部署文档命令。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_production_stack.py tests/test_deployment_docs.py -q`：12 passed。
+- `DATABASE_URL=postgresql+psycopg://user:password@example.com:5432/puzzleops alembic upgrade head --sql`：成功生成 PostgreSQL DDL。
+- `DATABASE_URL=sqlite:////.../puzzleops-smoke.db PUZZLEOPS_INIT_DB=1 python scripts/smoke_postgres.py`：`status=ok`，`table_count=15`，`missing_tables=[]`。
+
+当前限制：
+
+- 本轮已完成迁移和 smoke 命令链路；真实阿里云 RDS 联通仍需要你提供/配置实际 `DATABASE_URL`、白名单和安全组。
+- `PostgresPuzzleRepository` 仍是上线连接配置与 schema 骨架，业务读写逐步迁移到 SQLAlchemy repository 的工作放到后续版本。
+
 ## v0.7.64 - Production Online Architecture Foundation
 
 日期：2026-08-13

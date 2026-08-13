@@ -47,6 +47,30 @@ DATABASE_URL=postgresql+psycopg://puzzleops_user:password@rds-host:5432/puzzleop
 
 PostgreSQL 存 users、tokens、audit logs、assets、jobs、trace events、Memory、Harness、RAG metadata 和业务提需数据。SQLite 只保留为本地 demo fallback。
 
+初始化 RDS schema 有两种方式：
+
+```bash
+DATABASE_URL=postgresql+psycopg://puzzleops_user:password@rds-host:5432/puzzleops \
+alembic upgrade head
+```
+
+或使用项目脚本直接执行同一份 schema：
+
+```bash
+DATABASE_URL=postgresql+psycopg://puzzleops_user:password@rds-host:5432/puzzleops \
+python scripts/init_postgres_schema.py
+```
+
+RDS smoke：
+
+```bash
+DATABASE_URL=postgresql+psycopg://puzzleops_user:password@rds-host:5432/puzzleops \
+PUZZLEOPS_INIT_DB=1 \
+python scripts/smoke_postgres.py
+```
+
+输出里只会显示脱敏后的 `safe_database_url`，不会打印真实密码。
+
 OSS 图片存储：
 
 ```bash

@@ -42,8 +42,11 @@ def test_deployment_doc_covers_six_person_fastapi_checklist():
         "/api/visual-similarity/search",
         "PUZZLEOPS_API_TOKENS",
         "viewer",
-        "operator",
-        "admin",
-        "飞书写入接口暂缓开放",
-    ):
-        assert needle in content
+            "operator",
+            "admin",
+            "飞书写入接口暂缓开放",
+            "alembic upgrade head",
+            "scripts/smoke_postgres.py",
+            "PUZZLEOPS_INIT_DB=1",
+        ):
+            assert needle in content

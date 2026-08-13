@@ -134,6 +134,19 @@ PUZZLEOPS_DB_PROVIDER=postgres
 DATABASE_URL=postgresql+psycopg://user:password@host:5432/puzzleops
 ```
 
+初始化/验收 RDS：
+
+```bash
+DATABASE_URL=postgresql+psycopg://user:password@host:5432/puzzleops alembic upgrade head
+DATABASE_URL=postgresql+psycopg://user:password@host:5432/puzzleops PUZZLEOPS_INIT_DB=1 python scripts/smoke_postgres.py
+```
+
+也可以不用 Alembic CLI，直接执行：
+
+```bash
+DATABASE_URL=postgresql+psycopg://user:password@host:5432/puzzleops python scripts/init_postgres_schema.py
+```
+
 图片不再依赖本机路径，建议上传到阿里云 OSS：
 
 ```bash

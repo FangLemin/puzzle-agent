@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import os
+from urllib.parse import urlsplit, urlunsplit
 
 from puzzle_ops.storage import PuzzleRepository
 
@@ -22,6 +23,107 @@ def create_repository_from_env(runtime_dir: Path | str) -> PuzzleRepository:
             raise RuntimeError("PUZZLEOPS_DB_PROVIDER=postgres 时必须配置 DATABASE_URL")
         return PostgresPuzzleRepository(database_url)
     return PuzzleRepository(Path(runtime_dir) / "puzzle_ops.db")
+
+
+def initialize_database(database_url: str | None = None) -> dict[str, object]:
+    url = (database_url or os.environ.get("DATABASE_URL", "")).strip()
+    if not url:
+        raise RuntimeError("DATABASE_URL 未配置，无法初始化数据库")
+    try:
+        from sqlalchemy import create_engine, text
+    except ImportError as exc:
+        raise RuntimeError("缺少 SQLAlchemy 依赖，请先安装 requirements.txt") from exc
+    engine = create_engine(url, future=True)
+    statements = _schema_statements_for_url(url)
+    with engine.begin() as conn:
+        for statement in statements:
+            conn.execute(text(statement))
+    health = database_healthcheck(url)
+    return {"status": "ok", "table_count": len(_release_table_names()), "safe_database_url": _safe_database_url(url), "health": health}
+
+
+def database_healthcheck(database_url: str | None = None) -> dict[str, object]:
+    url = (database_url or os.environ.get("DATABASE_URL", "")).strip()
+    if not url:
+        return {"status": "missing_config", "safe_database_url": ""}
+    try:
+        from sqlalchemy import create_engine, inspect, text
+    except ImportError as exc:
+        return {"status": "missing_dependency", "error": str(exc), "safe_database_url": _safe_database_url(url)}
+    try:
+        engine = create_engine(url, future=True)
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        inspector = inspect(engine)
+        tables = set(inspector.get_table_names())
+    except Exception as exc:  # pragma: no cover - exercised by real RDS smoke.
+        return {"status": "failed", "error": str(exc), "safe_database_url": _safe_database_url(url)}
+    expected = set(_release_table_names())
+    missing = tuple(sorted(expected - tables))
+    return {
+        "status": "ok" if not missing else "schema_incomplete",
+        "safe_database_url": _safe_database_url(url),
+        "table_count": len(tables & expected),
+        "missing_tables": missing,
+    }
+
+
+def _schema_statements_for_url(database_url: str) -> tuple[str, ...]:
+    if database_url.startswith("sqlite"):
+        return sqlite_compatible_schema_statements()
+    return postgres_schema_statements()
+
+
+def sqlite_compatible_schema_statements() -> tuple[str, ...]:
+    replacements = {
+        "JSONB NOT NULL DEFAULT '[]'::jsonb": "TEXT NOT NULL DEFAULT '[]'",
+        "JSONB NOT NULL DEFAULT '{}'::jsonb": "TEXT NOT NULL DEFAULT '{}'",
+        "JSONB NOT NULL": "TEXT NOT NULL",
+        "TIMESTAMPTZ NOT NULL DEFAULT now()": "TEXT DEFAULT CURRENT_TIMESTAMP",
+        "TIMESTAMPTZ": "TEXT",
+        "BIGSERIAL PRIMARY KEY": "INTEGER PRIMARY KEY AUTOINCREMENT",
+        "BIGINT": "INTEGER",
+        "BOOLEAN": "INTEGER",
+        "DOUBLE PRECISION": "REAL",
+        "REFERENCES users(user_id)": "",
+        "REFERENCES harness_runs(run_id)": "",
+    }
+    statements = []
+    for statement in postgres_schema_statements():
+        converted = statement
+        for old, new in replacements.items():
+            converted = converted.replace(old, new)
+        statements.append(converted)
+    return tuple(statements)
+
+
+def _release_table_names() -> tuple[str, ...]:
+    return (
+        "users",
+        "api_tokens",
+        "audit_logs",
+        "demand_rows",
+        "trial_uploads",
+        "assets",
+        "layered_memory",
+        "memory_audit_events",
+        "rag_documents",
+        "rag_chunks",
+        "rag_embedding_cache",
+        "harness_runs",
+        "harness_case_results",
+        "jobs",
+        "trace_events",
+    )
+
+
+def _safe_database_url(database_url: str) -> str:
+    parts = urlsplit(database_url)
+    if not parts.netloc or "@" not in parts.netloc:
+        return database_url
+    userinfo, host = parts.netloc.rsplit("@", 1)
+    username = userinfo.split(":", 1)[0]
+    return urlunsplit((parts.scheme, f"{username}:***@{host}", parts.path, parts.query, parts.fragment))
 
 
 def postgres_schema_statements() -> tuple[str, ...]:

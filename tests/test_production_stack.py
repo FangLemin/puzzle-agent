@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from puzzle_ops.api import create_app
 from puzzle_ops.assets import LocalAssetStorageProvider, StoredAsset
-from puzzle_ops.production_db import create_repository_from_env, postgres_schema_statements
+from puzzle_ops.production_db import create_repository_from_env, database_healthcheck, initialize_database, postgres_schema_statements
 from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.worker import execute_job_once
 
@@ -80,6 +80,30 @@ def test_postgres_schema_contains_release_tables():
         "trace_events",
     ):
         assert f"CREATE TABLE IF NOT EXISTS {table}" in schema
+
+
+def test_alembic_scaffold_and_migration_reference_release_schema():
+    root = Path(__file__).resolve().parents[1]
+    assert (root / "alembic.ini").exists()
+    assert (root / "migrations" / "env.py").exists()
+    migration = root / "migrations" / "versions" / "20260813_0765_production_online_schema.py"
+    assert migration.exists()
+    content = migration.read_text(encoding="utf-8")
+    assert "revision = \"20260813_0765\"" in content
+    assert "postgres_schema_statements" in content
+    assert "trace_events" in content
+
+
+def test_initialize_database_executes_schema_against_sqlite_compat_url(tmp_path):
+    db_url = f"sqlite:///{tmp_path / 'compat.db'}"
+
+    result = initialize_database(db_url)
+
+    assert result["status"] == "ok"
+    assert result["table_count"] >= 8
+    health = database_healthcheck(db_url)
+    assert health["status"] == "ok"
+    assert health["safe_database_url"].startswith("sqlite:///")
 
 
 def test_repository_persists_users_tokens_audit_jobs_assets_and_traces(tmp_path):
