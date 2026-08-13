@@ -41,6 +41,7 @@ def test_deployment_doc_covers_six_person_fastapi_checklist():
         "/api/harness/summary",
         "/api/visual-similarity/search",
         "/api/assets/upload",
+        "/api/metrics/dashboard",
         "PUZZLEOPS_API_TOKENS",
         "viewer",
             "operator",

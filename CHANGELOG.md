@@ -2,6 +2,45 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.69 - Trace Metrics Dashboard
+
+日期：2026-08-13
+
+阶段目标：
+
+- 将已有 trace/job/latency 单点查询升级为可观测性汇总。
+- 让 6 人团队上线后可以快速看到慢任务成功率、失败原因、Provider 健康、RAG citation 缺失率和 P50/P95/P99 延迟。
+
+已完成：
+
+- 新增 `PuzzleRepository.observability_summary()`：
+  - 汇总 `trace_events` 的总量、状态分布、provider 分布。
+  - 汇总 `jobs` 的总量、状态分布、成功率和失败原因。
+  - 汇总延迟 `p50/p95/p99/average`。
+  - 计算 RAG `citation_missing_rate`。
+  - 支持按 `country` 和 `task_type` 过滤。
+- 新增 FastAPI endpoint：
+  - `GET /api/metrics/dashboard`
+  - 返回 observability summary + provider health + 当前用户权限。
+  - 查询指定 `country` 时继续校验国家权限。
+- 更新 README、API spec、部署手册：
+  - 明确 `/api/metrics/dashboard` 的用途和 curl 验收方式。
+- 新增测试覆盖：
+  - repository 可从 job/trace 表计算延迟、失败原因和 RAG citation 缺失率。
+  - API dashboard 能组合 provider health、job failure reason 和 trace latency。
+  - OpenAPI 和部署文档包含 dashboard endpoint。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_production_stack.py::test_api_metrics_dashboard_combines_provider_health_jobs_and_traces tests/test_production_stack.py::test_repository_observability_summary_counts_latency_failures_and_rag_citations tests/test_api.py::test_openapi_schema_exposes_core_agent_routes tests/test_deployment_docs.py::test_deployment_doc_covers_six_person_fastapi_checklist -q`：4 passed。
+- `python -m py_compile puzzle_ops/api.py puzzle_ops/storage.py`：通过。
+
+当前限制：
+
+- 本轮提供 API 汇总，不新增前端图表页面；当前可通过 `/docs` 或 curl 查看。
+- dashboard 指标基于 `trace_events` 和 `jobs` 表，远程模型调用链路需要逐步补全 trace 写入，指标才会更完整。
+- P50/P95/P99 采用当前项目已有 percentile 计算方式，样本很小时只作为健康参考，不代表严格压测报告。
+
 ## v0.7.68 - Redis RQ Job Dispatch Foundation
 
 日期：2026-08-13

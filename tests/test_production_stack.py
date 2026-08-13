@@ -304,6 +304,38 @@ def test_api_uses_repository_tokens_and_exposes_jobs_traces_metrics(monkeypatch,
     assert metrics.json()["p95_ms"] == 12.5
 
 
+def test_api_metrics_dashboard_combines_provider_health_jobs_and_traces(monkeypatch, tmp_path):
+    monkeypatch.delenv("PUZZLEOPS_API_TOKENS", raising=False)
+    repo = PuzzleRepository(tmp_path / "metrics_dashboard.db")
+    repo.upsert_user("ops_jp", display_name="日本运营", role="operator", countries=("日本",), status="active")
+    repo.create_api_token("ops_jp", "jp-token", created_by="admin")
+    job = repo.create_job("feishu_sync", country="日本", actor="ops_jp", payload={})
+    repo.update_job(job["job_id"], status="failed", error_code="AttachFieldConvFail", error_message="bad attachment")
+    repo.record_trace_event(
+        trace_id="trace-no-citation",
+        request_id="req",
+        actor="ops_jp",
+        country="日本",
+        task_type="rag_search",
+        provider="dashscope",
+        model="qwen3-rerank",
+        rag_citations=(),
+        status="failed",
+        latency_ms=240,
+    )
+    client = TestClient(create_app(agent=ProductionFakeAgent(repo)))
+
+    response = client.get("/api/metrics/dashboard?country=日本", headers=headers())
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["country"] == "日本"
+    assert payload["providers"]["agent"]["qwen_vl"] == "configured"
+    assert payload["jobs"]["failure_reasons"]["AttachFieldConvFail"] == 1
+    assert payload["rag"]["citation_missing_rate"] == 1.0
+    assert payload["latency"]["p95_ms"] == 240.0
+
+
 def test_api_asset_upload_creates_asset_and_get_returns_metadata(monkeypatch, tmp_path):
     monkeypatch.delenv("PUZZLEOPS_API_TOKENS", raising=False)
     repo = PuzzleRepository(tmp_path / "asset_api.db")
@@ -423,3 +455,49 @@ def test_enqueue_job_dispatches_same_job_id_to_injected_queue(tmp_path):
     assert job["queue_provider"] == "rq"
     assert job["enqueue_status"] == "enqueued"
     assert job["rq_job_id"] == f"rq-{job['job_id']}"
+
+
+def test_repository_observability_summary_counts_latency_failures_and_rag_citations(tmp_path):
+    repo = PuzzleRepository(tmp_path / "observability.db")
+    first = repo.create_job("vlm_parse", country="日本", actor="ops_jp", payload={})
+    repo.update_job(first["job_id"], status="succeeded", progress=100, result={"ok": True})
+    second = repo.create_job("feishu_sync", country="日本", actor="ops_jp", payload={})
+    repo.update_job(second["job_id"], status="failed", progress=0, error_code="FeishuFieldError", error_message="field missing")
+    third = repo.create_job("rag_rebuild", country="法国", actor="ops_fr", payload={})
+    repo.update_job(third["job_id"], status="queued", progress=0)
+    repo.record_trace_event(
+        trace_id="trace-rag-ok",
+        request_id="req-1",
+        actor="ops_jp",
+        country="日本",
+        task_type="rag_search",
+        provider="dashscope",
+        model="qwen3-rerank",
+        rag_citations=("jp_value#c1",),
+        status="succeeded",
+        latency_ms=100,
+    )
+    repo.record_trace_event(
+        trace_id="trace-rag-missing",
+        request_id="req-2",
+        actor="ops_jp",
+        country="日本",
+        task_type="rag_search",
+        provider="dashscope",
+        model="qwen3-rerank",
+        rag_citations=(),
+        status="failed",
+        error_message="no citation",
+        latency_ms=300,
+    )
+
+    summary = repo.observability_summary(country="日本")
+
+    assert summary["jobs"]["total"] == 2
+    assert summary["jobs"]["success_rate"] == 0.5
+    assert summary["jobs"]["failure_reasons"]["FeishuFieldError"] == 1
+    assert summary["traces"]["total"] == 2
+    assert summary["traces"]["status_counts"]["failed"] == 1
+    assert summary["latency"]["p50_ms"] == 100.0
+    assert summary["latency"]["p95_ms"] == 300.0
+    assert summary["rag"]["citation_missing_rate"] == 0.5

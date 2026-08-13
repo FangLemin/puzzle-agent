@@ -672,6 +672,52 @@ class PuzzleRepository:
             "average_ms": round(statistics.mean(values), 4) if values else 0.0,
         }
 
+    def observability_summary(self, *, country: str = "", task_type: str = "") -> dict[str, object]:
+        traces = self.trace_events(country=country, task_type=task_type, limit=1000)
+        jobs = self.jobs(country=country, limit=1000)
+        if task_type.startswith("job."):
+            job_type = task_type.split(".", 1)[1]
+            jobs = tuple(job for job in jobs if str(job.get("job_type", "")) == job_type)
+        status_counts: dict[str, int] = {}
+        provider_counts: dict[str, int] = {}
+        for trace in traces:
+            status = str(trace.get("status", "") or "unknown")
+            provider = str(trace.get("provider", "") or "unknown")
+            status_counts[status] = status_counts.get(status, 0) + 1
+            provider_counts[provider] = provider_counts.get(provider, 0) + 1
+        job_status_counts: dict[str, int] = {}
+        failure_reasons: dict[str, int] = {}
+        for job in jobs:
+            status = str(job.get("status", "") or "unknown")
+            job_status_counts[status] = job_status_counts.get(status, 0) + 1
+            if status == "failed":
+                reason = str(job.get("error_code", "") or job.get("error_message", "") or "unknown")
+                failure_reasons[reason] = failure_reasons.get(reason, 0) + 1
+        succeeded_jobs = job_status_counts.get("succeeded", 0)
+        failed_jobs = job_status_counts.get("failed", 0)
+        rag_traces = tuple(trace for trace in traces if str(trace.get("task_type", "")) == "rag_search")
+        missing_citations = sum(1 for trace in rag_traces if not trace.get("rag_citations"))
+        return {
+            "country": country or "ALL",
+            "task_type": task_type or "ALL",
+            "latency": self.latency_metrics(country=country, task_type=task_type),
+            "traces": {
+                "total": len(traces),
+                "status_counts": dict(sorted(status_counts.items())),
+                "provider_counts": dict(sorted(provider_counts.items())),
+            },
+            "jobs": {
+                "total": len(jobs),
+                "status_counts": dict(sorted(job_status_counts.items())),
+                "success_rate": round(succeeded_jobs / (succeeded_jobs + failed_jobs), 4) if succeeded_jobs + failed_jobs else 0.0,
+                "failure_reasons": dict(sorted(failure_reasons.items())),
+            },
+            "rag": {
+                "trace_count": len(rag_traces),
+                "citation_missing_rate": round(missing_citations / len(rag_traces), 4) if rag_traces else 0.0,
+            },
+        }
+
     def export_rag_release_report(self, output_dir: Path | str) -> dict[str, object]:
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)

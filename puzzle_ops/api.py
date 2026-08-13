@@ -399,6 +399,17 @@ def create_app(agent: PuzzleOpsAgent | None = None) -> FastAPI:
     def provider_health(user: ApiUser = Depends(_require_role("viewer"))):
         return _provider_health(_agent(app))
 
+    @app.get("/api/metrics/dashboard")
+    def metrics_dashboard(country: str = "", task_type: str = "", user: ApiUser = Depends(_require_role("viewer"))):
+        if country:
+            _ensure_country(user, country)
+        repo = _repository(app)
+        summary = repo.observability_summary(country=country, task_type=task_type) if repo and hasattr(repo, "observability_summary") else {}
+        payload = dict(summary)
+        payload["providers"] = _provider_health(_agent(app))
+        payload["auth"] = {"user_id": user.user_id, "role": user.role, "countries": user.countries}
+        return _jsonable(payload)
+
     return app
 
 

@@ -544,6 +544,65 @@ queued / running / succeeded / failed / cancelled / needs_review
 
 用途：返回 P50/P95/P99 和平均延迟，可按 `country`、`task_type` 过滤。
 
+### GET /api/metrics/dashboard
+
+用途：返回线上可观测性汇总，用于管理员和运营负责人快速判断系统是否健康。
+
+权限：`viewer`，但如果传 `country`，会校验国家权限。
+
+请求：
+
+```text
+GET /api/metrics/dashboard?country=日本
+```
+
+响应包含：
+
+```json
+{
+  "country": "日本",
+  "latency": {
+    "count": 12,
+    "p50_ms": 120.0,
+    "p95_ms": 480.0,
+    "p99_ms": 720.0,
+    "average_ms": 230.0
+  },
+  "jobs": {
+    "total": 10,
+    "status_counts": {
+      "succeeded": 8,
+      "failed": 2
+    },
+    "success_rate": 0.8,
+    "failure_reasons": {
+      "AttachFieldConvFail": 1,
+      "ProviderTimeout": 1
+    }
+  },
+  "traces": {
+    "total": 12,
+    "status_counts": {
+      "succeeded": 9,
+      "failed": 3
+    },
+    "provider_counts": {
+      "dashscope": 8,
+      "local-worker": 4
+    }
+  },
+  "rag": {
+    "trace_count": 5,
+    "citation_missing_rate": 0.2
+  },
+  "providers": {
+    "vision_llm": {},
+    "rag_embedding": {},
+    "asset_storage": {}
+  }
+}
+```
+
 ### GET /api/metrics/provider-health
 
 用途：返回数据库、VLM、RAG、Milvus、视觉 embedding、飞书等 provider 配置状态，不返回任何密钥。

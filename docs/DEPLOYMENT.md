@@ -254,6 +254,7 @@ curl -X POST http://127.0.0.1:8000/api/jobs/vlm-parse \
 curl -H "Authorization: Bearer token_jp_1" http://127.0.0.1:8000/api/jobs/<job_id>
 curl -H "Authorization: Bearer token_jp_1" http://127.0.0.1:8000/api/traces/<trace_id>
 curl -H "Authorization: Bearer token_jp_1" http://127.0.0.1:8000/api/metrics/latency
+curl -H "Authorization: Bearer token_jp_1" "http://127.0.0.1:8000/api/metrics/dashboard?country=日本"
 ```
 
 验收脚本：

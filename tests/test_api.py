@@ -88,6 +88,7 @@ def test_openapi_schema_exposes_core_agent_routes(monkeypatch):
     assert "/api/value/analyze" in paths
     assert "/api/harness/summary" in paths
     assert "/api/assets/upload" in paths
+    assert "/api/metrics/dashboard" in paths
 
 
 def test_health_redacts_secrets_and_reports_version(monkeypatch):

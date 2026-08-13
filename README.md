@@ -91,6 +91,7 @@ VISUAL_MILVUS_TOKEN=your_token
 - `POST /api/jobs/*`：创建 VLM 解析、好图衍生、飞书同步、RAG 重建任务。
 - `GET /api/traces/{trace_id}`：回查价值观/RAG/任务链路 trace。
 - `GET /api/metrics/latency`：查看 P50/P95/P99 延迟。
+- `GET /api/metrics/dashboard`：查看 provider health、任务成功率、失败原因、RAG citation 缺失率和延迟汇总。
 - token 权限控制：运营只调用分析/提需，管理员才可同步飞书和重建索引。
 
 启动 API：
