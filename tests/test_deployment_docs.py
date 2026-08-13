@@ -40,6 +40,7 @@ def test_deployment_doc_covers_six_person_fastapi_checklist():
         "/api/value/analyze",
         "/api/harness/summary",
         "/api/visual-similarity/search",
+        "/api/assets/upload",
         "PUZZLEOPS_API_TOKENS",
         "viewer",
             "operator",
@@ -47,6 +48,17 @@ def test_deployment_doc_covers_six_person_fastapi_checklist():
             "飞书写入接口暂缓开放",
             "alembic upgrade head",
             "scripts/smoke_postgres.py",
+            "scripts/smoke_oss.py",
             "PUZZLEOPS_INIT_DB=1",
         ):
             assert needle in content
+
+
+def test_oss_smoke_script_exists_and_uses_upload_guard():
+    script = ROOT / "scripts" / "smoke_oss.py"
+
+    assert script.exists()
+    content = script.read_text(encoding="utf-8")
+    assert "PUZZLEOPS_OSS_SMOKE_UPLOAD" in content
+    assert "asset_storage_from_env" in content
+    assert "ALIYUN_OSS_ACCESS_KEY_SECRET" not in content

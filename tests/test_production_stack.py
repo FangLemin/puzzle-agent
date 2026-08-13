@@ -17,6 +17,7 @@ from puzzle_ops.worker import execute_job_once
 class ProductionFakeAgent:
     def __init__(self, repository):
         self.repository = repository
+        self.asset_storage = LocalAssetStorageProvider(repository.db_path.parent / "api_assets", public_base_url="http://assets.local")
         self.rag_provider_config = None
         self.rag_vector_store_config = None
         self.visual_embedding_provider = None
@@ -299,6 +300,51 @@ def test_api_uses_repository_tokens_and_exposes_jobs_traces_metrics(monkeypatch,
     metrics = client.get("/api/metrics/latency", headers=headers())
     assert metrics.status_code == 200
     assert metrics.json()["p95_ms"] == 12.5
+
+
+def test_api_asset_upload_creates_asset_and_get_returns_metadata(monkeypatch, tmp_path):
+    monkeypatch.delenv("PUZZLEOPS_API_TOKENS", raising=False)
+    repo = PuzzleRepository(tmp_path / "asset_api.db")
+    repo.upsert_user("ops_jp", display_name="日本运营", role="operator", countries=("日本",), status="active")
+    repo.create_api_token("ops_jp", "jp-token", created_by="admin")
+    client = TestClient(create_app(agent=ProductionFakeAgent(repo)))
+
+    response = client.post(
+        "/api/assets/upload",
+        headers=headers(),
+        data={"country": "日本"},
+        files={"file": ("sushi.png", b"fake-image", "image/png")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["asset_id"].startswith("asset_")
+    assert payload["public_url"].startswith("http://assets.local/")
+    assert payload["sha256"]
+    saved = repo.asset(payload["asset_id"])
+    assert saved["source_filename"] == "sushi.png"
+    assert repo.audit_logs(country="日本")[0]["action"] == "asset.upload"
+
+    fetched = client.get(f"/api/assets/{payload['asset_id']}", headers=headers())
+    assert fetched.status_code == 200
+    assert fetched.json()["asset_id"] == payload["asset_id"]
+
+
+def test_api_asset_upload_requires_operator_role(monkeypatch, tmp_path):
+    monkeypatch.delenv("PUZZLEOPS_API_TOKENS", raising=False)
+    repo = PuzzleRepository(tmp_path / "asset_api_forbidden.db")
+    repo.upsert_user("viewer_jp", display_name="只读", role="viewer", countries=("日本",), status="active")
+    repo.create_api_token("viewer_jp", "viewer-token", created_by="admin")
+    client = TestClient(create_app(agent=ProductionFakeAgent(repo)))
+
+    response = client.post(
+        "/api/assets/upload",
+        headers=headers("viewer-token"),
+        data={"country": "日本"},
+        files={"file": ("sushi.png", b"fake-image", "image/png")},
+    )
+
+    assert response.status_code == 403
 
 
 def test_rag_release_report_exports_markdown_and_json(tmp_path):

@@ -2,6 +2,46 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.67 - FastAPI Asset Upload and OSS Smoke
+
+日期：2026-08-13
+
+阶段目标：
+
+- 将 v0.7.66 的 asset/OSS 链路开放到 FastAPI 多人入口。
+- 让 6 人运营团队可以通过 API 上传图片，数据库记录 asset 元数据，后续页面预览、任务 payload 和飞书附件都引用同一份资产。
+- 提供上线前 OSS smoke，检查 OSS 配置是否真的可用。
+
+已完成：
+
+- 新增 `POST /api/assets/upload`：
+  - 使用 `multipart/form-data` 接收 `country` 和图片文件。
+  - 校验 Bearer token、角色权限和国家权限。
+  - 写入 `AssetStorageProvider`，并把 `object_key/public_url/sha256/content_type/size/source_filename` 写入 `assets` 表。
+  - 写入 `audit_logs.action=asset.upload`，方便多人上线后追踪谁上传了什么。
+- 新增 `GET /api/assets/{asset_id}`：
+  - 返回图片资产元数据，供页面预览、飞书附件上传和 job payload 复用。
+- 扩展 `/api/health` provider health：
+  - 增加 `asset_storage` 配置/ready 状态。
+  - 不返回任何 OSS key 或 token。
+- 新增 `scripts/smoke_oss.py`：
+  - 默认只检查 asset storage provider health。
+  - 显式设置 `PUZZLEOPS_OSS_SMOKE_UPLOAD=1` 时才上传/下载一个极小测试文件。
+- 更新 README、API spec、部署手册和测试：
+  - 明确 `/api/assets/upload`、`/api/assets/{asset_id}`。
+  - 明确 `scripts/smoke_oss.py` 和真实上传开关。
+  - 补充 `python-multipart` 依赖，确保 FastAPI 文件上传可用。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_production_stack.py::test_api_asset_upload_creates_asset_and_get_returns_metadata tests/test_production_stack.py::test_api_asset_upload_requires_operator_role tests/test_api.py::test_openapi_schema_exposes_core_agent_routes tests/test_api.py::test_health_redacts_secrets_and_reports_version tests/test_deployment_docs.py::test_deployment_doc_covers_six_person_fastapi_checklist tests/test_deployment_docs.py::test_oss_smoke_script_exists_and_uses_upload_guard -q`：6 passed。
+
+当前限制：
+
+- 真实 OSS 上传仍依赖服务器 `.env` 中的 bucket、endpoint 和 AK/SK 配置；仓库只提供 provider、API 和 smoke。
+- `GET /api/assets/{asset_id}` 当前返回 asset 元数据，不做按国家过滤；后续如果 asset 表补 `country` 字段，可以进一步做国家级资产访问隔离。
+- 飞书附件从 OSS 下载后上传的 worker 化链路仍在后续版本继续增强。
+
 ## v0.7.66 - OSS Asset and Feishu Attachment Stability
 
 日期：2026-08-13

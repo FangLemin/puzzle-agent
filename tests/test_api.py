@@ -87,6 +87,7 @@ def test_openapi_schema_exposes_core_agent_routes(monkeypatch):
     assert "/api/rag/search" in paths
     assert "/api/value/analyze" in paths
     assert "/api/harness/summary" in paths
+    assert "/api/assets/upload" in paths
 
 
 def test_health_redacts_secrets_and_reports_version(monkeypatch):
@@ -102,6 +103,7 @@ def test_health_redacts_secrets_and_reports_version(monkeypatch):
     assert payload["version"]
     assert "secret-key-that-must-not-leak" not in str(payload)
     assert payload["providers"]["rag_embedding"]["model"] == "text-embedding-v4"
+    assert payload["providers"]["asset_storage"]["configured"] is False
 
 
 def test_rag_search_returns_citations_and_trace(monkeypatch):

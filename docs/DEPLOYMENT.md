@@ -84,7 +84,24 @@ ALIYUN_OSS_PUBLIC_BASE_URL=https://assets.example.com
 
 数据库只保存 `object_key`、URL、hash、content type、size、飞书 `file_token`。图片二进制存 OSS，不依赖本机路径。
 
-v0.7.66 起，新上传/生成图片会创建 asset 记录。飞书同步时：
+OSS smoke：
+
+```bash
+ASSET_STORAGE_PROVIDER=oss \
+ALIYUN_OSS_ENDPOINT=https://oss-cn-xxx.aliyuncs.com \
+ALIYUN_OSS_BUCKET=puzzleops-assets \
+ALIYUN_OSS_ACCESS_KEY_ID=... \
+ALIYUN_OSS_ACCESS_KEY_SECRET=... \
+python scripts/smoke_oss.py
+```
+
+默认只检查配置和 provider health。需要真实上传/下载极小测试文件时显式打开：
+
+```bash
+PUZZLEOPS_OSS_SMOKE_UPLOAD=1 python scripts/smoke_oss.py
+```
+
+v0.7.66 起，新上传/生成图片会创建 asset 记录。v0.7.67 起，FastAPI 支持 `/api/assets/upload` 直接上传运营本地图片并写入 asset 表。飞书同步时：
 
 - asset 已有 `feishu_file_token`：直接复用。
 - asset 没有 token 但服务端本地文件仍存在：先上传飞书附件，再回写 token。
@@ -177,6 +194,22 @@ curl -X POST http://127.0.0.1:8000/api/visual-similarity/search \
   -H "Authorization: Bearer token_jp_1" \
   -H "Content-Type: application/json" \
   -d '{"country":"日本","local_image_path":"/absolute/path/to/image.png","subject":"猫咪鲤鱼","top_k":5}'
+```
+
+上传图片资产：
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/assets/upload \
+  -H "Authorization: Bearer token_jp_1" \
+  -F "country=日本" \
+  -F "file=@/absolute/path/to/sushi.png;type=image/png"
+```
+
+查询图片资产：
+
+```bash
+curl -H "Authorization: Bearer token_jp_1" \
+  http://127.0.0.1:8000/api/assets/<asset_id>
 ```
 
 创建任务：

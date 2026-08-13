@@ -17,6 +17,8 @@ http://127.0.0.1:5199
 
 v0.7.64 起，FastAPI runtime 增加 PostgreSQL 用户/token fallback、job、trace、metrics 和 provider health 骨架。health、RAG search、value analyze、harness summary、visual similarity search 继续保留。
 
+v0.7.67 起，FastAPI 增加资产上传入口：运营可以通过 `/api/assets/upload` 上传本地图片，服务端写入 OSS/本地 asset storage，并把 `asset_id/object_key/public_url/hash/content_type/size` 写入数据库。多人环境下页面和飞书链路应使用 asset 元数据，不再依赖某个运营电脑上的本地路径。
+
 ## 2. 非目标
 
 - 不替换现有 `puzzle_ops.server` 本地页面。
@@ -181,6 +183,11 @@ GET  /api/audit/logs
     "milvus": {
       "configured": true,
       "search_enabled": true
+    },
+    "asset_storage": {
+      "provider": "oss",
+      "configured": true,
+      "ready": true
     },
     "feishu": {
       "configured": true,
@@ -398,7 +405,62 @@ GET /api/harness/summary?country=日本
 }
 ```
 
-## 11. Job / Trace / Metrics
+## 11. Asset Upload
+
+### POST /api/assets/upload
+
+用途：上传运营本地图片到服务端资产存储，并创建数据库 asset 元数据。多人上线后，试新图、生成图、飞书附件都应优先引用 `asset_id`。
+
+权限：`operator`。
+
+请求类型：`multipart/form-data`。
+
+字段：
+
+```text
+country=日本
+file=@/absolute/path/to/image.png
+```
+
+curl 示例：
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/assets/upload \
+  -H "Authorization: Bearer token_jp_1" \
+  -F "country=日本" \
+  -F "file=@/absolute/path/to/sushi.png;type=image/png"
+```
+
+响应：
+
+```json
+{
+  "asset_id": "asset_xxx",
+  "country": "日本",
+  "object_key": "assets/ab/abc123.png",
+  "public_url": "https://assets.example.com/assets/ab/abc123.png",
+  "sha256": "abc123...",
+  "content_type": "image/png",
+  "size_bytes": 123456,
+  "source_filename": "sushi.png",
+  "created_by": "ops_jp"
+}
+```
+
+规则：
+
+- 写操作记录 `audit_logs.action=asset.upload`。
+- 同一图片 hash 会复用已有 asset，避免重复入库。
+- 日本 token 只能上传日本资产，法国 token 只能上传法国资产。
+- 生产环境建议 `ASSET_STORAGE_PROVIDER=oss`；本地 demo 可用 local provider。
+
+### GET /api/assets/{asset_id}
+
+用途：查询 asset 元数据，用于页面预览、飞书附件上传和任务 payload。
+
+权限：`viewer`。
+
+## 12. Job / Trace / Metrics
 
 ### POST /api/jobs/vlm-parse
 
@@ -465,7 +527,7 @@ queued / running / succeeded / failed / cancelled / needs_review
 
 用途：返回数据库、VLM、RAG、Milvus、视觉 embedding、飞书等 provider 配置状态，不返回任何密钥。
 
-## 12. POST /api/feishu/sync/trial
+## 13. POST /api/feishu/sync/trial
 
 用途：同步试新提需到飞书。
 
@@ -499,7 +561,7 @@ queued / running / succeeded / failed / cancelled / needs_review
 - 同步失败不清空本地提需表。
 - 返回飞书错误时保留 `log_id`，方便排查。
 
-## 13. 测试计划
+## 14. 测试计划
 
 v0.7.60 已新增：
 
@@ -516,6 +578,8 @@ v0.7.60 已新增：
 - `tests/test_api.py::test_feishu_sync_requires_admin`
 - `tests/test_api.py::test_feishu_sync_does_not_clear_rows_on_failure`
 - `tests/test_production_stack.py::test_api_uses_repository_tokens_and_exposes_jobs_traces_metrics`
+- `tests/test_production_stack.py::test_api_asset_upload_creates_asset_and_get_returns_metadata`
+- `tests/test_production_stack.py::test_api_asset_upload_requires_operator_role`
 - `tests/test_production_stack.py::test_worker_executes_known_job_and_records_trace`
 - `tests/test_api.py::test_feishu_sync_uploads_attachment_file_token_before_record_write`
 

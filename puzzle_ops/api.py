@@ -6,7 +6,7 @@ import os
 import time
 import uuid
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -279,6 +279,66 @@ def create_app(agent: PuzzleOpsAgent | None = None) -> FastAPI:
             evidence["requested_min_reference_score"] = payload.min_reference_score
         return _jsonable(evidence)
 
+    @app.post("/api/assets/upload")
+    async def upload_asset(
+        country: str = Form(...),
+        file: UploadFile = File(...),
+        user: ApiUser = Depends(_require_role("operator")),
+    ):
+        _ensure_country(user, country)
+        repo = _repository(app)
+        storage = getattr(_agent(app), "asset_storage", None)
+        if repo is None or not hasattr(repo, "create_asset"):
+            raise _api_error(503, "repository_unavailable", "repository does not support asset metadata")
+        if storage is None or not hasattr(storage, "upload"):
+            raise _api_error(503, "asset_storage_unavailable", "asset storage provider is not configured")
+
+        filename = _safe_upload_filename(file.filename or "upload.bin")
+        temp_dir = resolve_runtime_dir() / "api_uploads"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        temp_path = temp_dir / f"{uuid.uuid4().hex}_{filename}"
+        try:
+            temp_path.write_bytes(await file.read())
+            stored = storage.upload(temp_path, content_type=file.content_type or "", actor=user.user_id)
+            asset = repo.create_asset(
+                object_key=stored.object_key,
+                public_url=stored.public_url,
+                sha256=stored.sha256,
+                content_type=stored.content_type,
+                size_bytes=stored.size_bytes,
+                source_filename=filename,
+                created_by=user.user_id,
+            )
+            repo.record_audit_log(
+                actor=user.user_id,
+                action="asset.upload",
+                country=country,
+                resource_type="asset",
+                resource_id=str(asset.get("asset_id", "")),
+                metadata={
+                    "source_filename": filename,
+                    "content_type": stored.content_type,
+                    "size_bytes": stored.size_bytes,
+                    "object_key": stored.object_key,
+                },
+            )
+            payload = dict(asset)
+            payload["country"] = country
+            return _jsonable(payload)
+        finally:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    @app.get("/api/assets/{asset_id}")
+    def get_asset(asset_id: str, user: ApiUser = Depends(_require_role("viewer"))):
+        repo = _repository(app)
+        asset = repo.asset(asset_id) if repo and hasattr(repo, "asset") else None
+        if not asset:
+            raise _api_error(404, "asset_not_found", f"asset not found: {asset_id}")
+        return _jsonable(asset)
+
     @app.post("/api/jobs/vlm-parse")
     def create_vlm_parse_job(payload: JobCreateRequest, user: ApiUser = Depends(_require_role("operator"))):
         return _create_job_response(app, "vlm_parse", payload, user)
@@ -387,6 +447,11 @@ def _bearer_token(authorization: str) -> str:
     return authorization[len(prefix) :].strip() if authorization.startswith(prefix) else ""
 
 
+def _safe_upload_filename(filename: str) -> str:
+    normalized = Path(filename).name.strip() or "upload.bin"
+    return "".join(char if char.isalnum() or char in "._- " else "_" for char in normalized)[:160] or "upload.bin"
+
+
 def _ensure_country(user: ApiUser, country: str) -> None:
     if not user.can_access_country(country):
         raise _api_error(403, "forbidden_country", f"{user.user_id} cannot access {country}")
@@ -406,6 +471,7 @@ def _provider_health(agent) -> dict[str, object]:
     visual = getattr(agent, "visual_embedding_provider", None)
     feishu = getattr(agent, "feishu", None)
     repository = getattr(agent, "repository", None)
+    asset_storage = getattr(agent, "asset_storage", None)
     payload = {
         "database": {
             "provider": getattr(repository, "backend", os.environ.get("PUZZLEOPS_DB_PROVIDER", "sqlite")),
@@ -437,6 +503,7 @@ def _provider_health(agent) -> dict[str, object]:
             "model": getattr(visual, "model", os.environ.get("VISUAL_EMBEDDING_MODEL", "qwen3-vl-embedding")),
             "remote_calls_enabled": bool(getattr(visual, "remote_calls_enabled", False)),
         },
+        "asset_storage": _jsonable(asset_storage.healthcheck()) if asset_storage and hasattr(asset_storage, "healthcheck") else {"configured": False, "ready": False},
         "feishu": {"configured": bool(getattr(feishu, "configured", False) or os.environ.get("FEISHU_APP_ID"))},
     }
     if hasattr(agent, "provider_health_summary"):

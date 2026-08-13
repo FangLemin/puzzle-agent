@@ -85,6 +85,8 @@ VISUAL_MILVUS_TOKEN=your_token
 - `POST /api/value/analyze`：候选图价值观分析。
 - `GET /api/harness/summary`：真实评测集和最近 run 摘要。
 - `POST /api/visual-similarity/search`：候选图图搜图历史依据。
+- `POST /api/assets/upload`：上传本地图片到 OSS/local asset storage，并写入 asset 元数据。
+- `GET /api/assets/{asset_id}`：查询图片资产元数据，供页面预览、飞书附件和任务 payload 复用。
 - `GET /api/me`：查看当前 token 对应用户、角色、国家权限。
 - `POST /api/jobs/*`：创建 VLM 解析、好图衍生、飞书同步、RAG 重建任务。
 - `GET /api/traces/{trace_id}`：回查价值观/RAG/任务链路 trace。
@@ -159,6 +161,15 @@ ALIYUN_OSS_PUBLIC_BASE_URL=https://assets.example.com
 ```
 
 新上传/生成图片会进入 `assets` 表，并保存 `object_key`、`public_url`、`sha256`、`content_type`、`size_bytes`、`source_filename` 和飞书 `file_token`。飞书同步时会优先复用已有 `file_token`；没有 token 时先上传附件再写表，并把 token 回写到 asset，避免多人重复上传或飞书图片打不开。
+
+上线前检查 OSS：
+
+```bash
+python scripts/smoke_oss.py
+PUZZLEOPS_OSS_SMOKE_UPLOAD=1 python scripts/smoke_oss.py
+```
+
+第一条只检查 provider health；第二条会真实上传/下载一个极小测试文件。
 
 慢任务由 worker 消费，API 只创建 job：
 
