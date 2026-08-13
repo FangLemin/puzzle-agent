@@ -1885,6 +1885,8 @@ def _demand_row_payload(row) -> dict[str, object]:
         payload["_reference_image_path"] = row.reference_image_path
         payload["_reference_image_content_type"] = row.reference_image_content_type or "image/png"
         payload["_reference_image_syncable"] = row.reference_image_syncable
+    if getattr(row, "reference_image_asset_id", ""):
+        payload["_reference_asset_id"] = row.reference_image_asset_id
     return payload
 
 

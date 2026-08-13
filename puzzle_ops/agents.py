@@ -15,6 +15,7 @@ import uuid
 
 from puzzle_ops.data import COUNTRIES, SYNC_ROWS
 from puzzle_ops.adapters import DeepEvalAdapter, MCPToolAdapter, PhoenixExporter, PromptfooExporter
+from puzzle_ops.assets import asset_storage_from_env
 from puzzle_ops.audit import AuditPolicyRetriever, AuditRuleEngine
 from puzzle_ops.excel_importer import import_history_workbook, import_undistributed_candidate_workbook
 from puzzle_ops.feishu import FeishuClientFactory, MockFeishuClient
@@ -148,8 +149,9 @@ class PuzzleOpsAgent:
         self._approved_candidates: dict[str, ValueRuleCandidate] = {}
         self.adapter = MCPToolAdapter(repository=self.repository)
         self.adapter.register_production_tools("日本")
-        self.feishu = FeishuClientFactory.create(runtime_dir / "feishu_mock")
-        self.trial_uploads = TrialImageUploadService(runtime_dir / "trial_uploads")
+        self.asset_storage = asset_storage_from_env(runtime_dir)
+        self.feishu = FeishuClientFactory.create(runtime_dir / "feishu_mock", repository=self.repository)
+        self.trial_uploads = TrialImageUploadService(runtime_dir / "trial_uploads", asset_storage=self.asset_storage, repository=self.repository)
         self.image_generator = ImageGenerationProviderFactory.create(runtime_dir / "trial_uploads")
         self.visual_embedding_provider = QwenVLImageEmbeddingProvider.from_env()
         self.visual_similarity_index = VisualSimilarityIndex()

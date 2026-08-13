@@ -84,6 +84,12 @@ ALIYUN_OSS_PUBLIC_BASE_URL=https://assets.example.com
 
 数据库只保存 `object_key`、URL、hash、content type、size、飞书 `file_token`。图片二进制存 OSS，不依赖本机路径。
 
+v0.7.66 起，新上传/生成图片会创建 asset 记录。飞书同步时：
+
+- asset 已有 `feishu_file_token`：直接复用。
+- asset 没有 token 但服务端本地文件仍存在：先上传飞书附件，再回写 token。
+- 本地路径不可用但 OSS URL 存在：页面仍可预览，飞书附件需要后续 worker 从 OSS 下载后上传。
+
 Worker：
 
 ```bash

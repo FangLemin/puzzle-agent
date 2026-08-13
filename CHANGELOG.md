@@ -2,6 +2,48 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.66 - OSS Asset and Feishu Attachment Stability
+
+日期：2026-08-13
+
+阶段目标：
+
+- 打通试新上传图、asset 元数据、OSS/local URL、飞书附件 `file_token` 的稳定链路。
+- 避免多人上线后因本机路径不同导致页面或飞书图片显示 `?`、打不开或重复上传。
+
+已完成：
+
+- 扩展 `DemandRow`：
+  - 新增 `reference_image_asset_id`，用于关联上传图/生成图的资产记录。
+- 扩展 `TrialImageUploadService`：
+  - 支持注入 `AssetStorageProvider` 和 repository。
+  - 上传图片保存到本地 upload 目录后，同步写入 asset storage 和 `assets` 表。
+  - 解析后的 row 使用 asset public URL，并保留 `reference_image_asset_id`。
+- 扩展 `server._demand_row_payload()`：
+  - 飞书 payload 带 `_reference_asset_id`。
+  - 保持 `_reference_image_path`、content type 和 syncable 标记兼容旧链路。
+- 扩展 `RealFeishuClient`：
+  - 支持注入 repository。
+  - 如果 asset 已有 `feishu_file_token`，直接复用，不重复上传。
+  - 如果本地文件存在且尚无 token，上传飞书附件后回写 `assets.feishu_file_token`。
+- 扩展 `PuzzleOpsAgent` 初始化：
+  - 默认创建 `asset_storage_from_env(runtime_dir)`。
+  - 试新上传服务和飞书客户端共享同一个 repository。
+- 新增测试覆盖：
+  - 试新上传会创建 asset 并让 payload 带 asset_id。
+  - 飞书同步复用已有 file_token，不重复 media upload。
+  - 飞书上传本地文件后回写 asset file_token。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_production_stack.py::test_trial_upload_can_create_asset_and_payload_carries_asset_id tests/test_production_stack.py::test_feishu_reuses_existing_asset_file_token_without_upload tests/test_production_stack.py::test_feishu_uploads_local_file_and_persists_asset_file_token -q`：3 passed。
+- `PYTHONPATH=. pytest tests/test_production_stack.py tests/test_server.py::test_regular_feishu_payload_has_request_date_image_attachment_and_no_value_match tests/test_server.py::test_trial_upload_uses_real_semantic_subject_in_operation_tag_and_feishu_payload tests/test_server.py::test_upload_trial_images_action_updates_trial_row_and_previews tests/test_agents.py::test_simulate_trial_upload_updates_parse_and_derive_rows -q`：16 passed。
+
+当前限制：
+
+- OSS provider 接口已打通，真实阿里云 OSS 上传仍需要服务器 `.env` 配置和 bucket 权限。
+- 常规历史图如果来自旧本地路径，仍会保留旧路径 fallback；新上传/生成图优先走 asset 链路。
+
 ## v0.7.65 - PostgreSQL Alembic Migration and RDS Smoke
 
 日期：2026-08-13

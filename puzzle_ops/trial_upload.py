@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import uuid
 
+from puzzle_ops.assets import AssetStorageProvider
 from puzzle_ops.models import DemandRow
 from puzzle_ops.vision_llm import MissingVisionLLMConfig, OpenAIVisionLLMClient, QwenVisionLLMClient, VisionLLMClientFactory
 from puzzle_ops.visual_analysis import LocalImageAnalyzer
@@ -16,12 +17,16 @@ class TrialImageUploadService:
         upload_dir: Path | str,
         vision_client: OpenAIVisionLLMClient | QwenVisionLLMClient | None = None,
         vision_config_error: MissingVisionLLMConfig | None = None,
+        asset_storage: AssetStorageProvider | None = None,
+        repository=None,
     ):
         self.upload_dir = Path(upload_dir)
         self.upload_dir.mkdir(parents=True, exist_ok=True)
         self.analyzer = LocalImageAnalyzer()
         self.vision_config_error = vision_config_error
         self.vision_client = vision_client
+        self.asset_storage = asset_storage
+        self.repository = repository
         if self.vision_client is None and self.vision_config_error is None:
             try:
                 self.vision_client = VisionLLMClientFactory.create()
@@ -97,6 +102,7 @@ class TrialImageUploadService:
             remark=(row.remark + "；" if row.remark else "") + remark,
             reference_image_url=str(saved[0]["url"]),
             reference_image_path=str(saved[0]["path"]),
+            reference_image_asset_id=str(saved[0].get("asset_id", "")),
             reference_image_content_type=str(saved[0]["content_type"]),
         )
         return parsed, saved
@@ -117,13 +123,27 @@ class TrialImageUploadService:
         saved_name = f"{uuid.uuid4().hex}{suffix}"
         path = self.upload_dir / saved_name
         path.write_bytes(bytes(file.get("content", b"")))
-        return {
+        saved = {
             "filename": filename,
             "url": f"/uploads/{saved_name}",
             "path": str(path),
             "content_type": str(file.get("content_type", "application/octet-stream")),
             "content": bytes(file.get("content", b"")),
         }
+        if self.asset_storage and self.repository:
+            stored = self.asset_storage.upload(path, str(saved["content_type"]), actor="trial_upload")
+            asset = self.repository.create_asset(
+                object_key=stored.object_key,
+                public_url=stored.public_url,
+                sha256=stored.sha256,
+                content_type=stored.content_type,
+                size_bytes=stored.size_bytes,
+                source_filename=stored.source_filename,
+                created_by=stored.created_by,
+            )
+            saved["asset_id"] = str(asset.get("asset_id", ""))
+            saved["url"] = str(asset.get("public_url", stored.public_url))
+        return saved
 
 
 def _safe_filename(filename: str) -> str:

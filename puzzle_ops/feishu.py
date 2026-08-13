@@ -50,6 +50,7 @@ class RealFeishuClient:
         transport=None,
         media_transport=None,
         bitable_app_token: str = "",
+        repository=None,
     ):
         self.app_id = app_id
         self.app_secret = app_secret
@@ -59,6 +60,7 @@ class RealFeishuClient:
         self.transport = transport or _default_transport
         self.media_transport = media_transport or _default_media_transport
         self._canonical_app_token = bitable_app_token or os.getenv("FEISHU_BITABLE_APP_TOKEN", "")
+        self.repository = repository
         self._bitable_field_names: set[str] | None = None
         self._bitable_field_metadata: dict[str, dict[str, object]] | None = None
 
@@ -212,6 +214,14 @@ class RealFeishuClient:
     def _prepare_bitable_attachments(self, row: dict[str, object], token: str) -> dict[str, object]:
         if row.get("_reference_image_syncable") is False:
             return row
+        asset_id = str(row.get("_reference_asset_id", "") or "")
+        if asset_id and self.repository and not _is_bitable_attachment(row.get("图片本身")):
+            asset = self.repository.asset(asset_id) if hasattr(self.repository, "asset") else None
+            file_token = str((asset or {}).get("feishu_file_token") or "")
+            if file_token:
+                row = dict(row)
+                row["图片本身"] = [{"file_token": file_token}]
+                return row
         path = row.get("_reference_image_path")
         if path and Path(str(path)).exists() and not _is_bitable_attachment(row.get("图片本身")):
             file_token = self.upload_bitable_attachment(
@@ -221,6 +231,8 @@ class RealFeishuClient:
             )
             row = dict(row)
             row["图片本身"] = [{"file_token": file_token}]
+            if asset_id and self.repository and hasattr(self.repository, "update_asset_feishu_token"):
+                self.repository.update_asset_feishu_token(asset_id, file_token)
         return row
 
     def _fetch_tenant_access_token(self) -> str:
@@ -239,7 +251,7 @@ class RealFeishuClient:
 
 class FeishuClientFactory:
     @staticmethod
-    def create(export_dir: Path | str = "exports/feishu_mock"):
+    def create(export_dir: Path | str = "exports/feishu_mock", repository=None):
         _load_env_file(Path.cwd() / ".env")
         app_id = os.getenv("FEISHU_APP_ID")
         app_secret = os.getenv("FEISHU_APP_SECRET")
@@ -247,9 +259,9 @@ class FeishuClientFactory:
         sheet_range = os.getenv("FEISHU_SHEET_RANGE", "Sheet1!A1")
         access_token = os.getenv("FEISHU_ACCESS_TOKEN")
         if app_id and app_secret and spreadsheet_token and access_token:
-            return RealFeishuClient(app_id, app_secret, spreadsheet_token, sheet_range, access_token)
+            return RealFeishuClient(app_id, app_secret, spreadsheet_token, sheet_range, access_token, repository=repository)
         if app_id and app_secret and spreadsheet_token:
-            return RealFeishuClient(app_id, app_secret, spreadsheet_token, sheet_range, "")
+            return RealFeishuClient(app_id, app_secret, spreadsheet_token, sheet_range, "", repository=repository)
         return MockFeishuClient(export_dir)
 
 

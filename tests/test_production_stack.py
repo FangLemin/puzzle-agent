@@ -5,8 +5,12 @@ from fastapi.testclient import TestClient
 
 from puzzle_ops.api import create_app
 from puzzle_ops.assets import LocalAssetStorageProvider, StoredAsset
+from puzzle_ops.feishu import RealFeishuClient
+from puzzle_ops.models import DemandRow
 from puzzle_ops.production_db import create_repository_from_env, database_healthcheck, initialize_database, postgres_schema_statements
+from puzzle_ops.server import _demand_row_payload
 from puzzle_ops.storage import PuzzleRepository
+from puzzle_ops.trial_upload import TrialImageUploadService
 from puzzle_ops.worker import execute_job_once
 
 
@@ -168,6 +172,106 @@ def test_local_asset_storage_uploads_and_deduplicates_by_hash(tmp_path):
     assert first.object_key == second.object_key
     assert first.public_url.startswith("http://assets.local/")
     assert provider.download(first.object_key) == b"fake-image"
+
+
+def test_trial_upload_can_create_asset_and_payload_carries_asset_id(tmp_path):
+    repo = PuzzleRepository(tmp_path / "asset_trial.db")
+    storage = LocalAssetStorageProvider(tmp_path / "objects", public_base_url="http://assets.local")
+    service = TrialImageUploadService(tmp_path / "uploads", asset_storage=storage, repository=repo)
+    row = DemandRow(
+        need_type="试新",
+        country="日本",
+        js_category="food",
+        image_name="",
+        operation_tag="试新_日本_寿司0813",
+        subject="寿司",
+        count=1,
+        priority="P1",
+        method="先照片后AI",
+        delivery_date="",
+        subject_description="",
+        remark="",
+    )
+
+    parsed, saved = service.parse(row, [{"filename": "sushi.png", "content_type": "image/png", "content": b"fake-image"}], "parse", run_vision=False)
+    payload = _demand_row_payload(parsed)
+
+    assert saved[0]["asset_id"]
+    assert parsed.reference_image_asset_id == saved[0]["asset_id"]
+    assert parsed.reference_image_url.startswith("http://assets.local/")
+    assert payload["_reference_asset_id"] == parsed.reference_image_asset_id
+    assert repo.asset(parsed.reference_image_asset_id)["public_url"] == parsed.reference_image_url
+
+
+def test_feishu_reuses_existing_asset_file_token_without_upload(tmp_path):
+    repo = PuzzleRepository(tmp_path / "feishu_asset.db")
+    asset = repo.create_asset(
+        object_key="assets/a/sushi.png",
+        public_url="https://oss.example/sushi.png",
+        sha256="sha-sushi",
+        content_type="image/png",
+        size_bytes=10,
+        source_filename="sushi.png",
+        created_by="ops_jp",
+    )
+    repo.update_asset_feishu_token(asset["asset_id"], "existing-token")
+    uploads = []
+    client = RealFeishuClient(
+        "app",
+        "secret",
+        "spreadsheet",
+        "tblTrial",
+        "tenant",
+        transport=lambda method, url, headers, body: {"code": 0, "data": {"items": [{"field_name": "图片本身"}, {"field_name": "运营tag"}], "records": [{"record_id": "rec1"}]}},
+        media_transport=lambda *args: uploads.append(args) or {"code": 0, "data": {"file_token": "new-token"}},
+        bitable_app_token="appToken",
+        repository=repo,
+    )
+    row = {"运营tag": "试新_日本_寿司0813", "图片本身": [{"text": "sushi.png"}], "_reference_asset_id": asset["asset_id"]}
+
+    result = client.write_table("提需表", [row])
+
+    assert result.success is True
+    assert uploads == []
+    assert result.data["response"]["code"] == 0
+
+
+def test_feishu_uploads_local_file_and_persists_asset_file_token(tmp_path):
+    image = tmp_path / "sushi.png"
+    image.write_bytes(b"fake-image")
+    repo = PuzzleRepository(tmp_path / "feishu_upload.db")
+    asset = repo.create_asset(
+        object_key="assets/a/sushi.png",
+        public_url="https://oss.example/sushi.png",
+        sha256="sha-sushi",
+        content_type="image/png",
+        size_bytes=image.stat().st_size,
+        source_filename="sushi.png",
+        created_by="ops_jp",
+    )
+    client = RealFeishuClient(
+        "app",
+        "secret",
+        "spreadsheet",
+        "tblTrial",
+        "tenant",
+        transport=lambda method, url, headers, body: {"code": 0, "data": {"items": [{"field_name": "图片本身"}, {"field_name": "运营tag"}], "records": [{"record_id": "rec1"}]}},
+        media_transport=lambda *args: {"code": 0, "data": {"file_token": "uploaded-token"}},
+        bitable_app_token="appToken",
+        repository=repo,
+    )
+    row = {
+        "运营tag": "试新_日本_寿司0813",
+        "图片本身": [{"text": "sushi.png"}],
+        "_reference_asset_id": asset["asset_id"],
+        "_reference_image_path": str(image),
+        "_reference_image_content_type": "image/png",
+    }
+
+    result = client.write_table("提需表", [row])
+
+    assert result.success is True
+    assert repo.asset(asset["asset_id"])["feishu_file_token"] == "uploaded-token"
 
 
 def test_api_uses_repository_tokens_and_exposes_jobs_traces_metrics(monkeypatch, tmp_path):
