@@ -113,7 +113,34 @@ Worker：
 ./scripts/run_worker.sh
 ```
 
-ECS 上建议用 systemd/supervisor 守护 API 和 worker 两个进程。Redis/RQ 可作为队列后端，当前 `puzzle_ops.worker.execute_job_once` 是统一执行入口，本地测试使用无 Redis fallback。
+默认是本地数据库轮询 fallback，适合单机 demo 和无 Redis 测试。6 人上线建议启用 Redis/RQ：
+
+```bash
+PUZZLEOPS_JOB_QUEUE_PROVIDER=rq
+REDIS_URL=redis://:<password>@redis-host:6379/0
+PUZZLEOPS_RQ_QUEUE=puzzleops
+PUZZLEOPS_RQ_JOB_TIMEOUT_SECONDS=900
+```
+
+RQ smoke：
+
+```bash
+PUZZLEOPS_JOB_QUEUE_PROVIDER=rq \
+REDIS_URL=redis://:<password>@redis-host:6379/0 \
+PUZZLEOPS_RQ_QUEUE=puzzleops \
+python scripts/smoke_rq.py
+```
+
+启动 RQ worker：
+
+```bash
+PUZZLEOPS_JOB_QUEUE_PROVIDER=rq \
+REDIS_URL=redis://:<password>@redis-host:6379/0 \
+PUZZLEOPS_RQ_QUEUE=puzzleops \
+./scripts/run_worker.sh
+```
+
+ECS 上建议用 systemd/supervisor 守护 API 和 worker 两个进程。`puzzle_ops.worker.execute_job_once` 是统一执行入口：本地 worker 轮询 `jobs.status=queued` 后执行；RQ 模式则由 Redis/RQ 派发同一个 `job_id`，worker 再从 PostgreSQL/SQLite 读取任务并写回结果。
 
 ## 3. 6 人权限
 

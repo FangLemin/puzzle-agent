@@ -2,6 +2,51 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.68 - Redis RQ Job Dispatch Foundation
+
+日期：2026-08-13
+
+阶段目标：
+
+- 将 FastAPI job 创建从“只落数据库”升级为“落库 + 可选 Redis/RQ 派发”。
+- 保留本地数据库轮询 fallback，确保单机 demo 和无 Redis 测试不受影响。
+- 为 Qwen-VL 解析、好图衍生、飞书同步、RAG rebuild 等慢任务接入线上 worker 做准备。
+
+已完成：
+
+- 扩展 `puzzle_ops.worker.enqueue_job()`：
+  - 默认返回 `queue_provider=local`、`enqueue_status=local_fallback`。
+  - 支持注入 queue，便于测试和未来 provider 扩展。
+  - `PUZZLEOPS_JOB_QUEUE_PROVIDER=rq` 且 `REDIS_URL` 配置后创建 `RqJobQueue`。
+  - RQ 派发同一个 `job_id`，worker 通过 `execute_job_from_env(job_id)` 回读 repository 并执行。
+- 扩展 FastAPI job 创建接口：
+  - `/api/jobs/vlm-parse`
+  - `/api/jobs/generate-derivatives`
+  - `/api/jobs/feishu-sync`
+  - `/api/jobs/rag-rebuild`
+  - 响应统一包含 `queue_provider`、`enqueue_status`，RQ 模式下包含 `rq_job_id`。
+- 扩展 `scripts/run_worker.sh`：
+  - 默认继续运行本地数据库轮询 worker。
+  - `PUZZLEOPS_JOB_QUEUE_PROVIDER=rq` 时启动 `rq worker`。
+- 新增 `scripts/smoke_rq.py`：
+  - 默认本地 fallback 返回 0。
+  - RQ 模式检查 `REDIS_URL` 和 Redis ping。
+- 更新 README、API spec 和部署手册：
+  - 明确 `PUZZLEOPS_JOB_QUEUE_PROVIDER=rq`、`REDIS_URL`、`PUZZLEOPS_RQ_QUEUE`。
+  - 明确本地 fallback 与 RQ worker 的区别。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_production_stack.py::test_api_uses_repository_tokens_and_exposes_jobs_traces_metrics tests/test_production_stack.py::test_worker_executes_known_job_and_records_trace tests/test_production_stack.py::test_enqueue_job_uses_local_database_fallback_by_default tests/test_production_stack.py::test_enqueue_job_dispatches_same_job_id_to_injected_queue tests/test_deployment_docs.py::test_deployment_doc_covers_six_person_fastapi_checklist tests/test_deployment_docs.py::test_rq_smoke_script_and_worker_mode_are_documented -q`：6 passed。
+- `python scripts/smoke_rq.py`：local fallback 正常返回。
+- `python -m py_compile puzzle_ops/api.py puzzle_ops/worker.py scripts/smoke_rq.py`：通过。
+
+当前限制：
+
+- 本轮完成 RQ 派发骨架；真实 Redis/RQ 联通仍需要服务器 `.env` 配置、Redis 安全组和 worker 进程守护。
+- `execute_job_once()` 当前仍是轻量占位执行器，后续需要把真实 Qwen-VL、通义万相、飞书同步、RAG rebuild 逐项接入 job handler。
+- RQ 模式下失败会保留本地 job 记录和 enqueue error，但还没有独立的死信队列/重试策略。
+
 ## v0.7.67 - FastAPI Asset Upload and OSS Smoke
 
 日期：2026-08-13

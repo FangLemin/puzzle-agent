@@ -479,6 +479,27 @@ curl -X POST http://127.0.0.1:8000/api/assets/upload \
 
 响应包含 `job_id`、`status=queued`、`payload`。
 
+v0.7.68 起，创建 job 的响应还会包含队列派发状态：
+
+```json
+{
+  "job_id": "job_xxx",
+  "status": "queued",
+  "queue_provider": "local",
+  "enqueue_status": "local_fallback"
+}
+```
+
+启用 Redis/RQ 后：
+
+```bash
+PUZZLEOPS_JOB_QUEUE_PROVIDER=rq
+REDIS_URL=redis://:<password>@redis-host:6379/0
+PUZZLEOPS_RQ_QUEUE=puzzleops
+```
+
+响应中 `queue_provider=rq`、`enqueue_status=enqueued`，并返回 `rq_job_id`。未配置 Redis 时自动保留本地 job table fallback，不阻塞 API。
+
 ### POST /api/jobs/generate-derivatives
 
 用途：创建好图衍生生成任务。生成图必须二次 VLM 解析和人工确认后才能进入提需表。

@@ -177,7 +177,17 @@ PUZZLEOPS_OSS_SMOKE_UPLOAD=1 python scripts/smoke_oss.py
 ./scripts/run_worker.sh
 ```
 
-生产语义：PostgreSQL 存 users、tokens、audit logs、assets、jobs、trace events 和业务主数据；Milvus/Zilliz 只存向量；OSS 存图片；Redis/RQ 用于异步队列，当前本地 worker 提供无 Redis fallback。
+本地默认走数据库轮询 fallback。上线启用 Redis/RQ：
+
+```bash
+PUZZLEOPS_JOB_QUEUE_PROVIDER=rq
+REDIS_URL=redis://:<password>@redis-host:6379/0
+PUZZLEOPS_RQ_QUEUE=puzzleops
+python scripts/smoke_rq.py
+./scripts/run_worker.sh
+```
+
+生产语义：PostgreSQL 存 users、tokens、audit logs、assets、jobs、trace events 和业务主数据；Milvus/Zilliz 只存向量；OSS 存图片；Redis/RQ 用于异步队列，当前本地 worker 提供无 Redis fallback。API 创建 job 后会返回 `queue_provider` 和 `enqueue_status`，用于判断任务只是本地排队，还是已经进入 RQ。
 
 ## 上线评测结果
 

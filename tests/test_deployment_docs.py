@@ -49,6 +49,10 @@ def test_deployment_doc_covers_six_person_fastapi_checklist():
             "alembic upgrade head",
             "scripts/smoke_postgres.py",
             "scripts/smoke_oss.py",
+            "scripts/smoke_rq.py",
+            "PUZZLEOPS_JOB_QUEUE_PROVIDER=rq",
+            "REDIS_URL",
+            "PUZZLEOPS_RQ_QUEUE",
             "PUZZLEOPS_INIT_DB=1",
         ):
             assert needle in content
@@ -62,3 +66,17 @@ def test_oss_smoke_script_exists_and_uses_upload_guard():
     assert "PUZZLEOPS_OSS_SMOKE_UPLOAD" in content
     assert "asset_storage_from_env" in content
     assert "ALIYUN_OSS_ACCESS_KEY_SECRET" not in content
+
+
+def test_rq_smoke_script_and_worker_mode_are_documented():
+    smoke = ROOT / "scripts" / "smoke_rq.py"
+    worker = ROOT / "scripts" / "run_worker.sh"
+
+    assert smoke.exists()
+    assert worker.exists()
+    smoke_content = smoke.read_text(encoding="utf-8")
+    worker_content = worker.read_text(encoding="utf-8")
+    assert "PUZZLEOPS_JOB_QUEUE_PROVIDER" in smoke_content
+    assert "REDIS_URL" in smoke_content
+    assert "rq worker" in worker_content
+    assert "execute_job_once" in worker_content

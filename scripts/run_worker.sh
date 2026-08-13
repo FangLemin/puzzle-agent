@@ -6,6 +6,13 @@ cd "$ROOT_DIR"
 
 export PYTHONPATH="${PYTHONPATH:-.}"
 
+if [[ "${PUZZLEOPS_JOB_QUEUE_PROVIDER:-local}" == "rq" ]]; then
+  : "${REDIS_URL:?REDIS_URL is required when PUZZLEOPS_JOB_QUEUE_PROVIDER=rq}"
+  QUEUE_NAME="${PUZZLEOPS_RQ_QUEUE:-puzzleops}"
+  echo "PuzzleOps RQ worker started: queue=${QUEUE_NAME}"
+  exec rq worker "${QUEUE_NAME}" --url "${REDIS_URL}"
+fi
+
 python - <<'PY'
 import os
 import time

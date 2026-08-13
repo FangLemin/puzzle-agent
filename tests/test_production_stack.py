@@ -11,7 +11,7 @@ from puzzle_ops.production_db import create_repository_from_env, database_health
 from puzzle_ops.server import _demand_row_payload
 from puzzle_ops.storage import PuzzleRepository
 from puzzle_ops.trial_upload import TrialImageUploadService
-from puzzle_ops.worker import execute_job_once
+from puzzle_ops.worker import execute_job_once, enqueue_job
 
 
 class ProductionFakeAgent:
@@ -290,6 +290,8 @@ def test_api_uses_repository_tokens_and_exposes_jobs_traces_metrics(monkeypatch,
     job = client.post("/api/jobs/vlm-parse", headers=headers(), json={"country": "日本", "payload": {"asset_id": "asset-1"}})
     assert job.status_code == 200
     job_id = job.json()["job_id"]
+    assert job.json()["queue_provider"] == "local"
+    assert job.json()["enqueue_status"] == "local_fallback"
     assert client.get(f"/api/jobs/{job_id}", headers=headers()).json()["status"] == "queued"
 
     rag = client.post("/api/rag/search", headers=headers(), json={"country": "日本", "query": "寿司是否符合日本价值观"})
@@ -387,3 +389,37 @@ def test_worker_executes_known_job_and_records_trace(tmp_path):
     assert saved["progress"] == 100
     traces = repo.trace_events(country="日本", task_type="job.rag_rebuild")
     assert traces[0]["status"] == "succeeded"
+
+
+def test_enqueue_job_uses_local_database_fallback_by_default(monkeypatch, tmp_path):
+    monkeypatch.delenv("PUZZLEOPS_JOB_QUEUE_PROVIDER", raising=False)
+    repo = PuzzleRepository(tmp_path / "queue_local.db")
+
+    job = enqueue_job(repo, "vlm_parse", country="日本", actor="ops_jp", payload={"asset_id": "asset-1"})
+
+    assert job["status"] == "queued"
+    assert job["queue_provider"] == "local"
+    assert job["enqueue_status"] == "local_fallback"
+    assert repo.job(job["job_id"])["status"] == "queued"
+
+
+def test_enqueue_job_dispatches_same_job_id_to_injected_queue(tmp_path):
+    class FakeQueue:
+        provider = "rq"
+
+        def __init__(self):
+            self.dispatched = []
+
+        def enqueue(self, job_id):
+            self.dispatched.append(job_id)
+            return {"provider": self.provider, "enqueue_status": "enqueued", "rq_job_id": f"rq-{job_id}"}
+
+    repo = PuzzleRepository(tmp_path / "queue_rq.db")
+    queue = FakeQueue()
+
+    job = enqueue_job(repo, "rag_rebuild", country="日本", actor="admin", payload={}, queue=queue)
+
+    assert queue.dispatched == [job["job_id"]]
+    assert job["queue_provider"] == "rq"
+    assert job["enqueue_status"] == "enqueued"
+    assert job["rq_job_id"] == f"rq-{job['job_id']}"

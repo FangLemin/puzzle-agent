@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from puzzle_ops.agents import PuzzleOpsAgent
 from puzzle_ops.models import DemandRow
 from puzzle_ops.production import resolve_runtime_dir
+from puzzle_ops.worker import enqueue_job
 
 
 ROLE_LEVELS = {"viewer": 1, "operator": 2, "admin": 3}
@@ -516,7 +517,7 @@ def _create_job_response(app: FastAPI, job_type: str, payload: JobCreateRequest,
     repo = _repository(app)
     if repo is None or not hasattr(repo, "create_job"):
         raise _api_error(503, "repository_unavailable", "repository does not support jobs")
-    job = repo.create_job(job_type, country=payload.country, actor=user.user_id, payload=payload.payload)
+    job = enqueue_job(repo, job_type, country=payload.country, actor=user.user_id, payload=payload.payload)
     repo.record_audit_log(actor=user.user_id, action=f"job.create.{job_type}", country=payload.country, resource_type="job", resource_id=str(job.get("job_id", "")))
     return _jsonable(job)
 
