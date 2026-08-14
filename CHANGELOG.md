@@ -2,6 +2,30 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.72 - Public UI Copy Cleanup
+
+日期：2026-08-14
+
+阶段目标：
+
+- 发布 GitHub 前清理首页侧边栏中偏“原型/内部实现”的展示文案，让项目首页更像正式 Agent 产品。
+
+已完成：
+
+- 删除首页品牌区 `PuzzleOps Agent` 下方的“纯 Python 后台原型”。
+- 删除侧边栏底部“所有页面由 Python 标准库服务端渲染；业务逻辑在 puzzle_ops/agents.py。”说明。
+- 新增 renderer 回归测试，防止该内部实现文案再次出现在页面壳中。
+
+验证：
+
+- `ANALYSIS_LLM_ENABLE_REMOTE_CALLS=0 RAG_ENABLE_REMOTE_CALLS=false RAG_EMBEDDING_PROVIDER=local RAG_RERANK_PROVIDER=local VISUAL_EMBEDDING_ENABLE_REMOTE_CALLS=false VISUAL_MILVUS_ENABLE_REMOTE_CALLS=false VISION_LLM_PROVIDER=qwen QWEN_API_KEY= IMAGE_GENERATION_PROVIDER=mock PYTHONPATH=. pytest tests/test_renderer.py::test_shell_sidebar_hides_internal_python_prototype_copy tests/test_renderer.py::test_login_page_keeps_original_agent_icon_and_shows_readonly_country tests/test_renderer.py::test_production_day_one_keeps_brazil_russia_us_readonly -q`：3 passed。
+- `python scripts/release_preflight.py`：通过，`checked_files=125`。
+- 说明：曾尝试运行完整 `tests/test_renderer.py`，中断前 `21 passed`，后续用禁用远程调用的精准用例覆盖本次页面壳文案改动。
+
+当前限制：
+
+- 本轮只清理用户指定的两处页面展示文案，不改页面 title 和底层实现说明文档。
+
 ## v0.7.71 - GitHub Public Release Sanitization
 
 日期：2026-08-14

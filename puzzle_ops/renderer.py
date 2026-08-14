@@ -118,11 +118,10 @@ def render_page(agent: PuzzleOpsAgent, state: AppState) -> str:
 </head>
 <body>
   <aside>
-    <div class="brand"><div class="logo">🧩</div><strong>PuzzleOps Agent</strong><span>纯 Python 后台原型</span></div>
+    <div class="brand"><div class="logo">🧩</div><strong>PuzzleOps Agent</strong></div>
     {render_session_card(state)}
     {render_country_switch(agent, state)}
     {render_nav(state)}
-    <p class="note">所有页面由 Python 标准库服务端渲染；业务逻辑在 <code>puzzle_ops/agents.py</code>。</p>
   </aside>
   <main>
     <header>

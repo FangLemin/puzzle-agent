@@ -89,6 +89,15 @@ def test_login_page_keeps_original_agent_icon_and_shows_readonly_country():
     assert "进入只读工作台" in html
 
 
+def test_shell_sidebar_hides_internal_python_prototype_copy():
+    html = render_page(PuzzleOpsAgent(), AppState(country="日本", view="dashboard"))
+
+    assert "PuzzleOps Agent" in html
+    assert "纯 Python 后台原型" not in html
+    assert "所有页面由 Python 标准库服务端渲染" not in html
+    assert "业务逻辑在" not in html
+
+
 def test_production_day_one_keeps_brazil_russia_us_readonly():
     assert "进入只读工作台" in render_page(PuzzleOpsAgent(), AppState(user_id="br_ru_owner", country="巴西", view="login"))
     assert "进入只读工作台" in render_page(PuzzleOpsAgent(), AppState(user_id="br_ru_owner", country="俄罗斯", view="login"))
