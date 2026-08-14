@@ -111,3 +111,28 @@ def test_readme_and_eval_report_link_v070_online_acceptance():
 
     assert "v0.7.70_online_acceptance_report.md" in readme
     assert "v0.7.70_online_acceptance_report.md" in eval_report
+
+
+def test_github_showcase_and_implementation_notes_are_discoverable():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    showcase = (ROOT / "docs" / "GITHUB_SHOWCASE.md")
+    notes = (ROOT / "docs" / "IMPLEMENTATION_NOTES.md")
+
+    assert showcase.exists()
+    assert notes.exists()
+    assert "docs/GITHUB_SHOWCASE.md" in readme
+    assert "docs/IMPLEMENTATION_NOTES.md" in readme
+
+    combined = showcase.read_text(encoding="utf-8") + notes.read_text(encoding="utf-8")
+    for needle in (
+        "Qwen VLM",
+        "RAG",
+        "Layered Memory",
+        "Agent Harness",
+        "HITL",
+        "FastAPI",
+        "Milvus",
+        "PostgreSQL",
+        "not claim large-scale production prediction accuracy",
+    ):
+        assert needle in combined

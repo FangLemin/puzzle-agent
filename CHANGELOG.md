@@ -2,6 +2,41 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.73 - GitHub Showcase and Implementation Notes
+
+日期：2026-08-14
+
+阶段目标：
+
+- 参考优秀 GitHub Agent 项目，把公开仓库从“代码已上传”包装成面试官/HR/技术面能快速理解的项目主页。
+- 将 README 首屏改成项目定位、能力、架构、启动、评测和边界优先，详细实现沉淀到 docs。
+
+已完成：
+
+- 重写 README：
+  - 增加英文 tagline。
+  - 强化 Why、What It Does、Architecture、Quick Start、Evaluation Snapshot、Limitations。
+  - 弱化“Python 原型”表述，改为 local backend UI + FastAPI service layer。
+  - 将公开边界放在 Limitations，不在首屏削弱项目气势。
+- 新增 `docs/IMPLEMENTATION_NOTES.md`：
+  - 面试视角说明业务背景、Agent 工作流、VLM、RAG 离线/在线、四层 Memory、Harness/HITL、图像相似、FastAPI 和上线架构。
+- 新增 `docs/GITHUB_SHOWCASE.md`：
+  - 面向 GitHub 首次读者展示项目亮点、架构快照、评测摘要和可复制简历 bullet。
+- 新增文档测试，保护 README 与 showcase/implementation 文档的核心入口和关键词。
+- 更新 GitHub 仓库 About：
+  - Description：`Multimodal Agent Harness for overseas jigsaw puzzle content operations with VLM, RAG, Memory, HITL, Eval, FastAPI and Feishu workflow.`
+  - Topics：`ai-agent`、`agent-harness`、`multimodal`、`rag`、`vlm`、`qwen`、`fastapi`、`milvus`、`hitl`、`evaluation`、`operations`。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_deployment_docs.py tests/test_release_safety.py -q`：11 passed。
+- `python scripts/release_preflight.py`：通过，`checked_files=125`。
+- GitHub repo metadata API 已确认 description/topics 更新成功。
+
+当前限制：
+
+- 本轮只完善 GitHub 内容和仓库外观，不新增业务功能。
+
 ## v0.7.72 - Public UI Copy Cleanup
 
 日期：2026-08-14
