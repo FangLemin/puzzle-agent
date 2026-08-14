@@ -117,13 +117,20 @@ def test_github_showcase_and_implementation_notes_are_discoverable():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     showcase = (ROOT / "docs" / "GITHUB_SHOWCASE.md")
     notes = (ROOT / "docs" / "IMPLEMENTATION_NOTES.md")
+    defense = (ROOT / "docs" / "PROJECT_DEFENSE.md")
 
     assert showcase.exists()
     assert notes.exists()
+    assert defense.exists()
     assert "docs/GITHUB_SHOWCASE.md" in readme
     assert "docs/IMPLEMENTATION_NOTES.md" in readme
+    assert "docs/PROJECT_DEFENSE.md" in readme
 
-    combined = showcase.read_text(encoding="utf-8") + notes.read_text(encoding="utf-8")
+    combined = (
+        showcase.read_text(encoding="utf-8")
+        + notes.read_text(encoding="utf-8")
+        + defense.read_text(encoding="utf-8")
+    )
     for needle in (
         "Qwen VLM",
         "RAG",
@@ -134,5 +141,6 @@ def test_github_showcase_and_implementation_notes_are_discoverable():
         "Milvus",
         "PostgreSQL",
         "not claim large-scale production prediction accuracy",
+        "5 分钟答辩结构",
     ):
         assert needle in combined

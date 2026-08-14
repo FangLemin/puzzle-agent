@@ -149,6 +149,7 @@ Start here:
 
 - [GitHub Showcase](docs/GITHUB_SHOWCASE.md)
 - [Implementation Notes](docs/IMPLEMENTATION_NOTES.md)
+- [Project Defense](docs/PROJECT_DEFENSE.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [FastAPI API Spec](docs/API_SPEC.md)
 - [Deployment Guide](docs/DEPLOYMENT.md)
@@ -195,4 +196,3 @@ Latest verified full regression before GitHub packaging: `635 passed`.
 - Real image assets, raw row-level business CSV, Feishu URLs and API keys are intentionally excluded from the public repository.
 - Value prediction, RAG citation and visual similarity are decision support signals; human review remains part of the workflow.
 - FastAPI provides the service layer for a 6-person team, but production deployment still requires HTTPS, token governance, server firewall, backups and provider credentials.
-

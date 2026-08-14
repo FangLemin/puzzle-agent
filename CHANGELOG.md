@@ -2,6 +2,34 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.74 - Public Project Defense Notes
+
+日期：2026-08-14
+
+阶段目标：
+
+- 增加可公开的项目答辩稿，帮助面试官或读者快速理解 PuzzleOps Agent 的业务问题、技术架构、评测结果和边界。
+
+已完成：
+
+- 新增 `docs/PROJECT_DEFENSE.md`：
+  - 30 秒介绍。
+  - 2 分钟架构介绍。
+  - 为什么做 Agent Harness。
+  - VLM、RAG、Memory、图像相似、HITL、飞书、评测和上线边界。
+  - 5 分钟答辩结构。
+- README 文档导航加入 Project Defense。
+- 更新文档测试，保护 Project Defense 入口和核心答辩关键词。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_deployment_docs.py tests/test_release_safety.py -q`：11 passed。
+- `python scripts/release_preflight.py`：通过，`checked_files=127`。
+
+当前限制：
+
+- 本轮只新增公开答辩稿，不新增私密面试 Q&A，也不改业务功能。
+
 ## v0.7.73 - GitHub Showcase and Implementation Notes
 
 日期：2026-08-14
