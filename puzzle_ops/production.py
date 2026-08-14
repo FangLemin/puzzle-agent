@@ -9,7 +9,7 @@ from tempfile import gettempdir
 import threading
 
 
-DEFAULT_PRODUCTION_RUNTIME_DIR = Path("/Users/fanglemin/Desktop/puzzle_ops_runtime_prod")
+DEFAULT_PRODUCTION_RUNTIME_DIR = Path.home() / "Desktop" / "puzzle_ops_runtime_prod"
 LEGACY_TEMP_RUNTIME_DIR = Path(gettempdir()) / "puzzle_ops_agent_runtime"
 DEFAULT_PRODUCTION_WRITE_COUNTRIES = ("日本", "法国")
 

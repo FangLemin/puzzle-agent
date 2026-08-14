@@ -26,7 +26,7 @@ PuzzleOps Agent 是一个面向日本/法国出海拼图内容运营的 Agent Ha
 单人本地页面：
 
 ```bash
-cd /Users/fanglemin/Desktop/puzzle-agent-python/.worktrees/multimodal-agent-runtime
+cd <repo-root>
 PYTHONPATH=. python -c 'from puzzle_ops.server import run; run(port=5199)'
 ```
 
@@ -50,7 +50,7 @@ cp .env.example .env
 
 ```bash
 PUZZLEOPS_PRODUCTION_MODE=true
-PUZZLEOPS_RUNTIME_DIR=/Users/fanglemin/Desktop/puzzle_ops_runtime_prod
+PUZZLEOPS_RUNTIME_DIR=<puzzleops-runtime>
 PUZZLEOPS_WRITE_COUNTRIES=日本,法国
 
 VISION_LLM_PROVIDER=qwen
@@ -97,7 +97,7 @@ VISUAL_MILVUS_TOKEN=your_token
 启动 API：
 
 ```bash
-cd /Users/fanglemin/Desktop/puzzle-agent-python/.worktrees/multimodal-agent-runtime
+cd <repo-root>
 PYTHONPATH=. uvicorn puzzle_ops.api:app --host 127.0.0.1 --port 8000
 ```
 

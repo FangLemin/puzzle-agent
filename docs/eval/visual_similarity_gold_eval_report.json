@@ -1,6 +1,6 @@
 {
   "mode": "visual_similarity_human_gold_eval",
-  "source_path": "docs/eval/visual_similarity_topk_labeled_v0.7.55.csv",
+  "source_path": "private/raw_visual_similarity_topk_labeled.csv",
   "top_k": 5,
   "row_count": 30,
   "candidate_count": 6,

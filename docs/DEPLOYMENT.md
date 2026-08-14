@@ -9,7 +9,7 @@
 单人本地后台：
 
 ```bash
-cd /Users/fanglemin/Desktop/puzzle-agent-python/.worktrees/multimodal-agent-runtime
+cd <repo-root>
 PYTHONPATH=. python -c 'from puzzle_ops.server import run; run(port=5199)'
 ```
 
@@ -22,7 +22,7 @@ http://127.0.0.1:5199/?view=dashboard
 6 人 FastAPI 服务：
 
 ```bash
-cd /Users/fanglemin/Desktop/puzzle-agent-python/.worktrees/multimodal-agent-runtime
+cd <repo-root>
 PUZZLEOPS_API_HOST=0.0.0.0 \
 PUZZLEOPS_API_PORT=8000 \
 PUZZLEOPS_API_TOKENS='ops_jp:jp_token:operator:日本,ops_fr:fr_token:operator:法国,admin:admin_token:admin:日本|法国' \

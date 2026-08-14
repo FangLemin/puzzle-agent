@@ -1,6 +1,6 @@
 {
   "mode": "visual_similarity_threshold_calibration",
-  "source_path": "docs/eval/visual_similarity_topk_labeled_v0.7.55.csv",
+  "source_path": "private/raw_visual_similarity_topk_labeled.csv",
   "row_count": 30,
   "judged_count": 30,
   "score_distribution": {

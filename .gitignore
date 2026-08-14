@@ -11,3 +11,4 @@ env/
 .worktrees/
 knowledge/indices/
 .runtime_probe_images/
+docs/eval/*.csv

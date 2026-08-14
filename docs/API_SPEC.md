@@ -157,7 +157,7 @@ GET  /api/audit/logs
 {
   "status": "ok",
   "version": "0.7.59",
-  "runtime_dir": "/Users/fanglemin/Desktop/puzzle_ops_runtime_prod",
+  "runtime_dir": "<puzzleops-runtime>",
   "providers": {
     "vision_llm": {
       "provider": "qwen",

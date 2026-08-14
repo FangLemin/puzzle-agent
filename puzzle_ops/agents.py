@@ -69,7 +69,7 @@ RAG_TASK_INDEX_SOURCE_TYPES: dict[str, tuple[str, ...] | None] = {
     ),
 }
 
-VALUE_CANDIDATE_WORKBOOK = Path("/Users/fanglemin/Desktop/未分发候选拼图_价值观大师填写模板.xlsx")
+VALUE_CANDIDATE_WORKBOOK = Path.home() / "Desktop" / "未分发候选拼图_价值观大师填写模板.xlsx"
 
 VISUAL_SIMILARITY_LABELING_FIELDS = (
     "country",
@@ -4171,7 +4171,7 @@ class PuzzleOpsAgent:
         return tuple(documents)
 
     def _audit_policy_hits(self):
-        manual = Path("/Users/fanglemin/Desktop/拼图审核手册.docx")
+        manual = Path.home() / "Desktop" / "拼图审核手册.docx"
         if not manual.exists():
             return ()
         return AuditPolicyRetriever.safe_from_docx(manual).hits
@@ -4896,7 +4896,7 @@ class PuzzleOpsAgent:
         return overrides
 
     def audit_review(self, text: str):
-        manual = Path("/Users/fanglemin/Desktop/拼图审核手册.docx")
+        manual = Path.home() / "Desktop" / "拼图审核手册.docx"
         retriever = AuditPolicyRetriever.safe_from_docx(manual)
         return AuditRuleEngine(retriever).review_text(text)
 
@@ -6072,8 +6072,8 @@ class PuzzleOpsAgent:
     def _history_records(self, country: str):
         if country in self._history_cache:
             return self._history_cache[country]
-        mixed_fixture = Path("/Users/fanglemin/Desktop/数据示例.xlsx")
-        legacy_fixture = Path("/Users/fanglemin/Desktop/日本数据示例.xlsx")
+        mixed_fixture = Path.home() / "Desktop" / "数据示例.xlsx"
+        legacy_fixture = Path.home() / "Desktop" / "日本数据示例.xlsx"
         if mixed_fixture.exists() and country in {"日本", "法国"}:
             records = import_history_workbook(mixed_fixture, country, self._runtime_dir / "images" / country)
         elif country == "日本" and legacy_fixture.exists():
@@ -10144,7 +10144,7 @@ def _metric_number(value: float) -> str:
 def _real_inventory_dir() -> Path | None:
     configured = os.getenv("PUZZLEOPS_REAL_IMAGE_DIR", "").strip()
     candidates = [Path(configured).expanduser()] if configured else []
-    candidates.append(Path("/Users/fanglemin/Desktop/图片"))
+    candidates.append(Path.home() / "Desktop" / "图片")
     for path in candidates:
         if path.is_dir():
             return path

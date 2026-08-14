@@ -9,7 +9,7 @@ from puzzle_ops.rag import RagDocument, chunk_document
 from puzzle_ops.storage import PuzzleRepository
 
 
-FIXTURE = Path("/Users/fanglemin/Desktop/数据示例.xlsx")
+FIXTURE = Path.home() / "Desktop" / "数据示例.xlsx"
 
 
 def test_repository_persists_imported_history_records(tmp_path):

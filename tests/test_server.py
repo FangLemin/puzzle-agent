@@ -2430,13 +2430,13 @@ def test_register_harness_real_samples_directory_action_runs_agent(monkeypatch):
         {
             "country": ["法国"],
             "view": ["eval"],
-            "image_dir": ["/Users/fanglemin/Desktop/图片"],
+            "image_dir": [str(Path.home() / "Desktop" / "图片")],
             "directory_grade_text": ["1A 2A 3B 4S 5C"],
             "directory_js_category": ["lifestyle"],
         },
     )
 
-    assert calls == [("法国", "/Users/fanglemin/Desktop/图片", "1A 2A 3B 4S 5C", "lifestyle")]
+    assert calls == [("法国", str(Path.home() / "Desktop" / "图片"), "1A 2A 3B 4S 5C", "lifestyle")]
     assert APP.state.view == "eval"
     assert "真实样本目录已登记：5/5 张" in APP.state.sync_message
 

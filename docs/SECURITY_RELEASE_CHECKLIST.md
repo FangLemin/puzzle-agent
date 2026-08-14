@@ -7,7 +7,7 @@
 ## 1. 必跑命令
 
 ```bash
-cd /Users/fanglemin/Desktop/puzzle-agent-python/.worktrees/multimodal-agent-runtime
+cd <repo-root>
 python scripts/release_preflight.py
 ```
 
@@ -41,9 +41,9 @@ python scripts/release_preflight.py
 
 ## 5. 本机路径和绝对路径
 
-- README 可保留本机启动路径作为个人项目记录，但正式 GitHub 版建议补充相对路径启动方式。
-- 公开前需要检查绝对路径，尤其是 `/Users/fanglemin/Desktop/...` 这种路径是否暴露真实业务图片、表格或客户素材。
-- 文档中的 `/Users/fanglemin/...` 不能包含密钥、真实飞书 URL 或不可公开图片路径。
+- README 应使用 `<repo-root>`、`<user-home>`、`<puzzleops-runtime>` 这类占位符描述启动路径。
+- 公开前需要检查绝对路径，尤其是 `<user-home>/Desktop/...` 这种路径是否暴露真实业务图片、表格或客户素材。
+- 文档中的个人本机路径不能包含密钥、真实飞书 URL 或不可公开图片路径。
 - `PUZZLEOPS_RUNTIME_DIR` 应指向运行环境本地目录，不进仓库。
 
 ## 6. API Token 和权限

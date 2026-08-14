@@ -8,7 +8,7 @@ from puzzle_ops.grading import classify_dimension, expected_grade
 from puzzle_ops.models import JS_CATEGORIES
 
 
-FIXTURE = Path("/Users/fanglemin/Desktop/数据示例.xlsx")
+FIXTURE = Path.home() / "Desktop" / "数据示例.xlsx"
 
 
 def test_import_history_workbook_preserves_real_business_columns_and_images(tmp_path):
@@ -35,7 +35,7 @@ def test_import_history_workbook_preserves_real_business_columns_and_images(tmp_
 
 
 def test_import_undistributed_candidate_workbook_extracts_wps_dispimg_images(tmp_path):
-    workbook = Path("/Users/fanglemin/Desktop/未分发候选拼图_价值观大师填写模板.xlsx")
+    workbook = Path.home() / "Desktop" / "未分发候选拼图_价值观大师填写模板.xlsx"
     candidates = import_undistributed_candidate_workbook(workbook, "日本", tmp_path)
 
     assert len(candidates) == 15
@@ -51,7 +51,7 @@ def test_import_undistributed_candidate_workbook_extracts_wps_dispimg_images(tmp
 
 
 def test_import_undistributed_candidate_workbook_normalizes_js_category_aliases(tmp_path):
-    workbook = Path("/Users/fanglemin/Desktop/未分发候选拼图_价值观大师填写模板.xlsx")
+    workbook = Path.home() / "Desktop" / "未分发候选拼图_价值观大师填写模板.xlsx"
     candidates = import_undistributed_candidate_workbook(workbook, "法国", tmp_path)
 
     assert len(candidates) == 15

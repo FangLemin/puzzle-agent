@@ -4,7 +4,7 @@
 
 - 真实样本总数：45/50
 - 距离 50 张简历目标缺口：5
-- 合并 CSV：`docs/eval/puzzleops_gold_real_samples.csv`
+- 合并 CSV：私有评测资产，含真实业务字段和本机图片路径，不随公开仓库发布。
 
 ## 国家分布
 

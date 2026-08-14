@@ -2,6 +2,36 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.71 - GitHub Public Release Sanitization
+
+日期：2026-08-14
+
+阶段目标：
+
+- 在发布到 GitHub 前检查 README、验收报告和评测材料，移除不适合公开的本机路径、行级真实业务数据和 raw 标注 CSV。
+- 保留简历/面试需要的聚合指标、架构说明、验收报告和安全边界。
+
+已完成：
+
+- 删除公开仓库中的行级评测 CSV：
+  - 真实 gold sample 行级 CSV。
+  - 视觉相似 TopK 人工标注 CSV。
+  - 视觉相似 TopK 标注模板 CSV。
+- 将 README、部署文档、API 文档、验收/评测报告中的本机绝对路径替换为 `<repo-root>`、`<puzzleops-runtime>`、`<private-*>` 等占位符。
+- 将测试和运行时代码里的个人绝对路径改为 `Path.home()` 或占位展示，避免发布后暴露本机用户名。
+- 更新安全发布清单，明确 raw 业务数据和真实图片不随公开仓库发布。
+- 更新 `.gitignore`，默认忽略 `docs/eval/*.csv`，避免后续误提交行级评测数据。
+
+验证：
+
+- `python scripts/release_preflight.py`：通过，`checked_files=125`。
+- `ANALYSIS_LLM_ENABLE_REMOTE_CALLS=0 RAG_ENABLE_REMOTE_CALLS=false RAG_EMBEDDING_PROVIDER=local RAG_RERANK_PROVIDER=local VISUAL_EMBEDDING_ENABLE_REMOTE_CALLS=false VISUAL_MILVUS_ENABLE_REMOTE_CALLS=false VISION_LLM_PROVIDER=qwen QWEN_API_KEY= IMAGE_GENERATION_PROVIDER=mock PYTHONPATH=. pytest tests -q`：635 passed。
+
+当前限制：
+
+- 原始业务表格、真实图片和行级评测 CSV 仍应作为私有资产保存，不进入公开 GitHub。
+- GitHub 仓库可公开聚合报告和工程实现，但不能用公开材料声称大规模线上稳定效果。
+
 ## v0.7.70 - Online Acceptance and Release Closure
 
 日期：2026-08-13
@@ -649,7 +679,7 @@
   - 计算 `Gate Precision` 和 `Gate Recall`。
   - 输出失败样例和限制说明。
 - 导入人工标注：
-  - `docs/eval/visual_similarity_topk_labeled_v0.7.55.csv`。
+  - 私有人工标注 CSV，不随公开仓库发布。
 - 新增报告：
   - `docs/eval/visual_similarity_gold_eval_report.json`。
   - `docs/eval/visual_similarity_gold_eval_report.md`。
@@ -717,7 +747,7 @@
 - 新增报告：
   - `docs/eval/visual_embedding_smoke_report.json`。
   - `docs/eval/visual_embedding_smoke_report.md`。
-  - `docs/eval/visual_similarity_topk_labeling_template.csv`。
+  - 私有 TopK 标注模板 CSV，不随公开仓库发布。
   - `docs/eval/visual_similarity_topk_labeling_guide.md`。
 
 真实 Qwen smoke：
@@ -1070,14 +1100,14 @@
 
 阶段目标：
 
-- 恢复误删/丢失的 `/Users/fanglemin/Desktop/数据示例.xlsx`。
+- 恢复误删/丢失的 `<private-business-workbook>`。
 - 确保项目仍能从真实业务数据和图片缓存读取 25 条日本、20 条法国真实样本。
 
 已完成：
 
 - 从保留数据恢复 Excel：
-  - `/Users/fanglemin/Desktop/数据示例_恢复版_20260730.xlsx`。
-  - `/Users/fanglemin/Desktop/数据示例.xlsx`。
+  - `<private-workbook-backup>`。
+  - `<private-business-workbook>`。
 - 恢复数据规模：
   - 日本 25 条。
   - 法国 20 条。
@@ -1159,7 +1189,7 @@
 - `PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_rag_hard_negative_report_with_retrieval_metrics tests/test_agents.py::test_agent_harness_gold_rag_eval_cases_include_same_country_hard_negatives tests/test_agents.py::test_agent_chunk_eval_dataset_summary_tracks_business_metrics tests/test_agents.py::test_agent_exports_history_evidence_shadow_report_without_changing_main_prediction -q`：4 passed。
 - `python -m py_compile puzzle_ops/agents.py puzzle_ops/rag.py`：通过。
 - `ANALYSIS_LLM_ENABLE_REMOTE_CALLS=0 RAG_ENABLE_REMOTE_CALLS=false RAG_EMBEDDING_PROVIDER=local RAG_RERANK_PROVIDER=local VISION_LLM_PROVIDER=qwen QWEN_API_KEY= IMAGE_GENERATION_PROVIDER=mock PYTHONPATH=. pytest tests/test_agents.py::test_agent_exports_rag_hard_negative_report_with_retrieval_metrics tests/test_agents.py::test_agent_harness_gold_rag_eval_cases_include_same_country_hard_negatives tests/test_agents.py::test_agent_chunk_eval_dataset_summary_tracks_business_metrics tests/test_agents.py::test_agent_exports_history_evidence_shadow_report_without_changing_main_prediction tests/test_harness.py tests/test_trulens_eval.py -q`：33 passed。
-- 全量 `pytest tests -q` 当前被外部 fixture 缺失阻塞：`/Users/fanglemin/Desktop/数据示例.xlsx` 不存在，导致依赖真实 Excel 工作簿的旧回归回落到 demo 数据并失败；本版 RAG 相关测试已通过。
+- 全量 `pytest tests -q` 当前被外部 fixture 缺失阻塞：`<private-business-workbook>` 不存在，导致依赖真实 Excel 工作簿的旧回归回落到 demo 数据并失败；本版 RAG 相关测试已通过。
 
 当前限制：
 
@@ -1325,7 +1355,7 @@
 已完成：
 
 - 新增 `export_resume_gold_dataset_evidence`：
-  - 合并日本/法国 Harness real samples，导出 `docs/eval/puzzleops_gold_real_samples.csv`。
+  - 合并日本/法国 Harness real samples，导出私有行级评测 CSV。
   - 生成 `docs/eval/gold_dataset_summary.md`。
   - 统计真实样本数、50 张目标缺口、国家分布、等级分布、JS 分类分布、gold label 覆盖率、业务指标覆盖率。
 - 当前真实 gold 数据状态：
@@ -1807,7 +1837,7 @@
 已完成：
 
 - 真实样本接入：
-  - 从 `/Users/fanglemin/Desktop/数据示例.xlsx` 读取并抽取真实图片。
+  - 从 `<private-business-workbook>` 读取并抽取真实图片。
   - 登记日本 25 条、法国 20 条真实样本。
   - 人工等级和业务指标进入 Harness gold CSV；主体、色彩、构图、价值观由 AI 预标注为 `ai_silver`。
 - 真实 Qwen3-VL 预标注：
@@ -4990,7 +5020,7 @@
 - 真实通义万相 smoke test：
   - provider：`dashscope`
   - model：`wan2.6-image`
-  - 参考图：`/Users/fanglemin/Desktop/图片/截屏2026-06-23 22.18.33.png`
+  - 参考图：`<private-image-dir>/截屏2026-06-23 22.18.33.png`
   - 结果：生成 1 张图片并成功保存到本地临时目录，文件大小 2,811,010 bytes。
 
 当前限制：

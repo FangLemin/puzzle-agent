@@ -8,7 +8,7 @@
 
 ## 1. 真实评测集
 
-来源：`docs/eval/gold_dataset_summary.md`、`docs/eval/puzzleops_gold_real_samples.csv`。
+来源：`docs/eval/gold_dataset_summary.md`。原始行级 CSV 含真实业务字段和本机图片路径，作为私有评测资产保留，不随公开仓库发布。
 
 - 真实样本：45 条。
 - 国家分布：日本 25 条，法国 20 条。
