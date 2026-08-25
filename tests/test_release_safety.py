@@ -16,6 +16,8 @@ def test_release_preflight_script_exists_and_documents_secret_patterns():
     assert "FEISHU_APP_SECRET" in content
     assert "git ls-files" in content
     assert ".env" in content
+    assert '".svg"' in content
+    assert "absolute local path" in content
 
 
 def test_release_preflight_blocks_tracked_env_files_and_secret_patterns(tmp_path):
@@ -35,6 +37,30 @@ def test_release_preflight_blocks_tracked_env_files_and_secret_patterns(tmp_path
     assert result.returncode == 1
     assert "tracked forbidden file: .env" in result.stdout
     assert "secret-like pattern" in result.stdout
+
+
+def test_release_preflight_blocks_absolute_paths_in_public_svg(tmp_path):
+    fixture = tmp_path / "repo"
+    asset = fixture / "docs" / "assets" / "diagram.svg"
+    asset.parent.mkdir(parents=True)
+    asset.write_text('<svg><text>/Users/example/private/image.png</text></svg>', encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "release_preflight.py"),
+            "--root",
+            str(fixture),
+            "--tracked-file",
+            "docs/assets/diagram.svg",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "absolute local path" in result.stdout
 
 
 def test_release_safety_checklist_covers_public_github_risks():

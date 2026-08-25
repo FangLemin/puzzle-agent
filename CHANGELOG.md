@@ -2,6 +2,36 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.78 - GitHub CI and Release Guardrails
+
+日期：2026-08-25
+
+阶段目标：
+
+- 将本地发布检查升级为 GitHub push/PR 自动守门，并补齐公开安全政策与变更检查清单。
+
+已完成：
+
+- 新增 `.github/workflows/ci.yml`：Python 3.11、依赖缓存、发布预检和全量 pytest。
+- CI 显式关闭远程 VLM、embedding、rerank 和 Milvus 调用，避免自动化测试产生模型费用或依赖私密服务。
+- 新增 `.github/pull_request_template.md`，要求版本、changelog、synthetic demo、外部写入和指标边界检查。
+- 新增 `SECURITY.md`，说明漏洞私密报告、多人部署安全边界和发布命令。
+- 强化 `scripts/release_preflight.py`：扫描 SVG，并阻止公开 README/SECURITY/视觉资产嵌入本机绝对路径。
+- README 使用真实 GitHub Actions CI badge，并加入 Security Policy 导航。
+- 新增 CI 与发布安全测试，覆盖 workflow、远程调用禁用、PR checklist 和 SVG 路径泄漏。
+- 修复 RAG 补丁回归用例对全局 `APP.agent` 状态的依赖，改为独立 repository/agent，避免全量测试顺序污染。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_release_safety.py tests/test_github_release_workflow.py tests/test_github_visual_showcase.py -q`：12 passed。
+- `python scripts/release_preflight.py`：通过。
+- 禁用全部远程调用后执行 `PYTHONPATH=. pytest tests -q`：646 passed。
+
+当前限制：
+
+- CI 只验证不调用远程 provider 的确定性路径；真实 RDS、OSS、Redis/RQ、Milvus 和 Qwen smoke 仍需在受控部署环境运行。
+- 仓库当前未声明开源许可证，不应默认推断为允许任意复制或商用。
+
 ## v0.7.77 - Architecture, Eval and Demo Deep Dives
 
 日期：2026-08-25

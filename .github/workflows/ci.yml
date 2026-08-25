@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ANALYSIS_LLM_ENABLE_REMOTE_CALLS: '0'
+      RAG_ENABLE_REMOTE_CALLS: 'false'
+      RAG_EMBEDDING_PROVIDER: 'local'
+      RAG_RERANK_PROVIDER: 'local'
+      VISUAL_EMBEDDING_ENABLE_REMOTE_CALLS: 'false'
+      VISUAL_MILVUS_ENABLE_REMOTE_CALLS: 'false'
+      VISION_LLM_PROVIDER: 'qwen'
+      QWEN_API_KEY: ''
+      IMAGE_GENERATION_PROVIDER: 'mock'
+      PYTHONPATH: '.'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest
+
+      - name: Release safety preflight
+        run: python scripts/release_preflight.py
+
+      - name: Test
+        run: pytest tests -q

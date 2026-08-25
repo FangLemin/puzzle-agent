@@ -43,7 +43,12 @@ TEXT_SUFFIXES = {
     ".yaml",
     ".yml",
     ".example",
+    ".svg",
 }
+
+PUBLIC_PATH_SCAN_PREFIXES = ("docs/assets/",)
+PUBLIC_PATH_SCAN_FILES = {"README.md", "SECURITY.md"}
+ABSOLUTE_LOCAL_PATH_PATTERN = re.compile(r"(?:/Users/[^/\s]+/|/home/[^/\s]+/|[A-Za-z]:\\\\Users\\\\[^\\\s]+\\\\)")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -74,6 +79,12 @@ def main(argv: list[str] | None = None) -> int:
         for label, pattern in SECRET_PATTERNS:
             if pattern.search(content):
                 failures.append(f"secret-like pattern [{label}] in {relative}")
+        normalized = relative.strip().replace("\\", "/")
+        if (
+            normalized in PUBLIC_PATH_SCAN_FILES
+            or any(normalized.startswith(prefix) for prefix in PUBLIC_PATH_SCAN_PREFIXES)
+        ) and ABSOLUTE_LOCAL_PATH_PATTERN.search(content):
+            failures.append(f"absolute local path in {relative}")
 
     if failures:
         print("PuzzleOps release preflight failed:")
