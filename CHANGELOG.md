@@ -2,6 +2,32 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.80 - Public CI and Private Asset Boundary
+
+日期：2026-08-26
+
+阶段目标：
+
+- 让公开 GitHub Actions 在不上传真实业务 Excel、图片和审核文档的前提下，提供稳定且诚实的自动回归结果。
+
+已完成：
+
+- 新增 `scripts/run_public_ci.py`，作为公开 runner 的确定性测试入口。
+- 新增 `tests/private_asset_nodeids.txt`，显式登记 62 个依赖受控本地资产的集成用例，避免隐式跳过。
+- GitHub Actions 改为运行 public CI profile，其余 586 个测试覆盖 API、RAG、Harness、Memory、权限、部署、安全和 synthetic workflow 等公开可复现路径。
+- README 明确“双层验收”边界：公开 CI 586 项，持有真实资产的本地完整验收 648 项。
+
+验证：
+
+- 本地完整受控回归：648 passed（647 个原有用例全量通过，并新增 1 个 public CI 边界测试通过）。
+- 公开 CI profile：586 passed，62 deselected。
+- `python scripts/release_preflight.py`：通过。
+
+当前限制：
+
+- 公开 CI 不验证真实业务文件解析、真实候选图和真实审核手册；这些链路必须在受控本地或部署环境执行完整验收。
+- 真实 Qwen、Milvus、OSS、RDS、Redis 和飞书 smoke 仍不在公开 runner 调用。
+
 ## v0.7.79 - Clean CI Compatibility Fix
 
 日期：2026-08-26

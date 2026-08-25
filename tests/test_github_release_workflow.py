@@ -13,7 +13,7 @@ def test_github_ci_runs_tests_and_release_preflight_without_remote_calls():
         "actions/checkout@v5",
         "actions/setup-python@v6",
         "python-version: '3.12'",
-        "pytest tests -q",
+        "python scripts/run_public_ci.py",
         "python scripts/release_preflight.py",
         "ANALYSIS_LLM_ENABLE_REMOTE_CALLS: '0'",
         "RAG_ENABLE_REMOTE_CALLS: 'false'",
@@ -21,6 +21,17 @@ def test_github_ci_runs_tests_and_release_preflight_without_remote_calls():
         "QWEN_API_KEY: ''",
     ):
         assert needle in content
+
+
+def test_public_ci_profile_explicitly_separates_private_asset_tests():
+    runner = ROOT / "scripts" / "run_public_ci.py"
+    manifest = ROOT / "tests" / "private_asset_nodeids.txt"
+
+    assert runner.exists()
+    assert manifest.exists()
+    nodeids = [line.strip() for line in manifest.read_text(encoding="utf-8").splitlines() if line.strip() and not line.startswith("#")]
+    assert len(nodeids) == 62
+    assert all(nodeid.startswith("tests/test_") and "::test_" in nodeid for nodeid in nodeids)
 
 
 def test_requirements_pin_the_verified_fastapi_testclient_stack():

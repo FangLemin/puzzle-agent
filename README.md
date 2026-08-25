@@ -4,7 +4,7 @@
 
 **An evidence-driven multimodal Agent Harness for overseas jigsaw puzzle content operations.**
 
-[![Version](https://img.shields.io/badge/version-0.7.79-16866f)](VERSION)
+[![Version](https://img.shields.io/badge/version-0.7.80-16866f)](VERSION)
 [![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)](requirements.txt)
 [![CI](https://github.com/FangLemin/puzzle-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/FangLemin/puzzle-agent/actions/workflows/ci.yml)
 [![FastAPI](https://img.shields.io/badge/service-FastAPI-009688?logo=fastapi&logoColor=white)](docs/API_SPEC.md)
@@ -210,7 +210,9 @@ IMAGE_GENERATION_PROVIDER=mock \
 PYTHONPATH=. pytest tests -q
 ```
 
-Latest verified full regression for this release: `647 passed`.
+Latest verified full regression for this release: `648 passed`.
+
+Public GitHub Actions runs `python scripts/run_public_ci.py`: it verifies 586 deterministic tests and explicitly deselects 62 integration tests that require private local workbooks, puzzle images or audit documents. The complete 648-test suite remains the controlled local release gate; private assets are never uploaded to make CI pass.
 
 ## Repository Map
 

@@ -47,5 +47,5 @@ jobs:
       - name: Release safety preflight
         run: python scripts/release_preflight.py
 
-      - name: Test
-        run: python -m pytest tests -q
+      - name: Public deterministic test profile
+        run: python scripts/run_public_ci.py
