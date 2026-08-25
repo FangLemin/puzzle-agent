@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="760" viewBox="0 0 1440 760" role="img" aria-labelledby="title desc">
+  <title id="title">PuzzleOps Agent architecture</title>
+  <desc id="desc">A multimodal operations workflow from candidate images through VLM, RAG, visual search, memory, human review, harness evaluation and delivery.</desc>
+  <defs>
+    <style>
+      .bg{fill:#f7faf9}.panel{fill:#fff;stroke:#d9e4e1;stroke-width:2}.core{fill:#e5f5ef;stroke:#16866f;stroke-width:3}.accent{fill:#fff3e8;stroke:#e77a47;stroke-width:2}.store{fill:#f4f0ff;stroke:#7864b6;stroke-width:2}.title{font:700 34px Arial,sans-serif;fill:#173139}.sub{font:400 17px Arial,sans-serif;fill:#64777c}.label{font:700 19px Arial,sans-serif;fill:#173139}.small{font:400 15px Arial,sans-serif;fill:#536a70}.arrow{stroke:#6b827f;stroke-width:3;fill:none;marker-end:url(#arrow)}
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#6b827f"/></marker>
+  </defs>
+  <rect class="bg" width="1440" height="760" rx="8"/>
+  <text class="title" x="64" y="70">PuzzleOps Agent: evidence-driven operations loop</text>
+  <text class="sub" x="64" y="105">Multimodal understanding, retrieval, memory governance, HITL and evaluation share one traceable workflow.</text>
+  <rect class="panel" x="64" y="160" width="220" height="130" rx="8"/><text class="label" x="94" y="205">Candidate images</text><text class="small" x="94" y="238">Japan / France</text><text class="small" x="94" y="266">trial or scheduled content</text>
+  <rect class="core" x="360" y="145" width="250" height="160" rx="8"/><text class="label" x="397" y="194">Qwen VLM</text><text class="small" x="397" y="228">subject</text><text class="small" x="397" y="254">color mood</text><text class="small" x="397" y="280">composition + risk</text>
+  <rect class="panel" x="700" y="130" width="260" height="95" rx="8"/><text class="label" x="730" y="169">Value &amp; audit RAG</text><text class="small" x="730" y="199">hybrid retrieval + citations</text>
+  <rect class="panel" x="700" y="250" width="260" height="95" rx="8"/><text class="label" x="730" y="289">Visual similarity</text><text class="small" x="730" y="319">image embedding + confidence gate</text>
+  <rect class="store" x="1030" y="130" width="330" height="215" rx="8"/><text class="label" x="1060" y="170">Evidence stores</text><text class="small" x="1060" y="205">PostgreSQL: state, audit, trace</text><text class="small" x="1060" y="235">Milvus/Zilliz: text + image vectors</text><text class="small" x="1060" y="265">OSS: uploaded/generated assets</text><text class="small" x="1060" y="295">Redis/RQ: asynchronous jobs</text><text class="small" x="1060" y="325">Layered Memory: approved facts</text>
+  <path class="arrow" d="M284 225H350"/><path class="arrow" d="M610 205H690"/><path class="arrow" d="M610 245H690"/><path class="arrow" d="M960 178H1020"/><path class="arrow" d="M960 298H1020"/>
+  <rect class="core" x="430" y="425" width="320" height="145" rx="8"/><text class="label" x="470" y="468">Value Master reasoning</text><text class="small" x="470" y="502">grade + SA potential + risks</text><text class="small" x="470" y="530">evidence-backed scheduling advice</text>
+  <rect class="accent" x="850" y="425" width="240" height="145" rx="8"/><text class="label" x="900" y="468">Human review</text><text class="small" x="890" y="502">edit / approve / reject</text><text class="small" x="890" y="530">country-scoped permissions</text>
+  <rect class="panel" x="1160" y="425" width="200" height="145" rx="8"/><text class="label" x="1200" y="468">Delivery</text><text class="small" x="1190" y="502">DemandRow</text><text class="small" x="1190" y="530">Feishu + asset</text>
+  <path class="arrow" d="M830 345V390H590V415"/><path class="arrow" d="M750 498H840"/><path class="arrow" d="M1090 498H1150"/>
+  <rect class="panel" x="250" y="635" width="940" height="75" rx="8"/><text class="label" x="290" y="677">Agent Harness</text><text class="small" x="470" y="677">dataset -> run -> case trace -> scores -> failure taxonomy -> HITL correction -> next version</text>
+  <path class="arrow" d="M970 570V625"/><path class="arrow" d="M590 570V625"/>
+</svg>

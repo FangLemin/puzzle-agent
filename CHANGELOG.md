@@ -2,6 +2,32 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.75 - Public Visual Showcase Foundation
+
+日期：2026-08-25
+
+阶段目标：
+
+- 为公开 GitHub 仓库补齐真实可读的产品演示素材和架构视觉资产，让首次访问者能在首屏理解业务、Agent 工作流和评测边界。
+
+已完成：
+
+- 新增无文字品牌横幅 `docs/assets/readme/puzzleops-hero.png`。
+- 在隔离的 synthetic demo 运行目录录制产品截图和工作流 GIF，不包含真实业务图片、行级数据、飞书地址或密钥。
+- 新增总体架构、RAG、Memory、Harness、评测快照五张 SVG，并保留 Mermaid 源文件便于后续维护。
+- README 首屏加入定位、演示 GIF、Agent Workflow、产品页面和公开评测口径。
+- 公开数据口径统一为 45 条真实样本，其中日本 25 条、法国 20 条；SA 二分类与指标反推基线分开说明。
+- 新增 `tests/test_github_visual_showcase.py`，保护视觉素材、README 引用、指标语义和隐私边界。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_github_visual_showcase.py -q`。
+
+当前限制：
+
+- 演示图片全部为 synthetic demo，仅用于展示产品工作流，不用于证明模型效果。
+- 本版先完成视觉素材和 README 首屏；更深的架构、评测与演示文档在后续版本继续收口。
+
 ## v0.7.74 - Public Project Defense Notes
 
 日期：2026-08-14

@@ -1,0 +1,12 @@
+flowchart TD
+    Docs[Value rules + audit rules + approved memory + gold] --> Split[Semantic chunks + overlap + parent metadata]
+    Split --> Embed[Embedding provider]
+    Embed --> Milvus[Milvus vectors]
+    Split --> SQL[PostgreSQL raw text + metadata]
+    Query[Country + visual facts query] --> BM25[BM25 recall]
+    Query --> Vector[Vector recall]
+    BM25 --> Merge[Candidate pool + parent merge]
+    Vector --> Merge
+    Merge --> Rerank[Qwen rerank]
+    Rerank --> Gate[Relevance gate + Top3 citations]
+    Gate --> Answer[Grounded LLM answer + trace]

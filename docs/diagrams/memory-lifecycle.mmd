@@ -1,0 +1,7 @@
+flowchart LR
+    Perception --> Working --> Review[HITL governance]
+    Review --> LongTerm
+    Review --> Facts
+    LongTerm --> Gate[RAG eligibility gate]
+    Facts --> Gate
+    Gate --> Retrieval[RAG retrieval + hit writeback]

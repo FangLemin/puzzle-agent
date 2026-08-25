@@ -1,0 +1,7 @@
+flowchart LR
+    Dataset --> Run[Versioned Harness run]
+    Run --> Trace[Case trace]
+    Trace --> Score[Task metrics]
+    Score --> Failure[Failure taxonomy]
+    Failure --> HITL[Human correction]
+    HITL --> Dataset

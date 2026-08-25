@@ -1,0 +1,11 @@
+flowchart LR
+    Image[Candidate image] --> VLM[Qwen VLM]
+    VLM --> RAG[Value and audit RAG]
+    VLM --> Visual[Visual similarity]
+    RAG --> Agent[Value Master]
+    Visual --> Agent
+    Memory[Layered Memory] --> RAG
+    Agent --> HITL[Human review]
+    HITL --> Delivery[DemandRow and Feishu]
+    HITL --> Harness[Agent Harness]
+    Harness --> Memory
