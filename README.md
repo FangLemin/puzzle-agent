@@ -4,7 +4,7 @@
 
 **An evidence-driven multimodal Agent Harness for overseas jigsaw puzzle content operations.**
 
-[![Version](https://img.shields.io/badge/version-0.7.75-16866f)](VERSION)
+[![Version](https://img.shields.io/badge/version-0.7.76-16866f)](VERSION)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](requirements.txt)
 [![Tests](https://img.shields.io/badge/tests-pytest-0A9EDC?logo=pytest&logoColor=white)](#validation)
 [![FastAPI](https://img.shields.io/badge/service-FastAPI-009688?logo=fastapi&logoColor=white)](docs/API_SPEC.md)
@@ -75,6 +75,17 @@ Candidate image -> Qwen VLM -> RAG + visual similarity + approved memory
 - **Redis/RQ**：Qwen VLM、图像生成、飞书同步、RAG rebuild、embedding 入库等慢任务。
 - **FastAPI**：6 人团队 API、角色/国家权限、job、trace、metrics、provider health。
 - **Local backend UI**：本地单人演示，复用相同 Agent/service 层。
+
+## Design Decisions
+
+| Decision | Why | Rejected / fallback path |
+|---|---|---|
+| Harness before post-training | 先区分视觉解析、检索、排序、Prompt 和指标标定问题，避免把数据问题误判成模型能力问题 | 直接微调会把错误 citation 与合成分布固化进模型 |
+| PostgreSQL owns Memory state | Memory 有审批、冲突、过期、审计和并发写入，不只是相似度检索 | SQLite 仅保留本地 demo；Milvus 只保存可检索向量 |
+| Hybrid RAG + rerank | BM25 保留审核术语，vector 覆盖语义表达差异，rerank 控制最终证据顺序 | 单一向量召回曾产生较多同国异主体 hard negatives |
+| Confidence-gated image search | 小样本下 TopK 总会返回结果，但“最像”不等于“足够相关” | 低分历史图不展示、不注入 LLM，不强凑依据 |
+| Async jobs for slow providers | VLM、生成、飞书附件、RAG rebuild 不应阻塞多人请求 | 本地模式可同步执行，线上使用 Redis/RQ |
+| HITL before external writes | 运营描述、tag、附件和风险判断必须可审可改 | 不允许模型结果未经确认直接写入飞书 |
 
 ### RAG Pipeline
 
@@ -201,6 +212,21 @@ PYTHONPATH=. pytest tests -q
 
 Latest verified full regression before this documentation release: `635 passed`.
 
+## Repository Map
+
+```text
+puzzle_ops/agents.py        Agent orchestration and business workflows
+puzzle_ops/rag.py           offline indexing, hybrid retrieval and citations
+puzzle_ops/storage.py       SQLite repository and layered memory state
+puzzle_ops/harness.py       datasets, runs, case traces and scoring
+puzzle_ops/api.py           FastAPI auth, jobs, traces and team endpoints
+puzzle_ops/renderer.py      local operations UI
+alembic/                    PostgreSQL schema migrations
+scripts/                    startup, smoke, evaluation and release checks
+docs/eval/                  aggregate evaluation reports
+docs/assets/readme/         sanitized public screenshots and diagrams
+```
+
 ## Documentation
 
 Recommended reading:
@@ -221,6 +247,14 @@ Deep dives:
 - [Value Master Eval](docs/eval/value_master_eval_report.md)
 - [RAG Hard-negative Report](docs/eval/rag_hard_negative_report.md)
 - [Visual Similarity Confidence Policy](docs/eval/visual_similarity_confidence_policy_report.md)
+
+## Security Boundary
+
+- `.env`、真实 API key、token、飞书 URL、RDS/OSS/Milvus 凭证不会提交。
+- 公开 GIF 和截图使用隔离的 synthetic demo runtime；真实图片及行级 CSV 不进入仓库。
+- GitHub 发布前运行 `scripts/release_preflight.py`，检查被跟踪的环境文件、密钥模式和绝对路径。
+- API token 只存 hash；写操作记录 actor、role、country 和 audit event。
+- 页面、API 和 worker 共用 provider health 与失败状态，不把 provider 异常伪装成业务成功。
 
 ## Limitations
 

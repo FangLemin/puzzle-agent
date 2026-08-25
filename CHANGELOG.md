@@ -2,6 +2,29 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.76 - README Engineering Narrative
+
+日期：2026-08-25
+
+阶段目标：
+
+- 把 README 从功能罗列升级为技术面试可追问的工程叙事，明确关键选型、替代方案、代码入口和公开安全边界。
+
+已完成：
+
+- 新增 Design Decisions，说明为什么先做 Harness、为什么 Memory 主存使用 PostgreSQL、为什么 RAG 采用混合召回与 rerank、为什么图搜图需要低置信 gate。
+- 新增 Repository Map，将 Agent、RAG、Storage/Memory、Harness、FastAPI、UI、迁移、脚本和评测报告映射到真实代码目录。
+- 新增 Security Boundary，明确 synthetic demo、密钥隔离、token hash、审计和 provider 失败语义。
+- 增加 README 回归测试，防止关键工程解释和代码入口在后续版本中丢失。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_github_visual_showcase.py -q`。
+
+当前限制：
+
+- README 只保留高信号内容；详细实现、逐步演示和完整评测解释继续放在 `docs/`。
+
 ## v0.7.75 - Public Visual Showcase Foundation
 
 日期：2026-08-25

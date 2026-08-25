@@ -60,6 +60,25 @@ def test_public_metrics_are_unambiguous_and_match_release_reports():
     assert "20%" in content
 
 
+def test_readme_explains_engineering_decisions_and_repository_map():
+    content = README.read_text(encoding="utf-8")
+
+    for heading in (
+        "## Design Decisions",
+        "## Repository Map",
+        "## Security Boundary",
+    ):
+        assert heading in content
+    for path in (
+        "puzzle_ops/agents.py",
+        "puzzle_ops/rag.py",
+        "puzzle_ops/storage.py",
+        "puzzle_ops/harness.py",
+        "puzzle_ops/api.py",
+    ):
+        assert path in content
+
+
 def test_visual_assets_do_not_embed_private_runtime_strings():
     forbidden = (
         "/Users/fanglemin",
