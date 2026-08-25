@@ -4,6 +4,8 @@
 
 本报告用于把分散在 `docs/eval/` 和 `docs/final_acceptance/` 的评测结果收口成简历和面试可用的证据口径。
 
+![Evaluation snapshot](assets/readme/evaluation-snapshot.svg)
+
 上线工程化收口请看：`docs/final_acceptance/v0.7.70_online_acceptance_report.md`。该报告覆盖 PostgreSQL/Alembic、OSS、Redis/RQ、FastAPI、`/api/metrics/dashboard`、smoke 命令、安全边界和上线限制。
 
 ## 1. 真实评测集
@@ -23,7 +25,7 @@
 
 来源：`docs/eval/value_master_eval_report.md`。
 
-- 真实样本数：45/50。
+- 真实样本数：45 条（日本 25、法国 20）。
 - 三段式描述合规率：100%。
 - 飞书字段完整率：100%。
 - 工具调用成功率：100%。
@@ -84,8 +86,8 @@
 
 - Qwen visual embedding smoke：4 张图调用成功，embedding 维度 2560。
 - 人工 TopK 标注：30 条。
-- Gold Hit@5：0.6667。
-- Gold MRR：0.2778。
+- Gold Hit@5：66.67%。
+- Gold MRR：27.78%。
 - Gold NDCG：0.3843。
 - Gold Precision：0.2472。
 - Bad Match 率：1.0。
@@ -104,7 +106,7 @@ v0.7.58 产品策略：
 
 ## 6. 自动化回归
 
-v0.7.58 全量回归：
+历史版本 v0.7.58 全量回归：
 
 ```text
 596 passed

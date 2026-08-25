@@ -15,6 +15,8 @@
 
 ## 2. Agent Workflow
 
+![Agent architecture](assets/readme/architecture-overview.svg)
+
 核心链路：
 
 ```text
@@ -44,6 +46,8 @@
 
 ## 4. RAG: Offline and Online
 
+![RAG pipeline](assets/readme/rag-pipeline.svg)
+
 为什么：日本/法国价值观与审核风险规则会沉淀成文档和运营经验，不能全部写死在 prompt。RAG 的职责是让模型基于可溯源规则回答，降低幻觉。
 
 离线阶段：
@@ -65,6 +69,8 @@
 
 ## 5. Layered Memory
 
+![Layered Memory lifecycle](assets/readme/memory-lifecycle.svg)
+
 为什么：Memory 不是向量库的同义词。运营事实需要状态、审批、冲突处理和审计，不能只塞进 Milvus。
 
 四层设计：
@@ -82,6 +88,8 @@
 - HITL 修正会写回 facts memory，成为下一轮评测与检索依据。
 
 ## 6. Harness and HITL
+
+![Harness evaluation loop](assets/readme/eval-loop.svg)
 
 为什么：多模态 agent 的问题不一定是模型能力不足，可能来自 prompt、RAG citation、历史相似图、指标标定或规则文档。Harness 用来把这些问题拆开。
 
@@ -141,7 +149,7 @@ HITL 设计：
 
 公开仓库只展示聚合指标：
 
-- Real gold samples：45/50。
+- Real gold samples：45 条，Japan 25 + France 20。
 - 三段式描述合规率：100%。
 - 飞书字段完整率：100%。
 - 工具调用成功率：100%。
@@ -160,4 +168,3 @@ HITL 设计：
 - 图像相似检索受样本规模影响，低置信时应显示无可靠历史依据。
 - 真实飞书同步依赖正确字段和附件类型；失败时系统保留 payload 和原始错误。
 - 公开仓库不包含真实图片、raw CSV、飞书 URL、API key 或 `.env`。
-

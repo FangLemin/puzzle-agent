@@ -2,6 +2,33 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.77 - Architecture, Eval and Demo Deep Dives
+
+日期：2026-08-25
+
+阶段目标：
+
+- 让技术面试官能从 README 继续下钻到架构、评测和可复现演示，同时消除公开文档中“45/50”的歧义口径。
+
+已完成：
+
+- `docs/ARCHITECTURE.md` 接入总体架构、RAG、Memory 和 Harness 的渲染图。
+- `docs/EVAL_REPORT.md` 接入评测快照，并统一百分比与样本分布表达。
+- `docs/GITHUB_SHOWCASE.md` 增加品牌横幅、真实产品 GIF、架构图和完整指标语义。
+- `docs/IMPLEMENTATION_NOTES.md` 将 why/how 说明与对应架构图直接关联。
+- 新增 `docs/DEMO_WALKTHROUGH.md`，提供 5 分钟演示顺序、每页讲解重点、面试追问入口和 synthetic demo 录制边界。
+- 公开文档统一为 45 条真实样本（日本 25、法国 20），不再使用容易误解为完成率的 `45/50`。
+- 新增深层文档回归测试，检查视觉引用、演示入口和最终样本口径。
+
+验证：
+
+- `PYTHONPATH=. pytest tests/test_github_visual_showcase.py -q`。
+
+当前限制：
+
+- 历史报告保留各版本的模型/检索表现，不能将不同评测任务的指标合并成单一“Agent 准确率”。
+- 公开演示仍为 synthetic demo；真实样本只通过聚合评测口径展示。
+
 ## v0.7.76 - README Engineering Narrative
 
 日期：2026-08-25

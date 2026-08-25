@@ -92,3 +92,29 @@ def test_visual_assets_do_not_embed_private_runtime_strings():
         content = path.read_text(encoding="utf-8", errors="ignore")
         for text in forbidden:
             assert text not in content
+
+
+def test_public_deep_dive_docs_use_visuals_and_final_sample_count():
+    docs = (
+        ROOT / "docs" / "ARCHITECTURE.md",
+        ROOT / "docs" / "EVAL_REPORT.md",
+        ROOT / "docs" / "GITHUB_SHOWCASE.md",
+        ROOT / "docs" / "IMPLEMENTATION_NOTES.md",
+        ROOT / "docs" / "DEMO_WALKTHROUGH.md",
+    )
+    for path in docs:
+        assert path.is_file()
+        content = path.read_text(encoding="utf-8")
+        assert "45/50" not in content
+
+    architecture = docs[0].read_text(encoding="utf-8")
+    assert "assets/readme/architecture-overview.svg" in architecture
+    assert "assets/readme/rag-pipeline.svg" in architecture
+    assert "assets/readme/memory-lifecycle.svg" in architecture
+
+    walkthrough = docs[-1].read_text(encoding="utf-8")
+    assert "synthetic demo" in walkthrough
+    assert "5 分钟" in walkthrough
+    assert "?view=trial" in walkthrough
+    assert "?view=value" in walkthrough
+    assert "?view=eval" in walkthrough

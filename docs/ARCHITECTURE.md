@@ -4,6 +4,8 @@
 
 PuzzleOps Agent 是面向拼图内容运营的 Agent Harness 系统。它把图片理解、价值观 RAG、审核规则、历史依据、人工反馈、飞书同步和评测报告放在同一个工程闭环里。
 
+![PuzzleOps architecture](assets/readme/architecture-overview.svg)
+
 ```mermaid
 flowchart LR
     Operator["运营 / HITL"] --> UI["Python 本地后台"]
@@ -88,6 +90,8 @@ flowchart TD
 
 ## 5. RAG 离线阶段
 
+![RAG offline and online pipeline](assets/readme/rag-pipeline.svg)
+
 ```mermaid
 flowchart TD
     Docs["日本/法国价值观\n审核规则\napproved memory\ngold samples"] --> Load["Document Load"]
@@ -128,6 +132,8 @@ Prompt 口径：
 
 ## 7. Memory 设计
 
+![Layered Memory lifecycle](assets/readme/memory-lifecycle.svg)
+
 Memory 不放在 Milvus 里作为主存储，因为 Memory 是事务型业务状态，不只是向量：
 
 - `perception`：感知记忆，保存 VLM 观察、图片解析、临时视觉证据。
@@ -160,6 +166,8 @@ flowchart LR
 v0.7.58 的策略是：如果历史库太小且最高相似分低于校准提示线，不强行展示 TopK，而是显示“暂无可靠历史相似图”。这样避免低质量历史依据污染价值观大师。
 
 ## 9. Harness
+
+![Agent Harness evaluation loop](assets/readme/eval-loop.svg)
 
 Harness 把每一次 Agent 判断变成可复盘样本：
 

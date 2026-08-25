@@ -88,7 +88,7 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    Dataset["真实小样本\n45/50"] --> Run["HarnessRun"]
+    Dataset["真实小样本\n45（日本 25、法国 20）"] --> Run["HarnessRun"]
     Run --> Cases["HarnessCaseResult"]
     Cases --> Metrics["指标\nHit/MRR/NDCG/字段完整/工具正确"]
     Cases --> Failures["失败分类\nRAG噪声/历史依据/指标校准"]

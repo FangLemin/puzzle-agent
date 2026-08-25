@@ -4,7 +4,7 @@
 
 **An evidence-driven multimodal Agent Harness for overseas jigsaw puzzle content operations.**
 
-[![Version](https://img.shields.io/badge/version-0.7.76-16866f)](VERSION)
+[![Version](https://img.shields.io/badge/version-0.7.77-16866f)](VERSION)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](requirements.txt)
 [![Tests](https://img.shields.io/badge/tests-pytest-0A9EDC?logo=pytest&logoColor=white)](#validation)
 [![FastAPI](https://img.shields.io/badge/service-FastAPI-009688?logo=fastapi&logoColor=white)](docs/API_SPEC.md)
@@ -234,6 +234,7 @@ Recommended reading:
 - [GitHub Showcase](docs/GITHUB_SHOWCASE.md)
 - [Implementation Notes](docs/IMPLEMENTATION_NOTES.md)
 - [Project Defense](docs/PROJECT_DEFENSE.md)
+- [Demo Walkthrough](docs/DEMO_WALKTHROUGH.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [FastAPI API Spec](docs/API_SPEC.md)
 - [Deployment Guide](docs/DEPLOYMENT.md)

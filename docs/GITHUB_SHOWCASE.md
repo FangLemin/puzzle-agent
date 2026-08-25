@@ -2,6 +2,8 @@
 
 这份页面用于让面试官、HR 或第一次打开 GitHub 的读者快速理解项目亮点。
 
+![PuzzleOps Agent](assets/readme/puzzleops-hero.png)
+
 ## One-liner
 
 PuzzleOps Agent is a multimodal Agent Harness for overseas jigsaw puzzle content operations, combining VLM image understanding, value/audit RAG, layered memory, HITL feedback, evaluation replay, visual similarity evidence, FastAPI service APIs and Feishu workflow.
@@ -31,6 +33,10 @@ PuzzleOps Agent 把这个流程拆成可追踪的 Agent 工作流：
 
 ## Demo Entry
 
+![Synthetic workflow demo](assets/readme/demo-workflow.gif)
+
+GIF 使用隔离的 synthetic demo runtime，不包含真实业务图片、行级 CSV、飞书地址或密钥。完整讲解顺序见 [DEMO_WALKTHROUGH.md](DEMO_WALKTHROUGH.md)。
+
 Local operator UI:
 
 ```bash
@@ -57,6 +63,8 @@ http://127.0.0.1:8000/docs
 
 ## Architecture Snapshot
 
+![Architecture overview](assets/readme/architecture-overview.svg)
+
 ```text
 Local UI / FastAPI
   -> PuzzleOpsAgent
@@ -76,7 +84,7 @@ Local UI / FastAPI
 
 | Metric | Current public result |
 |---|---:|
-| Real gold samples | 45/50 |
+| Real gold samples | 45: Japan 25 + France 20 |
 | Trial three-part description compliance | 100% |
 | Feishu field completeness | 100% |
 | Tool-call success | 100% |
@@ -84,6 +92,8 @@ Local UI / FastAPI
 | RAG MRR@5 | 97% |
 | RAG NDCG@5 | 98% |
 | RAG Precision@5 | 20% |
+| SA high-potential binary accuracy | 60% |
+| Metric-derived grade baseline | 18% |
 
 Interpretation:
 
@@ -106,4 +116,3 @@ Interpretation:
 - Reports expose aggregate metrics and known limitations only.
 - The project does not claim large-scale production prediction accuracy.
 - Human review remains part of the workflow for value judgment, risk review and Feishu sync.
-
