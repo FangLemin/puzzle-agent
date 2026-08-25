@@ -5686,6 +5686,7 @@ def test_agent_runs_milvus_smoke_diagnostic_from_latest_manifest(monkeypatch, tm
     run_manifest = runs / f"milvus_reindex_日本_{run_id}.json"
     run_manifest.write_text(json.dumps(latest, ensure_ascii=False), encoding="utf-8")
     monkeypatch.setenv("PUZZLEOPS_RAG_KNOWLEDGE_DIR", str(knowledge_dir))
+    monkeypatch.setenv("RAG_VECTOR_STORE_PROVIDER", "milvus")
     agent = PuzzleOpsAgent(repository=PuzzleRepository(tmp_path / "milvus_smoke.db"))
 
     class FakeMilvusStore:

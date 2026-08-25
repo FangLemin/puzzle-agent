@@ -10,7 +10,9 @@ def test_github_ci_runs_tests_and_release_preflight_without_remote_calls():
     content = workflow.read_text(encoding="utf-8")
 
     for needle in (
-        "python-version: '3.11'",
+        "actions/checkout@v5",
+        "actions/setup-python@v6",
+        "python-version: '3.12'",
         "pytest tests -q",
         "python scripts/release_preflight.py",
         "ANALYSIS_LLM_ENABLE_REMOTE_CALLS: '0'",
@@ -19,6 +21,13 @@ def test_github_ci_runs_tests_and_release_preflight_without_remote_calls():
         "QWEN_API_KEY: ''",
     ):
         assert needle in content
+
+
+def test_requirements_pin_the_verified_fastapi_testclient_stack():
+    content = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+
+    assert "starlette==1.0.0" in content
+    assert "httpx>=0.27,<1" in content
 
 
 def test_public_security_policy_and_pull_request_checklist_exist():

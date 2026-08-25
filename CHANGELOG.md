@@ -2,6 +2,37 @@
 
 这个文件用来记录每一版做了什么、为什么改、当前还存在哪些问题。以后每次你让我修改功能，我会先提交旧版本，再在这里追加阶段总结。
 
+## v0.7.79 - Clean CI Compatibility Fix
+
+日期：2026-08-26
+
+阶段目标：
+
+- 修复首次公开 GitHub Actions 在全新 Linux 环境中的依赖与 Python 版本差异，让 CI 验证与本地已验证运行栈保持一致。
+
+根因：
+
+- 项目 `renderer.py` 使用 Python 3.12 支持的 PEP 701 f-string 语法，原 CI 错配为 Python 3.11，导致测试收集阶段 SyntaxError。
+- 未锁定的 Starlette 在全新环境解析到 1.6.0，TestClient 改为依赖 `httpx2`；本地已验证组合为 FastAPI 0.141.1、Starlette 1.0.0、httpx 0.27.x。
+
+已完成：
+
+- CI 和 README 支持口径统一为 Python 3.12+。
+- 锁定 FastAPI 0.141.1 与 Starlette 1.0.0，并显式声明 `httpx>=0.27,<1`。
+- CI 使用 `python -m pytest`，避免 runner PATH 中同名可执行文件歧义。
+- GitHub Actions 升级为 `actions/checkout@v5` 和 `actions/setup-python@v6`，消除旧 Node runtime 警告。
+- 新增依赖组合与 workflow 版本测试。
+- Milvus smoke 用例显式声明向量库 provider，避免干净 runner 隐式依赖开发机 `.env`。
+
+验证：
+
+- 以 Git 跟踪文件构造 clean archive，确认 647 个测试可被收集。
+- 本地禁用远程调用并按测试文件隔离临时目录完成全量回归：647 passed。
+
+当前限制：
+
+- 依赖锁定解决确定性 CI，不代表远程 provider 可在公共 CI 中运行；真实 Qwen、Milvus、OSS、RDS 和 Redis smoke 仍只在受控环境执行。
+
 ## v0.7.78 - GitHub CI and Release Guardrails
 
 日期：2026-08-25

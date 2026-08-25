@@ -4,8 +4,8 @@
 
 **An evidence-driven multimodal Agent Harness for overseas jigsaw puzzle content operations.**
 
-[![Version](https://img.shields.io/badge/version-0.7.78-16866f)](VERSION)
-[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](requirements.txt)
+[![Version](https://img.shields.io/badge/version-0.7.79-16866f)](VERSION)
+[![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)](requirements.txt)
 [![CI](https://github.com/FangLemin/puzzle-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/FangLemin/puzzle-agent/actions/workflows/ci.yml)
 [![FastAPI](https://img.shields.io/badge/service-FastAPI-009688?logo=fastapi&logoColor=white)](docs/API_SPEC.md)
 [![Qwen](https://img.shields.io/badge/VLM-Qwen-6F65E8)](docs/IMPLEMENTATION_NOTES.md)
@@ -210,7 +210,7 @@ IMAGE_GENERATION_PROVIDER=mock \
 PYTHONPATH=. pytest tests -q
 ```
 
-Latest verified full regression for this release: `646 passed`.
+Latest verified full regression for this release: `647 passed`.
 
 ## Repository Map
 
